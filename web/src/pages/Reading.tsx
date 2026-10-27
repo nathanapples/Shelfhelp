@@ -36,19 +36,24 @@ import { useApi, useDebounced } from "../lib/hooks";
 import { Cover, Empty, ErrorBlock, LoadingBlock, Modal, PageTitle, ScoreBar, Spinner, Tabs, Toggle } from "../components/ui";
 import { useToast } from "../components/toast";
 
-type Tab = "all" | "waiting" | "synced" | "review" | "notfound" | "under" | "skipped" | "history";
+type Tab = "waiting" | "synced" | "issues" | "all" | "history";
+type IssueKey = "review" | "notfound" | "skipped" | "under";
 
 /** One line under the tabs saying what each one holds. */
-const TAB_HELP: Record<Tab, (min: number) => string> = {
-  all: () => "Every Audiobookshelf book you've started or finished.",
-  waiting: () => "Matched books with a change ready for Hardcover. Nothing is sent until you send it.",
-  synced: () => "Hardcover already matches your listening, or was left as is because the book is Read or Did Not Finish there.",
-  review: () => "Shelfhelp found a possible Hardcover book but isn't sure it's the right one. Open a book to confirm or pick another.",
-  notfound: () => "No matching book was found on Hardcover. Open one to search for it yourself.",
-  under: (min) => `Books you've listened to less than ${min}% of. They're picked up once you pass ${min}%.`,
-  skipped: () => "Books you chose not to sync, and books that aren't on your Hardcover shelves while adding new books is off.",
-  history: () => "Everything sent to Hardcover, newest first. Any change can be undone.",
+const TAB_HELP: Record<Tab, string> = {
+  waiting: "Matched books with a change ready for Hardcover. Nothing is sent until you send it.",
+  synced: "Hardcover already matches your listening, or was left as is because the book is Read or Did Not Finish there.",
+  issues: "Books that won't be synced until something changes. Open one to fix it.",
+  all: "Every Audiobookshelf book you've started or finished.",
+  history: "Everything sent to Hardcover, newest first. Any change can be undone.",
 };
+
+const ISSUE_GROUPS: { key: IssueKey; title: string; help: (min: number) => string }[] = [
+  { key: "review", title: "Needs review", help: () => "A possible Hardcover book was found, but Shelfhelp isn't sure it's the right one. Confirm it or pick another." },
+  { key: "notfound", title: "Not found on Hardcover", help: () => "No matching book was found. Search Hardcover for it yourself." },
+  { key: "skipped", title: "Skipped", help: () => "Books you chose not to sync, and books that aren't on your Hardcover shelves while adding new books is off." },
+  { key: "under", title: "Under the minimum", help: (min) => `Less than ${min}% listened. They're picked up once you pass ${min}%.` },
+];
 
 /** One state per card, combining "is it matched?" and "is it in sync?". */
 function cardState(b: ReadingBook) {
@@ -709,8 +714,22 @@ function ReadingSettings({ onClose, onSaved }: { onClose: () => void; onSaved: (
 export default function ReadingPage() {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
-  const tab = (params.get("tab") as Tab) || "all";
-  const setTab = (t: Tab) => setParams(t === "all" ? {} : { tab: t }, { replace: true });
+  const setTab = (t: Tab) => setParams({ tab: t }, { replace: true });
+  const [showUnder, setShowUnder] = useState(() => {
+    try {
+      return localStorage.getItem("shelfhelp.showUnder") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleUnder = (v: boolean) => {
+    setShowUnder(v);
+    try {
+      localStorage.setItem("shelfhelp.showUnder", v ? "1" : "0");
+    } catch {
+      /* private mode */
+    }
+  };
   const [poll, setPoll] = useState<number | false>(false);
   const { data, error, loading, reload } = useApi<ReadingData>("/reading", { poll });
   const [openId, setOpenId] = useState<string | null>(null);
@@ -719,10 +738,17 @@ export default function ReadingPage() {
 
   useEffect(() => setPoll(data?.running ? 2000 : 30000), [data?.running]);
 
+  // Opens on Waiting, or on Issues when changes are sent automatically.
+  const asked = params.get("tab") as Tab | null;
+  const tab: Tab = asked && asked in TAB_HELP ? asked : data?.autoSend ? "issues" : "waiting";
   const books = useMemo(() => {
     const all = data?.books ?? [];
     return tab === "all" ? all : all.filter((b) => cardState(b).key === tab);
   }, [data, tab]);
+  const issues = useMemo(() => {
+    const all = data?.books ?? [];
+    return ISSUE_GROUPS.filter((g) => g.key !== "under" || showUnder).map((g) => ({ ...g, books: all.filter((b) => cardState(b).key === g.key) }));
+  }, [data, showUnder]);
   const open = data?.books.find((b) => b.absItemId === openId) ?? null;
   const pending = useMemo(() => (data?.books ?? []).filter((b) => b.matchStatus === "matched" && b.syncStatus === "pending"), [data]);
 
@@ -794,7 +820,7 @@ export default function ReadingPage() {
               value={c.review}
               sub={`${c.missing} not found on Hardcover`}
               accent={c.review ? "text-yellow-400" : undefined}
-              onClick={() => setTab("review")}
+              onClick={() => setTab("issues")}
             />
           </div>
 
@@ -802,20 +828,55 @@ export default function ReadingPage() {
             value={tab}
             onChange={setTab}
             tabs={[
-              { id: "all", label: "All", count: c.total },
               { id: "waiting", label: "Waiting", count: waiting },
               { id: "synced", label: "In Sync", count: c.synced + c.skipped },
-              { id: "review", label: "Review", count: c.review },
-              { id: "notfound", label: "Not Found", count: c.missing },
-              { id: "under", label: `Under ${data.minProgress}%`, count: countOf("under") },
-              { id: "skipped", label: "Skipped", count: countOf("skipped") },
+              { id: "issues", label: "Issues", count: c.review + c.missing + countOf("skipped") + (showUnder ? countOf("under") : 0) },
+              { id: "all", label: "All", count: c.total },
               { id: "history", label: "History" },
             ]}
           />
-          <p className="-mt-3 mb-5 text-sm text-gray-400">{TAB_HELP[tab](data.minProgress)}</p>
+          <div className="-mt-3 mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-gray-400">{TAB_HELP[tab]}</p>
+            {tab === "issues" && (
+              <label className="flex flex-shrink-0 cursor-pointer items-center gap-2 text-sm text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={showUnder}
+                  onChange={(e) => toggleUnder(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500"
+                />
+                Show books under {data.minProgress}% ({countOf("under")})
+              </label>
+            )}
+          </div>
 
           {tab === "history" ? (
             <HistoryList onUndone={reload} />
+          ) : tab === "issues" ? (
+            issues.every((g) => !g.books.length) ? (
+              <div className="py-16 text-center text-sm text-gray-500">No issues.</div>
+            ) : (
+              <div className="space-y-10">
+                {issues
+                  .filter((g) => g.books.length)
+                  .map((g) => (
+                    <section key={g.key}>
+                      <h3 className="flex items-center gap-2 text-lg font-bold text-white">
+                        {g.title}
+                        <span className="rounded-full bg-gray-700 px-2 text-xs font-semibold leading-5 text-gray-300">{g.books.length}</span>
+                      </h3>
+                      <p className="mb-4 text-sm text-gray-400">{g.help(data.minProgress)}</p>
+                      <ul className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]">
+                        {g.books.map((b) => (
+                          <li key={b.absItemId}>
+                            <ReadingCard book={b} onOpen={() => setOpenId(b.absItemId)} />
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  ))}
+              </div>
+            )
           ) : books.length === 0 ? (
             <div className="py-16 text-center text-sm text-gray-500">Nothing here.</div>
           ) : (
