@@ -1,12 +1,11 @@
+import type React from "react";
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowPathIcon,
   ArrowRightOnRectangleIcon,
   Bars3Icon,
-  ClipboardDocumentCheckIcon,
   CogIcon,
-  ExclamationCircleIcon,
   MagnifyingGlassIcon,
   RectangleStackIcon,
   XMarkIcon,
@@ -15,10 +14,8 @@ import { api } from "../lib/api";
 import { useApi } from "../lib/hooks";
 import { useToast } from "./toast";
 
-const nav = [
+const nav: { to: string; label: string; icon: React.ComponentType<{ className?: string }>; end?: boolean; count?: string }[] = [
   { to: "/", label: "Collections", icon: RectangleStackIcon, end: true },
-  { to: "/review", label: "Review", icon: ClipboardDocumentCheckIcon, count: "review" as const },
-  { to: "/missing", label: "Not in Library", icon: ExclamationCircleIcon, count: "missing" as const },
   { to: "/settings", label: "Settings", icon: CogIcon },
 ];
 

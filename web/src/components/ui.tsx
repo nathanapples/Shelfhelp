@@ -1,8 +1,8 @@
+import type React from "react";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   CheckIcon,
-  ClockIcon,
   EyeSlashIcon,
   XMarkIcon,
   BookOpenIcon,
@@ -35,9 +35,18 @@ export function ErrorBlock({ message, action }: { message: string; action?: Reac
   );
 }
 
-export const statusMeta: Record<BookStatus, { label: string; badge: string; dot: string; icon: typeof CheckIcon }> = {
+/** A bold "?" for books Shelfhelp isn't sure about. */
+function QuestionMark({ className = "" }: { className?: string }) {
+  return (
+    <span className={`flex items-center justify-center text-[0.8em] font-black leading-none ${className}`} aria-hidden>
+      ?
+    </span>
+  );
+}
+
+export const statusMeta: Record<BookStatus, { label: string; badge: string; dot: string; icon: React.ComponentType<{ className?: string }> }> = {
   matched: { label: "In Library", badge: "badge-success", dot: "bg-green-400 ring-green-500 text-green-100", icon: CheckIcon },
-  review: { label: "Needs Review", badge: "badge-warning", dot: "bg-yellow-500 ring-yellow-400 text-yellow-100", icon: ClockIcon },
+  review: { label: "Needs Review", badge: "badge-warning", dot: "bg-yellow-500 ring-yellow-400 text-yellow-100", icon: QuestionMark },
   missing: { label: "Not in Library", badge: "badge-danger", dot: "bg-red-600 ring-red-500 text-red-100", icon: XMarkIcon },
   ignored: { label: "Ignored", badge: "badge-dark", dot: "bg-gray-600 ring-gray-500 text-gray-200", icon: EyeSlashIcon },
 };
@@ -135,6 +144,15 @@ export function Modal({
             <img src={backdrop} alt="" className="h-full w-full scale-110 object-cover opacity-30 blur-2xl" />
             <div className="absolute inset-0 bg-gradient-to-b from-transparent to-gray-800" />
           </div>
+        )}
+        {!title && (
+          <button
+            onClick={onClose}
+            className="absolute right-3 top-3 z-20 rounded-full bg-gray-900/60 p-1.5 text-gray-300 ring-1 ring-gray-600 backdrop-blur transition hover:bg-gray-700 hover:text-white"
+            aria-label="Close"
+          >
+            <XMarkIcon className="h-5 w-5" />
+          </button>
         )}
         {title && (
           <div className="relative flex items-start justify-between gap-4 px-5 pb-2 pt-5 sm:px-6">
