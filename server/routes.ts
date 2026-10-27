@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 import { Abs, AbsError } from "./lib/abs.js";
 import { db, json } from "./lib/db.js";
 import { config } from "./lib/config.js";
-import { fetchList, fetchSource, myLists, myShelves, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
+import { fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
 import { getItems, refreshLibrary, searchLibrary } from "./lib/library.js";
 import { getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } from "./lib/settings.js";
 import { decide, getList, hardcoverUrl, isRunning, pushCollection, rematch, runningLists, statusCounts, syncAll, syncList, type ListRow } from "./lib/sync.js";
@@ -299,7 +299,7 @@ export async function routes(app: FastifyInstance) {
         )
         .run(
           sourceType, b.hcListId, info.slug, b.hcOwner ?? info.owner ?? null, info.name, info.description, b.absLibraryId,
-          (b.collectionName || info.name).trim(), b.removeMissing === false ? 0 : 1, b.keepOrder === false ? 0 : 1,
+          (b.collectionName || (sourceType === "hardcover_status" ? shelfCollectionName(info.owner, info.name) : info.name)).trim(), b.removeMissing === false ? 0 : 1, b.keepOrder === false ? 0 : 1,
         );
       const id = Number(res.lastInsertRowid);
       log("info", `Added list "${info.name}"`, id);

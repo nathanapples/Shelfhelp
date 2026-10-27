@@ -53,7 +53,7 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
 
   const pick = (l: HcList) => {
     setPicked(l);
-    setCollectionName(l.name);
+    setCollectionName(l.defaultCollectionName ?? l.name);
   };
 
   const resolve = async () => {

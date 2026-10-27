@@ -95,6 +95,7 @@ export interface HcList {
   coverUrls: string[];
   followed?: boolean;
   sourceType?: SourceType;
+  defaultCollectionName?: string;
 }
 
 export interface Library {

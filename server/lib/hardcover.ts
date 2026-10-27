@@ -154,6 +154,13 @@ export function fetchSource(type: string, id: number) {
 }
 
 /** Your status shelves with counts and a few covers, for the picker. */
+/** "Nathan's Want to Read": the default collection name for a shelf. */
+export function shelfCollectionName(username: string | null | undefined, shelf: string) {
+  if (!username) return shelf;
+  const who = username.charAt(0).toUpperCase() + username.slice(1);
+  return `${who}${/s$/i.test(who) ? "'" : "'s"} ${shelf}`;
+}
+
 export async function myShelves() {
   const hc = hardcover();
   const me = (await hc.me.get()) as { username?: string };
@@ -165,6 +172,7 @@ export async function myShelves() {
       sourceType: "hardcover_status" as const,
       slug: SHELVES[id].slug,
       name: SHELVES[id].name,
+      defaultCollectionName: shelfCollectionName(me.username, SHELVES[id].name),
       description: SHELVES[id].description,
       booksCount: count,
       owner: me.username ?? null,
