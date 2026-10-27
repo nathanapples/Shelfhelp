@@ -15,7 +15,7 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { CheckIcon as CheckSolid, EyeSlashIcon as EyeSlashSolid, XMarkIcon as XSolid, ArrowUpIcon as ArrowUpSolid, ExclamationTriangleIcon as WarnSolid, PauseIcon as PauseSolid, NoSymbolIcon as NoSymbolSolid } from "@heroicons/react/24/solid";
+import { CheckIcon as CheckSolid, EyeSlashIcon as EyeSlashSolid, XMarkIcon as XSolid, ArrowUpIcon as ArrowUpSolid, ExclamationTriangleIcon as WarnSolid, PauseIcon as PauseSolid, NoSymbolIcon as NoSymbolSolid, ClockIcon as HourglassIcon } from "@heroicons/react/24/solid";
 import {
   api,
   duration,
@@ -38,7 +38,6 @@ import { Cover, Empty, ErrorBlock, LoadingBlock, Modal, PageTitle, ScoreBar, Spi
 import { useToast } from "../components/toast";
 
 type Tab = "waiting" | "synced" | "issues" | "all" | "history";
-type IssueKey = "review" | "notfound" | "dnf" | "skipped" | "under";
 
 /** One line under the tabs saying what each one holds. */
 const TAB_HELP: Record<Tab, string> = {
@@ -49,22 +48,29 @@ const TAB_HELP: Record<Tab, string> = {
   history: "Everything sent to Hardcover, newest first. Any change can be undone.",
 };
 
-const ISSUE_GROUPS: { key: string; keys: IssueKey[]; title: string; help: (min: number) => string }[] = [
-  {
-    key: "review",
-    keys: ["review", "notfound"],
-    title: "Needs review",
-    help: () => "Shelfhelp isn't sure which Hardcover book this is (?), or couldn't find one (✕). Open a book to confirm, pick another, or search.",
-  },
-  {
-    key: "dnf",
-    keys: ["dnf"],
-    title: "Did not finish",
-    help: () => "Marked Did Not Finish on Hardcover, so Shelfhelp leaves them alone. Change the status on Hardcover and syncing picks up again.",
-  },
-  { key: "skipped", keys: ["skipped"], title: "Skipped", help: () => "Books you chose not to sync, and books that aren't on your Hardcover shelves while adding new books is off." },
-  { key: "under", keys: ["under"], title: "Under the minimum", help: (min) => `Less than ${min}% listened. They're picked up once you pass ${min}%.` },
-];
+/** What each icon in the Issues tab means. */
+function IssueLegend({ min, showUnder }: { min: number; showUnder: boolean }) {
+  const dot = (cls: string, child: React.ReactNode) => (
+    <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full shadow ring-1 ${cls}`}>{child}</span>
+  );
+  const items: [React.ReactNode, string][] = [
+    [dot("bg-yellow-500 ring-yellow-400 text-yellow-100", <span className="text-[0.8em] font-black leading-none">?</span>), "Not sure which Hardcover book"],
+    [dot("bg-red-600 ring-red-500 text-red-100", <XSolid className="h-3/4 w-3/4" />), "Not found on Hardcover"],
+    [dot("bg-orange-500 ring-orange-400 text-orange-50", <NoSymbolSolid className="h-3/4 w-3/4" />), "Did Not Finish on Hardcover"],
+    [dot("bg-gray-600 ring-gray-500 text-gray-200", <PauseSolid className="h-3/4 w-3/4" />), "Skipped (your choice, or not on your shelves)"],
+    ...(showUnder ? [[dot("bg-sky-600 ring-sky-400 text-sky-50", <HourglassIcon className="h-3/4 w-3/4" />), `Under ${min}% listened`] as [React.ReactNode, string]] : []),
+  ];
+  return (
+    <div className="mb-5 flex flex-wrap gap-x-5 gap-y-2">
+      {items.map(([icon, text]) => (
+        <span key={text} className="flex items-center gap-2 text-xs text-gray-400">
+          {icon}
+          {text}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 /** One state per card, combining "is it matched?" and "is it in sync?". */
 function cardState(b: ReadingBook) {
@@ -73,7 +79,7 @@ function cardState(b: ReadingBook) {
   if (b.matchStatus === "review") return { key: "review", label: "Needs review", dot: "bg-yellow-500 ring-yellow-400 text-yellow-100", Icon: null };
   if (b.hcStatus === 5) return { key: "dnf", label: "Did Not Finish on Hardcover", dot: "bg-orange-500 ring-orange-400 text-orange-50", Icon: NoSymbolSolid };
   if (b.syncStatus === "pending") return { key: "waiting", label: "Waiting to send", dot: "bg-indigo-500 ring-indigo-400 text-indigo-100", Icon: ArrowUpSolid };
-  if (b.syncStatus === "held" && b.heldReason === "threshold") return { key: "under", label: b.syncAction ?? "Under the minimum", dot: "bg-gray-600 ring-gray-500 text-gray-200", Icon: PauseSolid };
+  if (b.syncStatus === "held" && b.heldReason === "threshold") return { key: "under", label: b.syncAction ?? "Under the minimum", dot: "bg-sky-600 ring-sky-400 text-sky-50", Icon: HourglassIcon };
   if (b.syncStatus === "held") return { key: "skipped", label: b.syncAction ?? "Not synced", dot: "bg-gray-600 ring-gray-500 text-gray-200", Icon: PauseSolid };
   if (b.syncStatus === "error") return { key: "waiting", label: "Couldn't send", dot: "bg-red-600 ring-red-500 text-red-100", Icon: WarnSolid };
   return { key: "synced", label: b.syncStatus === "skipped" ? "Left as is on Hardcover" : "In sync", dot: "bg-green-400 ring-green-500 text-green-100", Icon: CheckSolid };
@@ -129,6 +135,10 @@ function ReadingCard({ book, onOpen }: { book: ReadingBook; onOpen: () => void }
           {book.hcStatus === 5 ? (
             <span className="rounded-full border border-orange-500 bg-orange-600/90 px-2 text-[10px] font-semibold uppercase leading-5 tracking-wider text-white shadow-md">
               DNF
+            </span>
+          ) : book.heldReason === "threshold" ? (
+            <span className="rounded-full border border-sky-500 bg-sky-600/90 px-2 text-[10px] font-semibold uppercase leading-5 tracking-wider text-white shadow-md">
+              {(book.syncAction ?? "Under minimum").replace(/ listened$/, "")}
             </span>
           ) : (
             <span className="rounded-full border border-purple-600 bg-purple-600/80 px-2 text-[10px] font-semibold uppercase leading-5 tracking-wider text-white shadow-md">
@@ -774,9 +784,12 @@ export default function ReadingPage() {
     const all = data?.books ?? [];
     return tab === "all" ? all : all.filter((b) => cardState(b).key === tab);
   }, [data, tab]);
+  // One list, most pressing first; the icons say what each one needs.
   const issues = useMemo(() => {
-    const all = data?.books ?? [];
-    return ISSUE_GROUPS.filter((g) => g.key !== "under" || showUnder).map((g) => ({ ...g, books: all.filter((b) => (g.keys as string[]).includes(cardState(b).key)) }));
+    const order = ["review", "notfound", "dnf", "skipped", ...(showUnder ? ["under"] : [])];
+    return (data?.books ?? [])
+      .filter((b) => order.includes(cardState(b).key))
+      .sort((a, b) => order.indexOf(cardState(a).key) - order.indexOf(cardState(b).key));
   }, [data, showUnder]);
   const open = data?.books.find((b) => b.absItemId === openId) ?? null;
   const pending = useMemo(() => (data?.books ?? []).filter((b) => b.matchStatus === "matched" && b.syncStatus === "pending"), [data]);
@@ -845,7 +858,12 @@ export default function ReadingPage() {
       ) : (
         <>
           <div className="mb-8 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-            <Stat label="With progress" value={c.total} sub={`${c.listening} listening, ${c.finished} finished`} onClick={() => setTab("all")} />
+            <Stat
+              label="With progress"
+              value={c.total - countOf("under")}
+              sub={`${c.listening - countOf("under")} listening, ${c.finished} finished`}
+              onClick={() => setTab("all")}
+            />
             <Stat label="In sync" value={countOf("synced")} sub={`of ${c.matched} matched`} accent="text-green-400" onClick={() => setTab("synced")} />
             <Stat
               label="Waiting"
@@ -892,30 +910,20 @@ export default function ReadingPage() {
           {tab === "history" ? (
             <HistoryList onUndone={reload} />
           ) : tab === "issues" ? (
-            issues.every((g) => !g.books.length) ? (
-              <div className="py-16 text-center text-sm text-gray-500">No issues.</div>
-            ) : (
-              <div className="space-y-10">
-                {issues
-                  .filter((g) => g.books.length)
-                  .map((g) => (
-                    <section key={g.key}>
-                      <h3 className="flex items-center gap-2 text-lg font-bold text-white">
-                        {g.title}
-                        <span className="rounded-full bg-gray-700 px-2 text-xs font-semibold leading-5 text-gray-300">{g.books.length}</span>
-                      </h3>
-                      <p className="mb-4 text-sm text-gray-400">{g.help(data.minProgress)}</p>
-                      <ul className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]">
-                        {g.books.map((b) => (
-                          <li key={b.absItemId}>
-                            <ReadingCard book={b} onOpen={() => setOpenId(b.absItemId)} />
-                          </li>
-                        ))}
-                      </ul>
-                    </section>
+            <>
+              <IssueLegend min={data.minProgress} showUnder={showUnder} />
+              {issues.length === 0 ? (
+                <div className="py-16 text-center text-sm text-gray-500">No issues.</div>
+              ) : (
+                <ul className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]">
+                  {issues.map((b) => (
+                    <li key={b.absItemId}>
+                      <ReadingCard book={b} onOpen={() => setOpenId(b.absItemId)} />
+                    </li>
                   ))}
-              </div>
-            )
+                </ul>
+              )}
+            </>
           ) : books.length === 0 ? (
             <div className="py-16 text-center text-sm text-gray-500">Nothing here.</div>
           ) : (
