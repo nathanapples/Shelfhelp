@@ -11,7 +11,7 @@ import { decide, getList, hardcoverUrl, isRunning, pushCollection, rematch, runn
 import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 import { jobsView } from "./lib/progress.js";
-import { decideItem, history, myShelfStatus, readingRunning, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
+import { decideItem, history, myShelfStatus, readingRunning, rematchItem, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
 
 const COOKIE = "shelfhelp_session";
 const MASK = "••••••••";
@@ -171,7 +171,7 @@ export async function routes(app: FastifyInstance) {
     const before = getSettings().matchStrictness;
     const saved = saveSettings(patch);
     reschedule();
-    if (["readingMinProgress", "readingAddNew", "readingEnabled", "absLibraries"].some((k) => k in patch)) {
+    if (["readingMinProgress", "readingEnabled", "absLibraries"].some((k) => k in patch)) {
       syncReading("settings changed").catch(() => {});
     }
     if (patch.matchStrictness && patch.matchStrictness !== before) {
@@ -453,6 +453,22 @@ export async function routes(app: FastifyInstance) {
   app.post<{ Body: { ids?: string[] } }>("/api/reading/send", async (req, reply) => {
     try {
       return await send(req.body?.ids?.length ? req.body.ids : null);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  // Forgets a book's match and cached ASIN/ISBN answers, then matches it fresh.
+  app.post<{ Body: { absItemId: string } }>("/api/reading/rematch", async (req, reply) => {
+    try {
+      const { absItemId } = req.body;
+      const before = db
+        .prepare("SELECT hc_book_id, library_id FROM overrides WHERE abs_item_id = ? AND action = 'match'")
+        .get(absItemId) as { hc_book_id: number; library_id: string } | undefined;
+      await rematchItem(absItemId);
+      if (before) await decide(before.hc_book_id, before.library_id, "reset");
+      const r = await syncReading("match again");
+      return { started: r === "started", running: r === "running" };
     } catch (err) {
       return fail(reply, err);
     }

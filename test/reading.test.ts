@@ -5,12 +5,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 process.env.CONFIG_DIR = mkdtempSync(path.join(tmpdir(), "shelfhelp-test-"));
-const { planFor } = await import("../server/lib/reading.ts");
+const { planFor, preferShelved } = await import("../server/lib/reading.ts");
 
 const row = (over: Record<string, unknown>) =>
   ({ abs_item_id: "i", hc_book_id: 1, is_finished: 0, progress: 0.43, finished_at: null, last_update: Date.now(), started_at: null, ...over }) as never;
-const entry = (statusId: number, progress?: number) =>
-  ({ id: 9, bookId: 1, statusId, userBookReads: progress === undefined ? [] : [{ startedAt: "2026-01-01", finishedAt: null, progress }] }) as never;
+const entry = (statusId: number, progress?: number, read: Record<string, unknown> = {}) =>
+  ({
+    id: 9,
+    bookId: 1,
+    statusId,
+    userBookReads: progress === undefined ? [] : [{ id: 50, startedAt: null, finishedAt: null, progress, ...read }],
+  }) as never;
+const ms = (d: string) => new Date(`${d}T12:00:00`).getTime();
 
 test("listening, not on Hardcover: add as Currently Reading", () => {
   const p = planFor(row({}), undefined);
@@ -64,3 +70,32 @@ test("never lowers progress on Hardcover", () => {
   assert.match(p.description, /further along/);
 });
 
+
+test("fixes reading dates on a book that's already Read", () => {
+  const r = row({ is_finished: 1, progress: 1, started_at: ms("2026-02-01"), finished_at: ms("2026-02-18") });
+  const p = planFor(r, entry(3, 100, { startedAt: null, finishedAt: "2026-02-20" }));
+  assert.equal(p.kind, "dates");
+  assert.match(p.description, /started \(none\) → 2026-02-01, finished 2026-02-20 → 2026-02-18/);
+});
+
+test("no date change when Hardcover already has the same dates", () => {
+  const r = row({ is_finished: 1, progress: 1, started_at: ms("2026-02-01"), finished_at: ms("2026-02-18") });
+  assert.equal(planFor(r, entry(3, 100, { startedAt: "2026-02-01", finishedAt: "2026-02-18" })).kind, "skip");
+});
+
+test("progress update carries a start date fix", () => {
+  const p = planFor(row({ progress: 0.6, started_at: ms("2026-03-05") }), entry(2, 40, { startedAt: "2026-03-09" }));
+  assert.equal(p.kind, "progress");
+  assert.equal(p.dates?.startedAt, "2026-03-05");
+});
+
+test("prefers the copy on your shelves when Hardcover lists a book twice", () => {
+  const ranked = [
+    { id: 1, titleSim: 1, authorSim: 1 },
+    { id: 2, titleSim: 1, authorSim: 1 },
+  ];
+  assert.equal(preferShelved(ranked, new Set([2]))?.id, 2);
+  assert.equal(preferShelved(ranked, new Set([1])), null);
+  // A different book on your shelves isn't a substitute.
+  assert.equal(preferShelved([{ id: 1, titleSim: 1, authorSim: 1 }, { id: 3, titleSim: 0.5, authorSim: 1 }], new Set([3])), null);
+});

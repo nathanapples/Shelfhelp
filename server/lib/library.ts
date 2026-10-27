@@ -53,8 +53,10 @@ async function linkIdentifiers(libraryId: string, job?: string) {
     asin: string | null;
     isbn: string | null;
   }[];
+  // Answers older than a month are asked again: Hardcover merges and fixes books.
+  const cutoff = new Date(Date.now() - ID_ANSWER_MAX_AGE_MS).toISOString();
   const seen = new Set(
-    (db.prepare("SELECT key FROM id_lookups").all() as { key: string }[]).map((r) => r.key),
+    (db.prepare("SELECT key FROM id_lookups WHERE looked_up_at > ?").all(cutoff) as { key: string }[]).map((r) => r.key),
   );
   const asins = new Set<string>();
   const isbns = new Set<string>();
@@ -73,14 +75,38 @@ async function linkIdentifiers(libraryId: string, job?: string) {
     step(job, "Looking up new ASINs and ISBNs on Hardcover", done, total),
   );
   const now = new Date().toISOString();
+  saveAnswers([...asins].map((a) => `asin:${a}`), [...isbns].map((i) => `isbn:${i}`), found, now);
+  rebuildLinks(libraryId);
+}
+
+const ID_ANSWER_MAX_AGE_MS = 30 * 24 * 3600_000;
+
+function saveAnswers(asinKeys: string[], isbnKeys: string[], found: [string, number, string][], now: string) {
   tx(() => {
-    const ins = db.prepare("INSERT OR IGNORE INTO id_lookups (key, looked_up_at) VALUES (?, ?)");
-    for (const a of asins) ins.run(`asin:${a}`, now);
-    for (const i of isbns) ins.run(`isbn:${i}`, now);
+    const keys = [...asinKeys, ...isbnKeys];
+    const del = db.prepare("DELETE FROM id_cache WHERE key = ?");
+    for (const k of keys) del.run(k);
+    const ins = db.prepare(
+      "INSERT INTO id_lookups (key, looked_up_at) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET looked_up_at = excluded.looked_up_at",
+    );
+    for (const k of keys) ins.run(k, now);
     const map = db.prepare("INSERT OR IGNORE INTO id_cache (key, hc_book_id, via) VALUES (?, ?, ?)");
     for (const [key, bookId, via] of found) map.run(key, bookId, via);
   });
-  rebuildLinks(libraryId);
+}
+
+/** Asks Hardcover again what one item's ASIN and ISBN belong to. */
+export async function relookupItem(itemId: string) {
+  const r = db.prepare("SELECT library_id, asin, isbn FROM abs_items WHERE id = ?").get(itemId) as
+    | { library_id: string; asin: string | null; isbn: string | null }
+    | undefined;
+  if (!r) return;
+  const a = normalizeAsin(r.asin);
+  const i = normalizeIsbn(r.isbn);
+  if (!a && !i) return;
+  const found = await lookupIdentifiers(a ? [a] : [], i ? [i] : []);
+  saveAnswers(a ? [`asin:${a}`] : [], i ? [`isbn:${i}`] : [], found, new Date().toISOString());
+  rebuildLinks(r.library_id);
 }
 
 /** Re-derives item -> book links from the identifier cache (cheap, local only). */

@@ -203,6 +203,9 @@ const migrations: string[] = [
     refreshed_at TEXT NOT NULL
   );
   `,
+  `
+  ALTER TABLE reading_history ADD COLUMN prev_dates TEXT;
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

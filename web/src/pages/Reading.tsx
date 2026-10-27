@@ -318,6 +318,24 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
       setBusy(false);
     }
   };
+  const matchAgain = async () => {
+    setBusy(true);
+    try {
+      const r = await api<{ started: boolean; running: boolean }>("/reading/rematch", { method: "POST", body: { absItemId: book.absItemId } });
+      jobStarted();
+      toast(
+        r.running
+          ? `A check is running. Click Check Now after it finishes to match "${book.title}" again.`
+          : `Matching "${book.title}" again. It will update when the check finishes.`,
+        "info",
+      );
+      onClose();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
   const skipOne = async () => {
     await api("/reading/skip", { method: "POST", body: { id: book.absItemId } });
     toast(`Skipped. "${book.title}" will come back if your progress changes.`, "info");
@@ -337,11 +355,9 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
       backdrop={book.coverUrl}
       footer={
         <>
-          {book.matchSource === "manual" && (
-            <button className="btn btn-default" onClick={() => decide("reset")} disabled={busy}>
-              <ArrowUturnLeftIcon className="h-4 w-4" /> Back to automatic
-            </button>
-          )}
+          <button className="btn btn-default" onClick={matchAgain} disabled={busy} title="Forget this match and look it up on Hardcover again">
+            <ArrowPathIcon className="h-4 w-4" /> Match again
+          </button>
           {book.matchStatus !== "missing" && (
             <button className="btn btn-default" onClick={() => decide("missing")} disabled={busy}>
               <XMarkIcon className="h-4 w-4" /> Not on Hardcover
@@ -606,7 +622,9 @@ function HistoryList({ onUndone }: { onUndone: () => void }) {
               ? "Shelfhelp added this book to your Hardcover library. Undo removes it from your library, including its reading dates."
               : confirm.kind === "status"
                 ? "This sets the book back to its old status on Hardcover and removes the reading session the change started."
-                : "This sets your Hardcover progress back to what it was."}
+                : confirm.kind === "dates"
+                  ? "This sets the reading dates on Hardcover back to what they were."
+                  : "This sets your Hardcover progress (and any reading dates it changed) back to what they were."}
           </p>
           <p className="mt-2 text-sm text-gray-400">It won't be sent again unless your listening progress changes.</p>
         </Modal>
@@ -638,7 +656,6 @@ function ReadingSettings({ onClose, onSaved }: { onClose: () => void; onSaved: (
           readingEnabled: s.readingEnabled,
           readingAutoSend: s.readingAutoSend,
           readingMinProgress: s.readingMinProgress,
-          readingAddNew: s.readingAddNew,
           readingMarkOwned: s.readingMarkOwned,
           // Every library checked is saved as "all", so new libraries are included too.
           ...(libs ? { absLibraries: libs.every((l) => l.selected) ? [] : chosen } : {}),
@@ -707,11 +724,6 @@ function ReadingSettings({ onClose, onSaved }: { onClose: () => void; onSaved: (
               />
               <span className="text-gray-400">%</span>
             </div>,
-          )}
-          {row(
-            "Add new books",
-            "Add books to Hardcover that aren't on any of your shelves yet. Off: only books already on your shelves are updated.",
-            <Toggle checked={s.readingAddNew} onChange={(v) => set("readingAddNew", v)} />,
           )}
           {row(
             "Mark as owned",

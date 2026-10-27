@@ -13,7 +13,7 @@ import { UserBookStatus, type LibraryListItem } from "@hardcover/sdk";
 import { Abs, type AbsProgress } from "./abs.js";
 import { db, json, tx } from "./db.js";
 import { authorsOf, hardcover, searchBooks } from "./hardcover.js";
-import { getItems, refreshLibrary } from "./library.js";
+import { getItems, refreshLibrary, relookupItem } from "./library.js";
 import { judge, scoreCandidate, type HcBook } from "./matcher.js";
 import { normalizeAsin, seriesNumber } from "./normalize.js";
 import { getSettings, isConfigured } from "./settings.js";
@@ -112,10 +112,13 @@ export async function syncReading(reason: string, { force = false } = {}): Promi
     const stale = db.prepare("SELECT abs_item_id, library_id FROM reading WHERE seen_at <> ?").all(now) as { abs_item_id: string; library_id: string }[];
     for (const r of stale) if (allowed.has(r.library_id)) db.prepare("DELETE FROM reading WHERE abs_item_id = ?").run(r.abs_item_id);
 
+    // Your shelves first, so matching can prefer the copy you already have.
+    const library = await hardcoverLibrary();
+    await dropVanishedMatches();
     await matchAll();
     step(JOB, "Getting book details from Hardcover");
     await fillBookDetails();
-    const summary = await plan(settings.readingAutoSend);
+    const summary = await plan(settings.readingAutoSend, library);
     log("info", `Reading progress (${reason}): ${summary}`);
     finishJob(JOB, true, summary);
   } catch (err) {
@@ -158,22 +161,37 @@ async function matchAll() {
   const all = rows().filter((r) => r.progress > 0 || r.is_finished);
   const items = getItems(all.map((r) => r.abs_item_id));
   const strictness = getSettings().matchStrictness;
+  const shelved = new Set((db.prepare("SELECT book_id FROM hc_library").all() as { book_id: number }[]).map((r) => r.book_id));
 
   let i = 0;
   for (const row of all) {
     step(JOB, "Matching your books to Hardcover", i++, all.length);
     const item = items.get(row.abs_item_id);
     if (!item) continue;
-    const decided = decidedMatch(row.abs_item_id, row.library_id);
+    let decided = decidedMatch(row.abs_item_id, row.library_id);
+    // A collection's match is a good hint, but if that book isn't on your
+    // shelves, look for the copy that is (Hardcover can list a book twice).
+    if (decided?.source === "collection" && decided.hcBookId && !shelved.has(decided.hcBookId)) decided = null;
     if (decided) {
       saveMatch(row.abs_item_id, decided);
       continue;
     }
 
-    // Keep an earlier automatic result while the item's metadata is unchanged.
+    // Keep an earlier automatic result while the item's metadata is unchanged,
+    // but look again (at most daily) when the match isn't on your shelves.
     const key = `${item.title}|${item.authors.join(",")}|${item.asin ?? ""}|${item.isbn ?? ""}|${strictness}|rules2`;
-    const fresh = row.searched_key === key && row.searched_at && Date.now() - Date.parse(row.searched_at) < SEARCH_AGAIN_MS;
-    if (fresh && row.match_source === "auto") continue;
+    const age = row.searched_at ? Date.now() - Date.parse(`${row.searched_at.replace(" ", "T")}Z`) : Infinity;
+    const offShelf = row.match_status === "matched" && row.hc_book_id !== null && !shelved.has(row.hc_book_id);
+    const fresh = row.searched_key === key && age < (offShelf ? DAY_MS : SEARCH_AGAIN_MS);
+    if (fresh && row.match_source === "auto") {
+      const stored = json<(HcCandidate & { id: number })[]>(row.candidates, []);
+      const alt = preferShelved(stored, shelved);
+      if (alt && alt.id !== row.hc_book_id) {
+        saveAuto(row.abs_item_id, "matched", alt, [SHELF_NOTE], [alt, ...stored.filter((c) => c.id !== alt.id)], key, false);
+      }
+      continue;
+    }
+    if (offShelf) await relookupItem(row.abs_item_id).catch(() => {});
 
     const candidates = await findCandidates(item);
     const ranked = candidates
@@ -182,15 +200,77 @@ async function matchAll() {
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
     const { status, reasons } = judge(ranked, strictness, "on Hardcover");
-    const best = ranked[0];
-    db.prepare(
-      `UPDATE reading SET match_status = ?, match_source = 'auto', hc_book_id = ?, hc_book = ?, score = ?, reasons = ?,
-       candidates = ?, searched_key = ?, searched_at = datetime('now') WHERE abs_item_id = ?`,
-    ).run(
-      status, status === "missing" ? null : (best?.id ?? null), best && status !== "missing" ? JSON.stringify(view(best)) : null,
-      best?.score ?? 0, JSON.stringify(reasons), JSON.stringify(ranked), key, row.abs_item_id,
-    );
+    const alt = status !== "missing" ? preferShelved(ranked, shelved) : null;
+    if (alt) {
+      saveAuto(row.abs_item_id, "matched", alt, [SHELF_NOTE], [alt, ...ranked.filter((c) => c.id !== alt.id)], key, true);
+      continue;
+    }
+    saveAuto(row.abs_item_id, status, status === "missing" ? null : (ranked[0] ?? null), reasons, ranked, key, true);
   }
+}
+
+const DAY_MS = 24 * 3600_000;
+const SHELF_NOTE = "using the copy on your Hardcover shelves (Hardcover has more than one entry for this book)";
+
+function saveAuto(
+  itemId: string,
+  status: MatchStatus,
+  best: (HcBookView & { score?: number }) | null,
+  reasons: string[],
+  candidates: unknown[],
+  key: string,
+  searched: boolean,
+) {
+  db.prepare(
+    `UPDATE reading SET match_status = ?, match_source = 'auto', hc_book_id = ?, hc_book = ?, score = ?, reasons = ?,
+     candidates = ?, searched_key = ?, searched_at = CASE WHEN ? THEN datetime('now') ELSE searched_at END WHERE abs_item_id = ?`,
+  ).run(
+    status, best?.id ?? null, best ? JSON.stringify(view(best)) : null, best?.score ?? 0, JSON.stringify(reasons),
+    JSON.stringify(candidates), key, searched ? 1 : 0, itemId,
+  );
+}
+
+/**
+ * Hardcover sometimes has the same book twice. When the best match isn't on
+ * your shelves but an equally good one (same title and author) is, use yours.
+ */
+export function preferShelved<T extends { id: number; titleSim: number; authorSim: number | null }>(ranked: T[], shelved: Set<number>): T | null {
+  const best = ranked[0];
+  if (!best || shelved.has(best.id)) return null;
+  return (
+    ranked.find(
+      (c) => c !== best && shelved.has(c.id) && c.titleSim >= 0.9 && (c.authorSim === null || c.authorSim >= 0.85) && best.titleSim - c.titleSim < 0.1,
+    ) ?? null
+  );
+}
+
+/** Matches whose Hardcover book is gone (merged or deleted) are matched again. */
+async function dropVanishedMatches() {
+  const matched = db
+    .prepare("SELECT abs_item_id, hc_book_id FROM reading WHERE match_status IN ('matched', 'review') AND hc_book_id IS NOT NULL AND match_source <> 'manual'")
+    .all() as { abs_item_id: string; hc_book_id: number }[];
+  if (!matched.length) return;
+  step(JOB, "Checking your matches still exist on Hardcover");
+  const ids = [...new Set(matched.map((m) => m.hc_book_id))];
+  const alive = new Set<number>();
+  for (let i = 0; i < ids.length; i += 500) {
+    for (const b of await hardcover().books.getMany(ids.slice(i, i + 500))) alive.add(b.id);
+  }
+  for (const m of matched) {
+    if (alive.has(m.hc_book_id)) continue;
+    await relookupItem(m.abs_item_id).catch(() => {});
+    db.prepare("UPDATE reading SET searched_key = NULL WHERE abs_item_id = ?").run(m.abs_item_id);
+  }
+}
+
+/** Forgets everything about one book's match and finds it again from scratch. */
+export async function rematchItem(itemId: string) {
+  tx(() => {
+    db.prepare("DELETE FROM item_overrides WHERE abs_item_id = ?").run(itemId);
+    db.prepare("DELETE FROM overrides WHERE abs_item_id = ? AND action = 'match'").run(itemId);
+    db.prepare("UPDATE reading SET searched_key = NULL, match_source = NULL WHERE abs_item_id = ?").run(itemId);
+  });
+  await relookupItem(itemId);
 }
 
 /** Looks up Hardcover details for matched books that don't have them yet. */
@@ -336,9 +416,11 @@ function view(c: HcBookView): HcBookView {
 type Entry = LibraryListItem;
 
 export interface Plan {
-  kind: "add" | "status" | "progress" | "skip" | "none" | "held";
+  kind: "add" | "status" | "progress" | "dates" | "skip" | "none" | "held";
   status?: number;
   description: string;
+  /** Reading dates to set on an existing Hardcover read. */
+  dates?: { readId: number; startedAt?: string; finishedAt?: string; before: { startedAt: string | null; finishedAt: string | null } };
 }
 
 export interface Rules {
@@ -348,7 +430,7 @@ export interface Rules {
 
 function rules(): Rules {
   const s = getSettings();
-  return { minProgress: s.readingMinProgress, addNew: s.readingAddNew };
+  return { minProgress: s.readingMinProgress, addNew: true };
 }
 
 function stateKey(r: ReadingRow) {
@@ -385,7 +467,7 @@ export function planFor(
 
   if (r.is_finished) {
     const when = day(r.finished_at) ?? day(r.last_update);
-    if (status === UserBookStatus.Read) return { kind: "skip", description: "Already Read on Hardcover" };
+    if (status === UserBookStatus.Read) return withDates({ kind: "skip", description: "Already Read on Hardcover" }, r, entry!);
     if (!entry) return { kind: "add", status: UserBookStatus.Read, description: `Add as Read${when ? ` (finished ${when})` : ""}` };
     return { kind: "status", status: UserBookStatus.Read, description: `${STATUS_NAMES[status!] ?? "Unknown"} → Read${when ? ` (finished ${when})` : ""}` };
   }
@@ -396,15 +478,57 @@ export function planFor(
   }
   const current = currentProgress(entry);
   if (current !== null && current >= pct - 0.5) {
-    return { kind: "none", description: current > pct + 1 ? `Hardcover is further along (${current}%), left as is` : `Currently Reading at ${pct}%` };
+    return withDates(
+      { kind: "none", description: current > pct + 1 ? `Hardcover is further along (${current}%), left as is` : `Currently Reading at ${pct}%` },
+      r,
+      entry,
+    );
   }
-  return { kind: "progress", description: `Progress ${current ?? 0}% → ${pct}%` };
+  return withDates({ kind: "progress", description: `Progress ${current ?? 0}% → ${pct}%` }, r, entry);
+}
+
+interface HcRead {
+  id: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  progress: number | null;
+}
+
+function reads(entry: Entry | undefined): HcRead[] {
+  return ((entry as unknown as { userBookReads?: HcRead[] } | undefined)?.userBookReads ?? []).slice().sort((a, b) => b.id - a.id);
+}
+
+/**
+ * Adds a date fix when Hardcover's reading dates don't match Audiobookshelf's:
+ * the start date (first played) and, for finished books, the finish date. It
+ * only touches the read that matches this listen: the one in progress, or the
+ * newest finished one.
+ */
+function withDates(p: Plan, r: ReadingRow, entry: Entry): Plan {
+  const read = r.is_finished ? reads(entry).find((x) => x.finishedAt) : reads(entry).find((x) => !x.finishedAt);
+  if (!read) return p;
+  const wantStart = day(r.started_at);
+  const wantFinish = r.is_finished ? (day(r.finished_at) ?? day(r.last_update)) : undefined;
+  const change: NonNullable<Plan["dates"]> = { readId: read.id, before: { startedAt: read.startedAt, finishedAt: read.finishedAt } };
+  const text: string[] = [];
+  if (wantStart && read.startedAt !== wantStart) {
+    change.startedAt = wantStart;
+    text.push(`started ${read.startedAt ?? "(none)"} → ${wantStart}`);
+  }
+  if (wantFinish && read.finishedAt !== wantFinish) {
+    change.finishedAt = wantFinish;
+    text.push(`finished ${read.finishedAt ?? "(none)"} → ${wantFinish}`);
+  }
+  if (!text.length) return p;
+  const dates = `Dates: ${text.join(", ")}`;
+  if (p.kind === "skip" || p.kind === "none") return { kind: "dates", dates: change, description: dates };
+  return { ...p, dates: change, description: `${p.description}; ${dates.charAt(0).toLowerCase()}${dates.slice(1)}` };
 }
 
 function openRead(entry: Entry) {
   const reads = (entry as unknown as { userBookReads?: { id: number; startedAt: string | null; finishedAt: string | null; progress: number | null }[] })
     .userBookReads;
-  return reads?.find((x) => x.startedAt && !x.finishedAt) ?? null;
+  return reads?.slice().sort((a, b) => b.id - a.id).find((x) => !x.finishedAt) ?? null;
 }
 
 function readIds(entry: Entry | undefined): number[] {
@@ -449,7 +573,7 @@ export function myShelfStatus(bookIds: number[]): Map<number, { status: number; 
  * Works out what each matched book needs. With auto-send on, sends it;
  * otherwise every change waits as "pending" until you send it.
  */
-async function plan(autoSend: boolean): Promise<string> {
+async function plan(autoSend: boolean, known?: Map<number, Entry>): Promise<string> {
   db.prepare("UPDATE reading SET sync_status = 'none', sync_action = NULL WHERE match_status <> 'matched'").run();
   const matched = rows().filter((r) => r.match_status === "matched" && r.hc_book_id);
   const rule = rules();
@@ -459,7 +583,7 @@ async function plan(autoSend: boolean): Promise<string> {
   const yours = (r: ReadingRow) => r.sync_status === "skipped" && /^(Skipped by you|Undone by you)/.test(r.sync_action ?? "");
   const todo = matched.filter((r) => r.synced_key !== stateKey(r) || !yours(r));
   // Always refreshed, so the page shows your current Hardcover shelves.
-  const library = await hardcoverLibrary();
+  const library = known ?? (await hardcoverLibrary());
   step(JOB, "Working out what to send");
   if (!todo.length) return `${matched.length} matched, nothing new`;
   let pending = 0;
@@ -516,11 +640,12 @@ export async function send(ids: string[] | null, library?: Map<number, Entry>) {
     try {
       const entryId = await push(hc, r, p, entry, items.get(r.abs_item_id)?.asin ?? null);
       db.prepare(
-        `INSERT INTO reading_history (abs_item_id, hc_book_id, title, description, kind, entry_id, created_entry, prev_status, prev_progress, prev_read_ids)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO reading_history (abs_item_id, hc_book_id, title, description, kind, entry_id, created_entry, prev_status, prev_progress, prev_read_ids, prev_dates)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         r.abs_item_id, r.hc_book_id!, title, p.description, p.kind, entryId ?? null, p.kind === "add" ? 1 : 0,
         entry?.statusId ?? null, entry ? currentProgress(entry) : null, JSON.stringify(readIds(entry)),
+        p.dates ? JSON.stringify({ readId: p.dates.readId, ...p.dates.before }) : null,
       );
       mark(r, "synced", p.description, p.status ?? entry?.statusId ?? null, r.is_finished ? 100 : percent(r), true);
       sent++;
@@ -583,7 +708,13 @@ async function push(hc: ReturnType<typeof hardcover>, r: ReadingRow, plan: Plan,
     });
   }
 
-  if (!r.is_finished && entryId) {
+  if (plan.dates) {
+    await hc.reads.update(plan.dates.readId, {
+      ...(plan.dates.startedAt ? { startedAt: plan.dates.startedAt } : {}),
+      ...(plan.dates.finishedAt ? { finishedAt: plan.dates.finishedAt } : {}),
+    });
+  }
+  if (!r.is_finished && entryId && plan.kind !== "dates") {
     try {
       await hc.reads.setProgress(entryId, { percent: percent(r) });
     } catch (err) {
@@ -614,6 +745,7 @@ export async function undo(id: number) {
     | {
         id: number; abs_item_id: string; hc_book_id: number; title: string; kind: string; entry_id: number | null;
         created_entry: number; prev_status: number | null; prev_progress: number | null; prev_read_ids: string | null; undone_at: string | null;
+        prev_dates: string | null;
       }
     | undefined;
   if (!h) throw new Error("That change wasn't found.");
@@ -639,9 +771,18 @@ export async function undo(id: number) {
       }
     }
     note = `Set back to ${STATUS_NAMES[h.prev_status] ?? "its old status"}${removed ? " and removed the reading session it started" : ""}`;
-  } else if (h.kind === "progress") {
-    await hc.reads.setProgress(entry.id, { percent: h.prev_progress ?? 0 });
-    note = `Progress set back to ${h.prev_progress ?? 0}%`;
+  } else if (h.kind === "progress" || h.kind === "dates") {
+    const notes: string[] = [];
+    if (h.kind === "progress") {
+      await hc.reads.setProgress(entry.id, { percent: h.prev_progress ?? 0 });
+      notes.push(`progress set back to ${h.prev_progress ?? 0}%`);
+    }
+    const d = json<{ readId: number; startedAt: string | null; finishedAt: string | null } | null>(h.prev_dates, null);
+    if (d) {
+      await hc.reads.update(d.readId, { startedAt: d.startedAt, ...(d.finishedAt ? { finishedAt: d.finishedAt } : {}) });
+      notes.push("reading dates set back");
+    }
+    note = notes.join(", ").replace(/^./, (c) => c.toUpperCase());
   } else {
     throw new Error("This change can't be undone automatically.");
   }

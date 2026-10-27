@@ -113,7 +113,6 @@ export interface Settings {
   readingEnabled: boolean;
   readingAutoSend: boolean;
   readingMinProgress: number;
-  readingAddNew: boolean;
   readingMarkOwned: boolean;
   absLibraries: string[];
   lockedByEnv: string[];

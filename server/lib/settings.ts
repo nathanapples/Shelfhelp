@@ -18,8 +18,6 @@ export interface Settings {
   readingAutoSend: boolean;
   /** Books under this percent listened aren't synced. */
   readingMinProgress: number;
-  /** Add books that aren't on your Hardcover shelves yet. */
-  readingAddNew: boolean;
   /** Mark synced books as Owned on Hardcover. */
   readingMarkOwned: boolean;
   /** Audiobookshelf libraries Shelfhelp uses. Empty means every book library. */
@@ -36,7 +34,6 @@ const defaults: Settings = {
   readingApproved: false,
   readingAutoSend: false,
   readingMinProgress: 5,
-  readingAddNew: false,
   readingMarkOwned: false,
   absLibraries: [],
 };

@@ -60,6 +60,8 @@ const books: MockBook[] = [
   { id: 117, title: "Dark Matter", author: "Blake Crouch" },
   { id: 118, title: "Klara and the Sun", author: "Kazuo Ishiguro" },
 ];
+// Hardcover sometimes lists a book twice; 120 is a second Project Hail Mary.
+const duplicates: MockBook[] = [{ id: 120, title: "Project Hail Mary", author: "Andy Weir" }];
 
 // The library: messy titles, a wrong ASIN, a Last, First author, a missing few.
 const items = [
@@ -164,7 +166,10 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> })
     for (const e of userBooks.values()) {
       const r = e.reads.find((x) => x.id === v.id);
       if (!r) continue;
-      const read = v.read as Record<string, number>;
+      const read = v.read as Record<string, number & string>;
+      if (read.started_at !== undefined) r.startedAt = read.started_at;
+      if (read.finished_at !== undefined) r.finishedAt = read.finished_at;
+      if (read.started_at !== undefined || read.finished_at !== undefined) console.log(`[hc] book ${e.bookId} dates ${r.startedAt} - ${r.finishedAt}`);
       if (read.progress_seconds != null) {
         r.progressSeconds = read.progress_seconds;
         r.progress = Math.round((read.progress_seconds / 36000) * 1000) / 10;
@@ -190,11 +195,20 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> })
   }
   if (q.includes("query GetEditionsForBook")) return { editions: [edition(Number(v.bookId))] };
   if (q.includes("query GetBooks")) {
-    return { books: (v.ids as number[]).map((id) => listBooks(books.findIndex((b) => b.id === id), 1)[0]?.book).filter(Boolean) };
+    return {
+      books: (v.ids as number[])
+        .map((id) => {
+          const i = books.findIndex((b) => b.id === id);
+          if (i >= 0) return listBooks(i, 1)[0].book;
+          const d = duplicates.find((b) => b.id === id);
+          return d && { id: d.id, slug: `${d.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-2`, title: d.title, releaseYear: 2021, cachedImage: { url: `${HC}/cover/101.svg` }, cachedContributors: [{ author: { name: d.author }, contribution: null }], cachedFeaturedSeries: {} };
+        })
+        .filter(Boolean),
+    };
   }
   if (q.includes("query Search")) {
     const words = String(v.query).toLowerCase().split(/\W+/).filter((w) => w.length > 3);
-    const found = books.filter((b) => words.some((w) => b.title.toLowerCase().includes(w)));
+    const found = [...books, ...duplicates].filter((b) => words.some((w) => b.title.toLowerCase().includes(w)));
     return { search: { ids: found.map((b) => b.id), results: { hits: found.map(hit), found: found.length }, query: v.query, queryType: "book", page: 1, perPage: 8, error: null } };
   }
   if (q.includes("query Me")) return { me: [{ id: 1, username: "nathan", name: "Nathan" }] };
@@ -264,6 +278,11 @@ http
       // Test hook: change a book's status, like doing it on hardcover.app.
       if (req.url?.startsWith("/test/status")) {
         const { bookId, status } = JSON.parse(data);
+        if (status === 0) {
+          userBooks.delete(bookId);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          return res.end(JSON.stringify({ ok: true }));
+        }
         let e = userBooks.get(bookId);
         if (!e) userBooks.set(bookId, (e = { id: nextId++, bookId, statusId: status, editionId: null, reads: [] }));
         e.statusId = status;

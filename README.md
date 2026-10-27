@@ -29,12 +29,15 @@ The Reading page sends your Audiobookshelf listening progress to Hardcover:
 
 - A book you've started becomes **Currently Reading** with your progress.
 - A book you've finished becomes **Read** with the finish date.
-- It only moves forward. Read and Did Not Finish are left alone, and progress is never lowered.
+- Reading dates follow Audiobookshelf: the start date (first played) and finish date are set on Hardcover, and fixed if they differ.
+- It only moves forward. Read stays Read, Did Not Finish is never touched, and progress is never lowered.
 - Books under 5% listened (adjustable) are left out.
 
 Nothing is sent until you send it. Changes wait on the Reading page; **Review and send** shows the exact list with a checkbox for each. Every change that's sent is kept in **History**, where it can be undone: a book Shelfhelp added is removed, a status change is set back, and a progress update is reverted. If you'd rather not approve each batch, turn on **Send automatically** with the gear button on the Reading page.
 
-Other options there: add books that aren't on your Hardcover shelves yet (off by default), mark synced books as Owned, and pick libraries.
+Other options there: mark synced books as Owned, and pick libraries.
+
+When Hardcover lists the same book twice, the copy already on your shelves is used. **Match again** on a book forgets its match and looks it up fresh.
 
 Matching is shared with collections. Audiobookshelf items are matched to Hardcover books by ASIN/ISBN, by your collections, and by a Hardcover search, using the same rules. A match you make in either place applies to both.
 
