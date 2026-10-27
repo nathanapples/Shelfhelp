@@ -115,14 +115,74 @@ export interface Settings {
   readingMinProgress: number;
   readingMarkOwned: boolean;
   absLibraries: string[];
+  chaptarrUrl: string;
+  chaptarrApiKey: string;
+  requestsEnabled: boolean;
+  requestFormat: RequestFormat;
+  requestSearchNow: boolean;
+  chaptarrAudiobookRoot: string;
+  chaptarrEbookRoot: string;
+  chaptarrAudiobookQuality: number;
+  chaptarrEbookQuality: number;
+  chaptarrAudiobookMetadata: number;
+  chaptarrEbookMetadata: number;
   lockedByEnv: string[];
+}
+
+export type Format = "audiobook" | "ebook";
+export type RequestFormat = Format | "both";
+export type RequestStatus = "pending" | "requested" | "downloading" | "downloaded" | "available" | "failed";
+export type RequestMap = Partial<Record<Format, { id: number; status: RequestStatus }>>;
+
+export interface BookRequest {
+  id: number;
+  hcBookId: number;
+  format: Format;
+  title: string;
+  authors: string[];
+  slug: string | null;
+  hcUrl: string | null;
+  coverUrl: string | null;
+  releaseYear: number | null;
+  requestedBy: string;
+  status: RequestStatus;
+  message: string | null;
+  chaptarrBookId: number | null;
+  absItemId: string | null;
+  progress: number | null;
+  requestedAt: string;
+  updatedAt: string;
+  checkedAt: string | null;
+}
+
+export interface RequestOutcome {
+  format: Format;
+  status: RequestStatus;
+  message: string;
+  request: BookRequest;
+}
+
+export interface ChaptarrChoice {
+  rootFolderPath: string | null;
+  qualityProfileId: number | null;
+  metadataProfileId: number | null;
+  problem: string | null;
+}
+
+export interface ChaptarrOptions {
+  rootFolders: { id: number; name: string | null; path: string; folderType: number; defaultAudiobook: boolean; defaultEbook: boolean; freeSpace: number | null }[];
+  qualityProfiles: { id: number; name: string; profileType: string | number | null }[];
+  metadataProfiles: { id: number; name: string; profileType: string | number | null }[];
+  using: Record<Format, ChaptarrChoice>;
 }
 
 export interface Status {
   version: string;
   authRequired: boolean;
   signedIn: boolean;
-  configured: { hardcover: boolean; abs: boolean };
+  configured: { hardcover: boolean; abs: boolean; chaptarr: boolean };
+  requestsEnabled: boolean;
+  requestFormat: RequestFormat;
 }
 
 export interface SearchHit {
@@ -138,6 +198,7 @@ export interface SearchHit {
   hasAudiobook: boolean | null;
   absItemId: string | null;
   mine?: { status: number; statusName: string; progress: number | null } | null;
+  requests?: RequestMap;
 }
 
 export interface Activity {

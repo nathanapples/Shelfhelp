@@ -2,7 +2,7 @@
  * Fake Hardcover GraphQL and Audiobookshelf servers for local development.
  *
  *   npx tsx test/mock-servers.ts
- *   HARDCOVER_ENDPOINT=http://localhost:5091/v1/graphql HARDCOVER_TOKEN=x ABS_URL=http://localhost:5092 ABS_TOKEN=x CONFIG_DIR=./config npm run dev:server
+ *   HARDCOVER_ENDPOINT=http://localhost:5091/v1/graphql HARDCOVER_TOKEN=x ABS_URL=http://localhost:5092 ABS_TOKEN=x CHAPTARR_URL=http://localhost:5093 CHAPTARR_API_KEY=chaptarr-key CONFIG_DIR=./config npm run dev:server
  */
 import http from "node:http";
 
@@ -194,6 +194,10 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> })
     return { user_books: e ? [{ ...entryJson(e), edition: null }] : [] };
   }
   if (q.includes("query GetEditionsForBook")) return { editions: [edition(Number(v.bookId))] };
+  if (q.includes("query GetBookBySlug")) {
+    const i = books.findIndex((_, n) => listBooks(n, 1)[0].book.slug === v.slug);
+    return { books: i >= 0 ? [listBooks(i, 1)[0].book] : [] };
+  }
   if (q.includes("query GetBooks")) {
     return {
       books: (v.ids as number[])
@@ -399,3 +403,148 @@ http
     });
   })
   .listen(5092, () => console.log("mock Audiobookshelf on :5092"));
+
+// Chaptarr. Shapes follow Chaptarr's v1 API: one row per format, provider ids
+// like hc:101, 201 on add, 202 while a new author imports, 409 when ambiguous.
+const CHAPTARR_KEY = "chaptarr-key";
+interface CRow {
+  id: number;
+  hc: number;
+  mediaType: "audiobook" | "ebook";
+  monitored: boolean;
+  hasFiles: boolean;
+  grabbed: boolean;
+  checks: number;
+}
+const cRows: CRow[] = [
+  { id: 1, hc: 101, mediaType: "audiobook", monitored: true, hasFiles: true, grabbed: false, checks: 0 },
+  { id: 2, hc: 106, mediaType: "audiobook", monitored: false, hasFiles: false, grabbed: false, checks: 0 },
+];
+let cNextId = 10;
+const cPending = new Map<number, { hc: number; mediaType: "audiobook" | "ebook"; lookups: number }>();
+const cAdds: unknown[] = [];
+const cCommands: unknown[] = [];
+
+function cResource(b: MockBook, mediaType: "audiobook" | "ebook") {
+  const local = (t: string) => cRows.filter((r) => r.hc === b.id && r.mediaType === t).map((r) => ({ id: r.id, title: b.title, mediaType: t, monitored: r.monitored, hasFiles: r.hasFiles }));
+  const own = cRows.find((r) => r.hc === b.id && r.mediaType === mediaType);
+  return {
+    id: own?.id ?? 0,
+    title: b.title,
+    authorTitle: b.author.split(" ").reverse().join(", ") + " " + b.title,
+    foreignBookId: `hc:${b.id}`,
+    hardcoverBookId: `hc:${b.id}`,
+    mediaType,
+    monitored: own?.monitored ?? false,
+    hasFiles: own?.hasFiles ?? false,
+    grabbed: own?.grabbed ?? false,
+    remoteCover: `${HC}/cover/${b.id}.svg`,
+    narrator: mediaType === "audiobook" ? "Ray Porter" : null,
+    author: { id: 0, authorName: b.author, foreignAuthorId: `hc:${2000 + b.id}`, audiobookRootFolderPath: null, ebookRootFolderPath: null },
+    editions: [{ id: 0, foreignEditionId: `hc:edition:${b.id}${mediaType === "audiobook" ? 1 : 2}`, title: b.title, monitored: true }],
+    localAudiobookBooks: local("audiobook"),
+    localEbookBooks: local("ebook"),
+    statistics: { bookFileCount: own?.hasFiles ? 1 : 0 },
+  };
+}
+
+http
+  .createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      const send = (code: number, body?: unknown) => {
+        res.writeHead(code, { "Content-Type": "application/json" });
+        res.end(body === undefined ? "" : JSON.stringify(body));
+      };
+      if (req.headers["x-api-key"] !== CHAPTARR_KEY) return send(401, { error: "Unauthorized" });
+      const url = new URL(req.url ?? "/", "http://x");
+      const p = url.pathname;
+      const body = raw ? JSON.parse(raw) : null;
+      if (p === "/api/v1/system/status") return send(200, { appName: "Chaptarr", instanceName: "Chaptarr", version: "0.9.512" });
+      if (p === "/api/v1/rootfolder")
+        return send(200, [
+          { id: 1, name: "Audiobooks", path: "/audiobooks", folderType: 1, isEffectiveDefaultAudiobook: true, isEffectiveDefaultEbook: false, audiobook: { qualityProfileId: 1, metadataProfileId: 2 }, ebook: null, freeSpace: 4e12 },
+          { id: 2, name: "Ebooks", path: "/ebooks", folderType: 2, isEffectiveDefaultAudiobook: false, isEffectiveDefaultEbook: true, audiobook: null, ebook: { qualityProfileId: 3, metadataProfileId: 3 }, freeSpace: 4e12 },
+        ]);
+      if (p === "/api/v1/qualityprofile")
+        return send(200, [
+          { id: 1, name: "M4B Preferred", profileType: "audiobook" },
+          { id: 4, name: "Any Audio", profileType: "audiobook" },
+          { id: 3, name: "EPUB", profileType: "ebook" },
+        ]);
+      if (p === "/api/v1/metadataprofile")
+        return send(200, [
+          { id: 2, name: "Audiobook Standard", profileType: 1 },
+          { id: 3, name: "Ebook Standard", profileType: 2 },
+        ]);
+      if (p === "/api/v1/book/lookup") {
+        const term = url.searchParams.get("term") ?? "";
+        const mt = url.searchParams.get("mediaType") as "audiobook" | "ebook" | null;
+        if (/^\d+$/.test(term)) return send(400, { error: "Provider prefix required for term (hc:, gr:, ol:, gb:, az:, isbn:)." });
+        // A pending author import finishes after a couple of lookups.
+        for (const [pid, pend] of cPending) {
+          if (++pend.lookups >= 2) {
+            cRows.push({ id: cNextId++, hc: pend.hc, mediaType: pend.mediaType, monitored: true, hasFiles: false, grabbed: false, checks: 0 });
+            cPending.delete(pid);
+          }
+        }
+        const m = term.match(/^hc:(\d+)$/i);
+        const found = m ? books.filter((b) => b.id === Number(m[1])) : books.filter((b) => b.title.toLowerCase().includes(term.toLowerCase()));
+        const out = found.flatMap((b) => (["audiobook", "ebook"] as const).map((t) => cResource(b, t)));
+        return send(200, mt ? out.filter((o) => o.mediaType === mt) : out);
+      }
+      if (p === "/api/v1/book" && req.method === "POST") {
+        const mt = url.searchParams.get("mediaType") as "audiobook" | "ebook";
+        cAdds.push({ mediaType: mt, body });
+        console.log(`[chaptarr] add ${mt}: ${body?.title} author=${body?.author?.foreignAuthorId} root=${body?.author?.[`${mt}RootFolderPath`]} q=${body?.author?.[`${mt}QualityProfileId`]} m=${body?.author?.[`${mt}MetadataProfileId`]} search=${body?.addOptions?.searchForNewBook} monitor=${body?.author?.addOptions?.monitor}`);
+        if (!/^hc:\d+$/.test(body?.foreignBookId ?? "")) return send(400, [{ propertyName: "foreignBookId", errorMessage: "foreignBookId requires a provider prefix." }]);
+        if (!body?.author?.[`${mt}RootFolderPath`] || !body?.author?.[`${mt}QualityProfileId`])
+          return send(400, "No media type is configured (audiobook/ebook). Configure at least one root folder + quality profile for this instance.");
+        const hc = Number(body.foreignBookId.slice(3));
+        if (hc === 116) return send(409, { error: "Ambiguous provider identity", message: "More than one local author matches hc:2116.", candidates: [{ id: 7, title: "Orson Scott Card", authorName: "Orson Scott Card" }, { id: 8, title: "Orson S. Card", authorName: "Orson S. Card" }] });
+        if (hc === 115) {
+          const pid = cNextId++;
+          cPending.set(pid, { hc, mediaType: mt, lookups: 0 });
+          return send(202, { pendingId: pid, message: "Author import queued; the book will be added and searched when the author finishes importing." });
+        }
+        const row: CRow = { id: cNextId++, hc, mediaType: mt, monitored: true, hasFiles: false, grabbed: false, checks: 0 };
+        cRows.push(row);
+        return send(201, cResource(books.find((b) => b.id === hc)!, mt));
+      }
+      let mm: RegExpMatchArray | null;
+      if ((mm = p.match(/^\/api\/v1\/book\/(\d+)$/))) {
+        const row = cRows.find((r) => r.id === Number(mm![1]));
+        if (!row) return send(404, { message: "NotFound" });
+        // Each check moves a monitored book along: searching, downloading, downloaded.
+        if (row.monitored && !row.hasFiles) {
+          row.checks++;
+          if (row.checks >= 2) row.grabbed = true;
+          if (row.checks >= 4) {
+            row.grabbed = false;
+            row.hasFiles = true;
+          }
+        }
+        return send(200, cResource(books.find((b) => b.id === row.hc)!, row.mediaType));
+      }
+      if (p === "/api/v1/book/monitor" && req.method === "PUT") {
+        for (const id of body.bookIds) {
+          const r = cRows.find((x) => x.id === id);
+          if (r) r.monitored = body.monitored;
+        }
+        return send(202, []);
+      }
+      if (p === "/api/v1/command" && req.method === "POST") {
+        cCommands.push(body);
+        console.log(`[chaptarr] command ${body.name} ${JSON.stringify(body.bookIds)}`);
+        return send(201, { id: cCommands.length, name: body.name, status: "queued" });
+      }
+      if (p === "/api/v1/queue") {
+        const records = cRows.filter((r) => r.grabbed).map((r) => ({ bookId: r.id, status: "downloading", size: 400e6, sizeleft: 100e6, timeleft: "00:04:10" }));
+        return send(200, { page: 1, pageSize: 500, totalRecords: records.length, records });
+      }
+      if (p === "/test/chaptarr") return send(200, { rows: cRows, adds: cAdds, commands: cCommands, pending: [...cPending] });
+      send(404, { message: "NotFound" });
+    });
+  })
+  .listen(5093, () => console.log("mock Chaptarr on :5093"));

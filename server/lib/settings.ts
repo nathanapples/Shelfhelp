@@ -22,7 +22,25 @@ export interface Settings {
   readingMarkOwned: boolean;
   /** Audiobookshelf libraries Shelfhelp uses. Empty means every book library. */
   absLibraries: string[];
+  chaptarrUrl: string;
+  chaptarrApiKey: string;
+  /** Show Request buttons and send requests to Chaptarr. */
+  requestsEnabled: boolean;
+  /** What a Request button asks for unless you pick otherwise. */
+  requestFormat: RequestFormat;
+  /** Search for the book as soon as it's added. */
+  requestSearchNow: boolean;
+  /** Root folder path per format. Empty uses Chaptarr's default for that format. */
+  chaptarrAudiobookRoot: string;
+  chaptarrEbookRoot: string;
+  /** Profile IDs per format. 0 uses the root folder's default. */
+  chaptarrAudiobookQuality: number;
+  chaptarrEbookQuality: number;
+  chaptarrAudiobookMetadata: number;
+  chaptarrEbookMetadata: number;
 }
+
+export type RequestFormat = "audiobook" | "ebook" | "both";
 
 const defaults: Settings = {
   hardcoverToken: "",
@@ -36,6 +54,17 @@ const defaults: Settings = {
   readingMinProgress: 5,
   readingMarkOwned: false,
   absLibraries: [],
+  chaptarrUrl: "",
+  chaptarrApiKey: "",
+  requestsEnabled: false,
+  requestFormat: "audiobook",
+  requestSearchNow: true,
+  chaptarrAudiobookRoot: "",
+  chaptarrEbookRoot: "",
+  chaptarrAudiobookQuality: 0,
+  chaptarrEbookQuality: 0,
+  chaptarrAudiobookMetadata: 0,
+  chaptarrEbookMetadata: 0,
 };
 
 /** Environment variables win over saved values, so a compose file can pin them. */
@@ -44,6 +73,8 @@ const envKeys: Partial<Record<keyof Settings, string>> = {
   absUrl: "ABS_URL",
   absToken: "ABS_TOKEN",
   syncIntervalMinutes: "SYNC_INTERVAL_MINUTES",
+  chaptarrUrl: "CHAPTARR_URL",
+  chaptarrApiKey: "CHAPTARR_API_KEY",
 };
 
 export function getSettings(): Settings {
@@ -66,6 +97,7 @@ export function getSettings(): Settings {
   }
   const s = out as unknown as Settings;
   s.absUrl = s.absUrl.replace(/\/+$/, "");
+  s.chaptarrUrl = s.chaptarrUrl.replace(/\/+$/, "");
   return s;
 }
 
@@ -96,5 +128,5 @@ export function internal(key: string, make: () => string): string {
 export const sessionSecret = () => internal("sessionSecret", () => randomBytes(32).toString("hex"));
 
 export function isConfigured(s = getSettings()) {
-  return { hardcover: !!s.hardcoverToken, abs: !!(s.absUrl && s.absToken) };
+  return { hardcover: !!s.hardcoverToken, abs: !!(s.absUrl && s.absToken), chaptarr: !!(s.chaptarrUrl && s.chaptarrApiKey) };
 }

@@ -1,13 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import ActivityLog from "./Activity";
+import { ChaptarrSettings, testMessage } from "./ChaptarrSettings";
 import { CheckCircleIcon, ExclamationTriangleIcon, LockClosedIcon } from "@heroicons/react/24/outline";
 import { api, type Library, type Settings, type Status } from "../lib/api";
 import { ErrorBlock, LoadingBlock, PageTitle, Spinner, Tabs, Toggle } from "../components/ui";
 import { useToast } from "../components/toast";
 
-type Tab = "general" | "hardcover" | "abs" | "activity" | "about";
-const TABS: Tab[] = ["general", "hardcover", "abs", "activity", "about"];
+type Tab = "general" | "hardcover" | "abs" | "chaptarr" | "activity" | "about";
+const TABS: Tab[] = ["general", "hardcover", "abs", "chaptarr", "activity", "about"];
 
 function Section({ title, description, children }: { title: string; description: ReactNode; children: ReactNode }) {
   return (
@@ -53,6 +54,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [test, setTest] = useState<{ ok: boolean; message: ReactNode } | null>(null);
+  const [saves, setSaves] = useState(0);
 
   useEffect(() => {
     api<Settings>("/settings").then(setS).catch((e) => setError(e.message));
@@ -76,6 +78,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
       const body = Object.fromEntries(keys.filter((k) => !locked(k)).map((k) => [k, s[k]]));
       const saved = await api<Settings>("/settings", { method: "PUT", body });
       setS({ ...saved, lockedByEnv: s.lockedByEnv });
+      setSaves((n) => n + 1);
       toast("Settings saved");
       onSaved();
     } catch (e) {
@@ -120,6 +123,21 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
     }
   };
 
+  const testChaptarr = async () => {
+    setTesting(true);
+    try {
+      const r = await api<Parameters<typeof testMessage>[0]>("/settings/test/chaptarr", {
+        method: "POST",
+        body: { url: s.chaptarrUrl, apiKey: s.chaptarrApiKey },
+      });
+      setTest({ ok: true, message: testMessage(r) });
+    } catch (e) {
+      setTest({ ok: false, message: (e as Error).message });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const actions = (keys: (keyof Settings)[], onTest?: () => void) => (
     <div className="mt-8 flex max-w-6xl justify-end gap-3 border-t border-gray-700 pt-5">
       {onTest && (
@@ -143,6 +161,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
           { id: "general", label: "General" },
           { id: "hardcover", label: status.configured.hardcover ? "Hardcover" : "Hardcover ●" },
           { id: "abs", label: status.configured.abs ? "Audiobookshelf" : "Audiobookshelf ●" },
+          { id: "chaptarr", label: "Chaptarr" },
           { id: "activity", label: "Activity" },
           { id: "about", label: "About" },
         ]}
@@ -305,6 +324,38 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
         </Section>
       )}
 
+      {tab === "chaptarr" && (
+        <Section
+          title="Chaptarr"
+          description="Request audiobooks and ebooks from search or a Hardcover link. Shelfhelp adds just that one book in Chaptarr, not the author's other books."
+        >
+          <ChaptarrSettings
+            s={s}
+            set={set}
+            locked={locked}
+            configured={status.configured.chaptarr}
+            refreshKey={saves}
+            testResult={<TestResult result={test} />}
+            actions={actions(
+              [
+                "chaptarrUrl",
+                "chaptarrApiKey",
+                "requestsEnabled",
+                "requestFormat",
+                "requestSearchNow",
+                "chaptarrAudiobookRoot",
+                "chaptarrEbookRoot",
+                "chaptarrAudiobookQuality",
+                "chaptarrEbookQuality",
+                "chaptarrAudiobookMetadata",
+                "chaptarrEbookMetadata",
+              ],
+              testChaptarr,
+            )}
+          />
+        </Section>
+      )}
+
       {tab === "activity" && (
         <Section title="Activity" description="Syncs, changes and errors, newest first.">
           <div className="mt-6 max-w-6xl">
@@ -319,7 +370,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
             {[
               ["Version", status.version],
               ["Source", <a key="s" className="text-indigo-400 hover:underline" href="https://github.com/nathanapples/shelfhelp" target="_blank" rel="noreferrer">github.com/nathanapples/shelfhelp</a>],
-              ["Coming later", "Requests through Chaptarr, and read status sync per user"],
+              ["Coming later", "Requests and reading sync for other Audiobookshelf users"],
             ].map(([k, v]) => (
               <div key={String(k)} className="grid grid-cols-3 gap-4 px-5 py-3 text-sm">
                 <dt className="font-medium text-gray-400">{k}</dt>

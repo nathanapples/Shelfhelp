@@ -1,6 +1,6 @@
 # Shelfhelp
 
-Keeps [Audiobookshelf](https://www.audiobookshelf.org/) collections in step with your [Hardcover](https://hardcover.app) lists, with a web UI modeled on Seerr.
+Keeps [Audiobookshelf](https://www.audiobookshelf.org/) collections in step with your [Hardcover](https://hardcover.app) lists, sends your listening progress to Hardcover, and requests books through Chaptarr, with a web UI modeled on Seerr.
 
 Add a Hardcover list or one of your shelves (Want to Read, Currently Reading, Read, Did Not Finish), pick a library, and Shelfhelp creates a collection with every book on it that you own. When the list or shelf changes, the collection follows.
 
@@ -45,6 +45,17 @@ Progress comes from the Audiobookshelf user whose API key Shelfhelp uses. Every 
 
 Some of these rules follow [ShelfBridge](https://github.com/rohit-purandare/ShelfBridge) and [audiobookshelf-hardcover-sync](https://github.com/drallgood/audiobookshelf-hardcover-sync).
 
+## Requests (Chaptarr)
+
+Connect [Chaptarr](https://github.com/Chaptarr/chaptarr) in Settings, Chaptarr, then turn Requests on. Search for a book or paste a hardcover.app link on the Requests page and request it as an audiobook (the default), an ebook, or both.
+
+- Books are found in Chaptarr by their Hardcover id (`hc:123`), not by title.
+- Only the requested book is monitored. A new author is added with nothing else monitored and no new books followed.
+- A book Chaptarr already has but isn't monitoring is switched on and searched; one it already downloaded is just marked Downloaded.
+- Root folder and profiles default to whatever the root folder is set to in Chaptarr; you can pick others per format.
+- Requests move through Requested, Downloading and Downloaded. Audiobooks become Available once they show up in Audiobookshelf. Shelfhelp checks every few minutes.
+- The Chaptarr tab has a read-only lookup tester that shows exactly what Chaptarr returns, for checking the connection without adding anything.
+
 ## Install
 
 Create a `docker-compose.yml`:
@@ -82,6 +93,7 @@ To update: `docker compose pull && docker compose up -d`.
 | `APP_PASSWORD` | unset | Require a password to open the web UI |
 | `HARDCOVER_TOKEN` | unset | Pins the Hardcover token instead of setting it in the UI |
 | `ABS_URL` / `ABS_TOKEN` | unset | Pins the Audiobookshelf connection |
+| `CHAPTARR_URL` / `CHAPTARR_API_KEY` | unset | Pins the Chaptarr connection |
 | `SYNC_INTERVAL_MINUTES` | 360 | Pins the sync schedule (0 turns it off) |
 | `PORT` | 5075 | Port inside the container |
 
@@ -89,18 +101,18 @@ Everything Shelfhelp keeps (settings, lists, decisions, the library snapshot) li
 
 ## Roadmap
 
-- Requests: send books that are not in your library to Chaptarr.
-- Per-user read status sync between Audiobookshelf and Hardcover.
+- Other users: sign in with Audiobookshelf accounts, request books, and sync their own reading to Hardcover.
 
 ## Development
 
 ```bash
 npm install
-npx tsx test/mock-servers.ts      # fake Hardcover + Audiobookshelf on :5091 / :5092
+npx tsx test/mock-servers.ts      # fake Hardcover, Audiobookshelf, Chaptarr on :5091 / :5092 / :5093
 HARDCOVER_ENDPOINT=http://localhost:5091/v1/graphql HARDCOVER_TOKEN=x \
-  ABS_URL=http://localhost:5092 ABS_TOKEN=x CONFIG_DIR=./config npm run dev:server
+  ABS_URL=http://localhost:5092 ABS_TOKEN=x \
+  CHAPTARR_URL=http://localhost:5093 CHAPTARR_API_KEY=chaptarr-key CONFIG_DIR=./config npm run dev:server
 npm run dev:web                   # http://localhost:5173
-npm test                          # matcher tests
+npm test
 ```
 
 Built with the official [Hardcover TypeScript SDK](https://github.com/hardcoverapp/hardcover-sdk), Fastify, React and Tailwind. The GitHub Action in `.github/workflows/docker.yml` publishes `ghcr.io/nathanapples/shelfhelp` (amd64 and arm64) on every push to `main`.

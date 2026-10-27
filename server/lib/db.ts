@@ -206,6 +206,30 @@ const migrations: string[] = [
   `
   ALTER TABLE reading_history ADD COLUMN prev_dates TEXT;
   `,
+  `
+  -- Books requested from Chaptarr, one row per book and format.
+  CREATE TABLE requests (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    hc_book_id       INTEGER NOT NULL,
+    format           TEXT NOT NULL,
+    title            TEXT NOT NULL,
+    authors          TEXT,
+    slug             TEXT,
+    cover_url        TEXT,
+    release_year     INTEGER,
+    requested_by     TEXT NOT NULL DEFAULT 'admin',
+    status           TEXT NOT NULL,
+    message          TEXT,
+    chaptarr_book_id INTEGER,
+    pending_id       INTEGER,
+    abs_item_id      TEXT,
+    progress         REAL,
+    requested_at     TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    checked_at       TEXT,
+    UNIQUE (hc_book_id, format)
+  );
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

@@ -7,6 +7,7 @@ import {
   Bars3Icon,
   BookOpenIcon,
   CogIcon,
+  InboxArrowDownIcon,
   MagnifyingGlassIcon,
   RectangleStackIcon,
   XMarkIcon,
@@ -19,6 +20,7 @@ import { useToast } from "./toast";
 const nav: { to: string; label: string; icon: React.ComponentType<{ className?: string }>; end?: boolean; count?: string }[] = [
   { to: "/reading", label: "Reading", icon: BookOpenIcon },
   { to: "/", label: "Collections", icon: RectangleStackIcon, end: true },
+  { to: "/requests", label: "Requests", icon: InboxArrowDownIcon, count: "requests" },
   { to: "/settings", label: "Settings", icon: CogIcon },
 ];
 
@@ -33,10 +35,10 @@ export function Logo({ className = "" }: { className?: string }) {
   );
 }
 
-function NavItems({ counts, onNavigate }: { counts: Record<string, number> | null; onNavigate?: () => void }) {
+function NavItems({ counts, onNavigate, showRequests }: { counts: Record<string, number> | null; onNavigate?: () => void; showRequests: boolean }) {
   return (
     <nav className="mt-8 flex-1 space-y-2 px-4">
-      {nav.map((n) => {
+      {nav.filter((n) => showRequests || n.to !== "/requests").map((n) => {
         const count = n.count ? (counts?.[n.count] ?? 0) : 0;
         return (
           <NavLink
@@ -64,7 +66,17 @@ function NavItems({ counts, onNavigate }: { counts: Record<string, number> | nul
   );
 }
 
-export function Layout({ children, version, authRequired }: { children: ReactNode; version: string; authRequired: boolean }) {
+export function Layout({
+  children,
+  version,
+  authRequired,
+  showRequests,
+}: {
+  children: ReactNode;
+  version: string;
+  authRequired: boolean;
+  showRequests: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const { data: counts, reload } = useApi<Record<string, number>>("/counts", { poll: 15000 });
@@ -121,7 +133,7 @@ export function Layout({ children, version, authRequired }: { children: ReactNod
               <XMarkIcon className="h-6 w-6" />
             </button>
           </div>
-          <NavItems counts={counts} onNavigate={() => setOpen(false)} />
+          <NavItems counts={counts} onNavigate={() => setOpen(false)} showRequests={showRequests} />
           {sidebarFooter}
         </div>
       </div>
@@ -131,7 +143,7 @@ export function Layout({ children, version, authRequired }: { children: ReactNod
         <div className="px-6">
           <Logo />
         </div>
-        <NavItems counts={counts} />
+        <NavItems counts={counts} showRequests={showRequests} />
         {sidebarFooter}
       </aside>
 

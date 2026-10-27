@@ -11,6 +11,8 @@ import { decide, getList, hardcoverUrl, isRunning, pushCollection, rematch, runn
 import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 import { jobsView } from "./lib/progress.js";
+import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
+import { forgetRequest, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
 import { decideItem, history, myShelfStatus, readingRunning, rematchItem, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
 
 const COOKIE = "shelfhelp_session";
@@ -131,6 +133,8 @@ export async function routes(app: FastifyInstance) {
     authRequired: !!config.appPassword,
     signedIn: authed(req),
     configured: isConfigured(),
+    requestsEnabled: getSettings().requestsEnabled && isConfigured().chaptarr,
+    requestFormat: getSettings().requestFormat,
   }));
 
   app.post<{ Body: { password?: string } }>("/api/auth/login", async (req, reply) => {
@@ -155,6 +159,7 @@ export async function routes(app: FastifyInstance) {
       ...s,
       hardcoverToken: s.hardcoverToken ? MASK : "",
       absToken: s.absToken ? MASK : "",
+      chaptarrApiKey: s.chaptarrApiKey ? MASK : "",
       lockedByEnv: lockedByEnv(),
     };
   });
@@ -163,6 +168,11 @@ export async function routes(app: FastifyInstance) {
     const patch = { ...req.body };
     if (patch.hardcoverToken === MASK) delete patch.hardcoverToken;
     if (patch.absToken === MASK) delete patch.absToken;
+    if (patch.chaptarrApiKey === MASK) delete patch.chaptarrApiKey;
+    if (patch.requestFormat && !["audiobook", "ebook", "both"].includes(patch.requestFormat)) delete patch.requestFormat;
+    for (const k of ["chaptarrAudiobookQuality", "chaptarrEbookQuality", "chaptarrAudiobookMetadata", "chaptarrEbookMetadata"] as const) {
+      if (patch[k] !== undefined) patch[k] = Math.max(0, Number(patch[k]) || 0);
+    }
     if (patch.syncIntervalMinutes !== undefined) patch.syncIntervalMinutes = Math.max(0, Number(patch.syncIntervalMinutes) || 0);
     if (patch.matchStrictness && !["strict", "balanced", "loose"].includes(patch.matchStrictness)) delete patch.matchStrictness;
     if (patch.readingMinProgress !== undefined) patch.readingMinProgress = Math.min(100, Math.max(0, Number(patch.readingMinProgress) || 0));
@@ -177,7 +187,12 @@ export async function routes(app: FastifyInstance) {
     if (patch.matchStrictness && patch.matchStrictness !== before) {
       for (const l of db.prepare("SELECT * FROM lists").all() as unknown as ListRow[]) rematch(l);
     }
-    return { ...saved, hardcoverToken: saved.hardcoverToken ? MASK : "", absToken: saved.absToken ? MASK : "" };
+    return {
+      ...saved,
+      hardcoverToken: saved.hardcoverToken ? MASK : "",
+      absToken: saved.absToken ? MASK : "",
+      chaptarrApiKey: saved.chaptarrApiKey ? MASK : "",
+    };
   });
 
   app.post<{ Body: { token?: string } }>("/api/settings/test/hardcover", async (req, reply) => {
@@ -268,23 +283,160 @@ export async function routes(app: FastifyInstance) {
       const hits = await searchBooks(q);
       // What we already know about each result in your libraries.
       const ids = hits.map((h) => h.id);
-      const known = new Map<number, string>();
-      if (ids.length) {
-        const ph = ids.map(() => "?").join(",");
-        for (const r of db
-          .prepare(`SELECT DISTINCT hc_book_id, abs_item_id FROM id_links WHERE hc_book_id IN (${ph})`)
-          .all(...ids) as { hc_book_id: number; abs_item_id: string }[])
-          known.set(r.hc_book_id, r.abs_item_id);
-        for (const r of db
-          .prepare(`SELECT hc_book_id, abs_item_id FROM list_books WHERE status = 'matched' AND hc_book_id IN (${ph})`)
-          .all(...ids) as { hc_book_id: number; abs_item_id: string }[])
-          known.set(r.hc_book_id, r.abs_item_id);
-      }
+      const known = inLibrary(ids);
+      const requests = requestsFor(ids);
       const shelves = myShelfStatus(ids);
-      return hits.map((h) => ({ ...h, absItemId: known.get(h.id) ?? null, mine: shelves.get(h.id) ?? null }));
+      return hits.map((h) => ({ ...h, absItemId: known.get(h.id) ?? null, mine: shelves.get(h.id) ?? null, requests: requests.get(h.id) ?? {} }));
     } catch (err) {
       return fail(reply, err);
     }
+  });
+
+  /** One Hardcover book from a link, slug or id, with what Shelfhelp knows about it. */
+  app.get<{ Querystring: { ref: string } }>("/api/hardcover/book", async (req, reply) => {
+    try {
+      const ref = parseHardcoverRef(req.query.ref ?? "");
+      if (!ref) return reply.code(400).send({ error: "Paste a hardcover.app book link, a book slug, or a Hardcover book id." });
+      const book = await hardcoverBook(ref);
+      if (!book) return reply.code(404).send({ error: "Hardcover has no book by that link or id." });
+      return {
+        ...book,
+        absItemId: inLibrary([book.id]).get(book.id) ?? null,
+        mine: myShelfStatus([book.id]).get(book.id) ?? null,
+        requests: requestsFor([book.id]).get(book.id) ?? {},
+      };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  // Chaptarr
+  app.post<{ Body: { url?: string; apiKey?: string } }>("/api/settings/test/chaptarr", async (req, reply) => {
+    try {
+      const s = getSettings();
+      const url = (req.body?.url || s.chaptarrUrl).replace(/\/+$/, "");
+      const key = !req.body?.apiKey || req.body.apiKey === MASK ? s.chaptarrApiKey : req.body.apiKey;
+      const c = new Chaptarr(url, key, s);
+      const status = await c.status();
+      const [roots, quality, metadata] = await Promise.all([c.rootFolders(), c.qualityProfiles(), c.metadataProfiles()]);
+      return {
+        appName: status.appName ?? "Chaptarr",
+        version: status.version ?? null,
+        rootFolders: roots.length,
+        qualityProfiles: quality.length,
+        metadataProfiles: metadata.length,
+      };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  /** Root folders and profiles to pick from, and what a request would use right now. */
+  app.get("/api/chaptarr/options", async (_req, reply) => {
+    try {
+      const s = getSettings();
+      const c = new Chaptarr(undefined, undefined, s);
+      const [roots, quality, metadata] = await Promise.all([c.rootFolders(), c.qualityProfiles(), c.metadataProfiles()]);
+      return {
+        rootFolders: roots.map((r) => ({
+          id: r.id,
+          name: r.name ?? null,
+          path: r.path,
+          folderType: r.folderType ?? 0,
+          defaultAudiobook: !!r.isEffectiveDefaultAudiobook,
+          defaultEbook: !!r.isEffectiveDefaultEbook,
+          freeSpace: r.freeSpace ?? null,
+        })),
+        qualityProfiles: quality.map((p) => ({ id: p.id, name: p.name, profileType: p.profileType ?? null })),
+        metadataProfiles: metadata.map((p) => ({ id: p.id, name: p.name, profileType: p.profileType ?? null })),
+        using: {
+          audiobook: chooseFor("audiobook", s, roots, quality, metadata),
+          ebook: chooseFor("ebook", s, roots, quality, metadata),
+        },
+      };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  /** Read-only: what Chaptarr says about a term, for testing from the Settings page. */
+  app.get<{ Querystring: { term: string; mediaType?: string } }>("/api/chaptarr/lookup", async (req, reply) => {
+    try {
+      const raw = (req.query.term ?? "").trim();
+      if (!raw) return reply.code(400).send({ error: "Enter something to look up." });
+      // A Hardcover link or a bare number becomes hc:<id>; anything else goes as typed.
+      let term = raw;
+      if (/hardcover\.app\/books\//i.test(raw)) {
+        const book = await hardcoverBook(parseHardcoverRef(raw)!);
+        if (!book) return reply.code(404).send({ error: "Hardcover has no book at that link." });
+        term = `hc:${book.id}`;
+      } else if (/^\d+$/.test(raw)) term = `hc:${raw}`;
+      const mediaType = req.query.mediaType === "audiobook" || req.query.mediaType === "ebook" ? (req.query.mediaType as Format) : undefined;
+      const started = Date.now();
+      const results = await new Chaptarr().lookup(term, mediaType);
+      return {
+        term,
+        ms: Date.now() - started,
+        results: results.slice(0, 20).map((b) => ({
+          id: b.id,
+          title: b.title ?? null,
+          authorTitle: b.authorTitle ?? null,
+          authorName: b.author?.authorName ?? null,
+          foreignAuthorId: b.author?.foreignAuthorId ?? null,
+          foreignBookId: b.foreignBookId ?? null,
+          hardcoverBookId: b.hardcoverBookId ?? null,
+          mediaType: b.mediaType ?? null,
+          monitored: b.monitored ?? null,
+          hasFiles: b.hasFiles ?? null,
+          grabbed: b.grabbed ?? null,
+          narrator: b.narrator ?? null,
+          cover: b.remoteCover ?? null,
+          inChaptarr: {
+            audiobook: localOf(b, "audiobook"),
+            ebook: localOf(b, "ebook"),
+          },
+          editions: Array.isArray(b.editions) ? b.editions.length : null,
+        })),
+        sample: results[0] ? JSON.stringify(results[0], null, 2).slice(0, 6000) : null,
+      };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  // Requests
+  app.get("/api/requests", async () => {
+    refreshRequests().catch(() => {});
+    return { requests: listRequests(), counts: requestCounts() };
+  });
+
+  app.post("/api/requests/refresh", async () => {
+    await refreshRequests(0);
+    return { requests: listRequests(), counts: requestCounts() };
+  });
+
+  app.post<{ Body: { hcBookId: number; format?: "audiobook" | "ebook" | "both" } }>("/api/requests", async (req, reply) => {
+    try {
+      const id = Number(req.body?.hcBookId);
+      if (!id) return reply.code(400).send({ error: "Which book?" });
+      const format = req.body.format && ["audiobook", "ebook", "both"].includes(req.body.format) ? req.body.format : getSettings().requestFormat;
+      return { outcomes: await requestBook(id, format) };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.post<{ Params: { id: string } }>("/api/requests/:id/retry", async (req, reply) => {
+    try {
+      return { outcomes: await retryRequest(Number(req.params.id)) };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/requests/:id", async (req) => {
+    forgetRequest(Number(req.params.id));
+    return { ok: true };
   });
 
   // Lists
@@ -410,7 +562,9 @@ export async function routes(app: FastifyInstance) {
          FROM list_books b JOIN lists l ON l.id = b.list_id GROUP BY b.status`,
       )
       .all() as { status: string; n: number }[];
-    return Object.fromEntries(r.map((x) => [x.status, x.n]));
+    const c = requestCounts();
+    const openRequests = (c.pending ?? 0) + (c.requested ?? 0) + (c.downloading ?? 0) + (c.downloaded ?? 0);
+    return { ...Object.fromEntries(r.map((x) => [x.status, x.n])), requests: openRequests };
   });
 
   app.post<{ Body: { hcBookId: number; libraryId: string; action: "match" | "ignore" | "missing" | "reset"; absItemId?: string } }>(

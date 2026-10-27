@@ -6,6 +6,7 @@ import { config } from "./lib/config.js";
 import { sessionSecret } from "./lib/settings.js";
 import { routes } from "./routes.js";
 import { reschedule } from "./lib/scheduler.js";
+import { startRequestWatcher } from "./lib/requests.js";
 import { syncAll } from "./lib/sync.js";
 import { backfillHistory, syncReading } from "./lib/reading.js";
 
@@ -28,6 +29,7 @@ console.log(`Shelfhelp ${config.version} listening on http://${config.host}:${co
 
 backfillHistory();
 reschedule();
+startRequestWatcher();
 // A first sync shortly after start, so lists catch up after a restart.
 setTimeout(() => {
   syncAll("startup")

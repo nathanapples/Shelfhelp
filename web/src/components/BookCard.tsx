@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { BookStatus } from "../lib/api";
 import { Cover, StatusDot, statusMeta } from "./ui";
 
@@ -19,12 +19,18 @@ export function BookCard({
   actionLabel,
   pill = "Book",
   width = "w-36 sm:w-40 md:w-44",
+  corner,
+  note,
 }: {
   book: CardBook;
   onClick?: () => void;
   actionLabel?: string;
   pill?: string;
   width?: string;
+  /** Replaces the status dot in the top corner. */
+  corner?: ReactNode;
+  /** A line under the title in the hover details. */
+  note?: ReactNode;
 }) {
   const [hover, setHover] = useState(false);
   return (
@@ -47,7 +53,7 @@ export function BookCard({
             <span className="pointer-events-none rounded-full border border-purple-600 bg-purple-600/80 px-2 text-[10px] font-semibold uppercase leading-5 tracking-wider text-white shadow-md">
               {pill}
             </span>
-            {book.status && <StatusDot status={book.status} className="h-5 w-5" />}
+            {corner ?? (book.status && <StatusDot status={book.status} className="h-5 w-5" />)}
           </div>
           <div
             className={`absolute inset-0 flex flex-col justify-end bg-gray-800/80 p-3 transition-opacity duration-300 ${
@@ -67,6 +73,7 @@ export function BookCard({
               {book.status && (
                 <div className="mt-2 text-xs font-semibold text-gray-200">{statusMeta[book.status].label}</div>
               )}
+              {note && <div className="mt-2 text-xs font-semibold text-gray-200">{note}</div>}
             </div>
             {actionLabel && (
               <span className="btn btn-sm btn-primary mt-2 w-full">{actionLabel}</span>
