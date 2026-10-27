@@ -1,6 +1,6 @@
 import { Abs } from "./abs.js";
 import { db, json, tx } from "./db.js";
-import { fetchList, type ListBook } from "./hardcover.js";
+import { fetchSource, type ListBook } from "./hardcover.js";
 import { idLinks, libraryIndex, refreshLibrary } from "./library.js";
 import { matchBook, type Candidate } from "./matcher.js";
 import { getSettings, isConfigured } from "./settings.js";
@@ -58,11 +58,11 @@ export async function syncList(listId: number, { forceLibrary = false } = {}) {
   if (!list) throw new Error(`List ${listId} not found`);
   running.add(listId);
   try {
-    const { info, books } = await fetchList(list.hc_list_id);
+    const { info, books } = await fetchSource(list.source_type, list.hc_list_id);
     await refreshLibrary(list.abs_library_id, { force: forceLibrary });
     rematch(list, books);
-    db.prepare("UPDATE lists SET name = ?, hc_slug = ?, description = ? WHERE id = ?").run(
-      info.name, info.slug, info.description, listId,
+    db.prepare("UPDATE lists SET name = ?, hc_slug = ?, description = ?, hc_owner = COALESCE(?, hc_owner) WHERE id = ?").run(
+      info.name, info.slug, info.description, info.owner, listId,
     );
     const summary = await pushCollection(listId);
     db.prepare("UPDATE lists SET last_synced_at = datetime('now'), last_status = 'ok', last_error = NULL WHERE id = ?").run(listId);
@@ -182,8 +182,16 @@ export async function pushCollection(listId: number): Promise<string> {
   return `${changes || "no changes"}; ${tail}`;
 }
 
+export function hardcoverUrl(list: Pick<ListRow, "source_type" | "hc_owner" | "hc_slug">) {
+  if (!list.hc_owner || !list.hc_slug) return null;
+  return list.source_type === "hardcover_status"
+    ? `https://hardcover.app/@${list.hc_owner}/books/${list.hc_slug}`
+    : `https://hardcover.app/@${list.hc_owner}/lists/${list.hc_slug}`;
+}
+
 function collectionDescription(list: ListRow) {
-  const link = list.hc_owner && list.hc_slug ? ` https://hardcover.app/@${list.hc_owner}/lists/${list.hc_slug}` : "";
+  const url = hardcoverUrl(list);
+  const link = url ? ` ${url}` : "";
   return `Synced from Hardcover by Shelfhelper.${link}`;
 }
 

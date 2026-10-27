@@ -125,6 +125,23 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> })
       },
     };
   }
+  if (q.includes("query CountLibrary") || q.includes("query GetLibrary")) {
+    const status = ((v.statusIds as number[]) ?? [1])[0];
+    // Want to Read: a few books, two of which are in the library.
+    const shelf = status === 1 ? books.filter((b) => [107, 113, 112, 118, 117].includes(b.id)) : status === 3 ? books.slice(0, 3) : [];
+    if (q.includes("query CountLibrary")) return { user_books_aggregate: { aggregate: { count: shelf.length } } };
+    const offset = Number(v.offset ?? 0);
+    const limit = Number(v.limit ?? 25);
+    return {
+      user_books: shelf.slice(offset, offset + limit).map((b, i) => ({
+        id: 5000 + b.id,
+        statusId: status,
+        book: listBooks(books.indexOf(b), 1)[0].book,
+        edition: null,
+        position: i,
+      })),
+    };
+  }
   if (q.includes("query MyLists")) {
     const covers = books.slice(0, 4).map((b) => ({ book: { cached_image: { url: `${HC}/cover/${b.id}.svg` } } }));
     return {

@@ -4,10 +4,10 @@ import { Readable } from "node:stream";
 import { Abs, AbsError } from "./lib/abs.js";
 import { db, json } from "./lib/db.js";
 import { config } from "./lib/config.js";
-import { fetchList, myLists, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
+import { fetchList, fetchSource, myLists, myShelves, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
 import { getItems, refreshLibrary, searchLibrary } from "./lib/library.js";
 import { getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } from "./lib/settings.js";
-import { decide, getList, isRunning, pushCollection, rematch, runningLists, statusCounts, syncAll, syncList, type ListRow } from "./lib/sync.js";
+import { decide, getList, hardcoverUrl, isRunning, pushCollection, rematch, runningLists, statusCounts, syncAll, syncList, type ListRow } from "./lib/sync.js";
 import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 
@@ -32,10 +32,11 @@ function authed(req: FastifyRequest): boolean {
 function listView(l: ListRow) {
   return {
     id: l.id,
+    sourceType: l.source_type,
     hcListId: l.hc_list_id,
     hcSlug: l.hc_slug,
     hcOwner: l.hc_owner,
-    hcUrl: l.hc_owner && l.hc_slug ? `https://hardcover.app/@${l.hc_owner}/lists/${l.hc_slug}` : null,
+    hcUrl: hardcoverUrl(l),
     name: l.name,
     description: l.description,
     absLibraryId: l.abs_library_id,
@@ -220,6 +221,14 @@ export async function routes(app: FastifyInstance) {
   });
 
   // Hardcover
+  app.get("/api/hardcover/shelves", async (_req, reply) => {
+    try {
+      return await myShelves();
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
   app.get("/api/hardcover/lists", async (_req, reply) => {
     try {
       return await myLists();
@@ -271,22 +280,25 @@ export async function routes(app: FastifyInstance) {
   });
 
   app.post<{
-    Body: { hcListId: number; hcOwner?: string | null; absLibraryId: string; collectionName?: string; removeMissing?: boolean; keepOrder?: boolean };
+    Body: { sourceType?: "hardcover_list" | "hardcover_status"; hcListId: number; hcOwner?: string | null; absLibraryId: string; collectionName?: string; removeMissing?: boolean; keepOrder?: boolean };
   }>("/api/lists", async (req, reply) => {
     try {
       const b = req.body;
-      const existing = db.prepare("SELECT id FROM lists WHERE hc_list_id = ? AND abs_library_id = ?").get(b.hcListId, b.absLibraryId) as
+      const sourceType = b.sourceType === "hardcover_status" ? "hardcover_status" : "hardcover_list";
+      const existing = db
+        .prepare("SELECT id FROM lists WHERE source_type = ? AND hc_list_id = ? AND abs_library_id = ?")
+        .get(sourceType, b.hcListId, b.absLibraryId) as
         | { id: number }
         | undefined;
       if (existing) return reply.code(409).send({ error: "That list is already synced to this library.", id: existing.id });
-      const { info } = await fetchList(b.hcListId);
+      const { info } = await fetchSource(sourceType, b.hcListId);
       const res = db
         .prepare(
-          `INSERT INTO lists (hc_list_id, hc_slug, hc_owner, name, description, abs_library_id, collection_name, remove_missing, keep_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO lists (source_type, hc_list_id, hc_slug, hc_owner, name, description, abs_library_id, collection_name, remove_missing, keep_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
-          b.hcListId, info.slug, b.hcOwner ?? null, info.name, info.description, b.absLibraryId,
+          sourceType, b.hcListId, info.slug, b.hcOwner ?? info.owner ?? null, info.name, info.description, b.absLibraryId,
           (b.collectionName || info.name).trim(), b.removeMissing === false ? 0 : 1, b.keepOrder === false ? 0 : 1,
         );
       const id = Number(res.lastInsertRowid);

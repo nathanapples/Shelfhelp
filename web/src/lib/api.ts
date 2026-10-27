@@ -8,8 +8,11 @@ export interface Counts {
   total: number;
 }
 
+export type SourceType = "hardcover_list" | "hardcover_status";
+
 export interface List {
   id: number;
+  sourceType: SourceType;
   hcListId: number;
   hcSlug: string | null;
   hcOwner: string | null;
@@ -91,6 +94,7 @@ export interface HcList {
   owner: string | null;
   coverUrls: string[];
   followed?: boolean;
+  sourceType?: SourceType;
 }
 
 export interface Library {

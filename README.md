@@ -2,7 +2,7 @@
 
 Keeps [Audiobookshelf](https://www.audiobookshelf.org/) collections in step with your [Hardcover](https://hardcover.app) lists, with a web UI modeled on Seerr.
 
-Add a Hardcover list, pick a library, and Shelfhelper creates a collection with every book from the list that you own. When the list changes, the collection follows.
+Add a Hardcover list or one of your shelves (Want to Read, Currently Reading, Read, Did Not Finish), pick a library, and Shelfhelper creates a collection with every book on it that you own. When the list or shelf changes, the collection follows.
 
 ## How matching works
 

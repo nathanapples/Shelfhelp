@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircleIcon, LinkIcon } from "@heroicons/react/24/outline";
+import { BookmarkIcon, CheckCircleIcon, LinkIcon } from "@heroicons/react/24/outline";
 import { api, type HcList, type Library, type List } from "../lib/api";
 import { Cover, Modal, Spinner, Toggle } from "./ui";
 import { useToast } from "./toast";
@@ -24,6 +24,7 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
   const toast = useToast();
   const navigate = useNavigate();
   const [lists, setLists] = useState<HcList[] | null>(null);
+  const [shelves, setShelves] = useState<HcList[] | null>(null);
   const [libraries, setLibraries] = useState<Library[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [url, setUrl] = useState("");
@@ -41,6 +42,7 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
     setUrl("");
     setLoadError(null);
     api<HcList[]>("/hardcover/lists").then(setLists).catch((e) => setLoadError(e.message));
+    api<HcList[]>("/hardcover/shelves").then(setShelves).catch(() => setShelves([]));
     api<Library[]>("/abs/libraries")
       .then((l) => {
         setLibraries(l);
@@ -72,7 +74,7 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
     try {
       const list = await api<List>("/lists", {
         method: "POST",
-        body: { hcListId: picked.id, hcOwner: picked.owner, absLibraryId: libraryId, collectionName, removeMissing, keepOrder },
+        body: { sourceType: picked.sourceType ?? "hardcover_list", hcListId: picked.id, hcOwner: picked.owner, absLibraryId: libraryId, collectionName, removeMissing, keepOrder },
       });
       toast(`Syncing "${list.name}"`);
       onClose();
@@ -84,14 +86,33 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
     }
   };
 
-  const synced = new Set(existing.filter((l) => l.absLibraryId === libraryId).map((l) => l.hcListId));
+  const key = (type: string | undefined, id: number) => `${type ?? "hardcover_list"}:${id}`;
+  const synced = new Set(existing.filter((l) => l.absLibraryId === libraryId).map((l) => key(l.sourceType, l.hcListId)));
+
+  const row = (l: HcList, sub: string) => (
+    <button
+      key={key(l.sourceType, l.id)}
+      onClick={() => pick(l)}
+      className="flex w-full items-center gap-4 rounded-lg bg-gray-900/40 p-3 text-left ring-1 ring-gray-700 transition hover:bg-gray-700/60 hover:ring-gray-500"
+    >
+      <Covers urls={l.coverUrls} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 truncate font-semibold text-white">
+          {l.sourceType === "hardcover_status" && <BookmarkIcon className="h-4 w-4 flex-shrink-0 text-purple-400" />}
+          {l.name}
+        </div>
+        <div className="text-xs text-gray-400">{sub}</div>
+      </div>
+      {synced.has(key(l.sourceType, l.id)) && <CheckCircleIcon className="h-6 w-6 text-green-400" title="Already synced" />}
+    </button>
+  );
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title={picked ? `Sync "${picked.name}"` : "Add a Hardcover list"}
-      subtitle={picked ? `${picked.booksCount} books` : "Pick one of your lists, or paste a link to anyone's public list."}
+      subtitle={picked ? `${picked.booksCount} books` : "Pick a shelf or list, or paste a link to anyone's public list."}
       footer={
         picked ? (
           <>
@@ -125,6 +146,14 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
             </button>
           </div>
 
+          <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Your shelves</h4>
+          {!shelves && !loadError && (
+            <div className="flex justify-center py-4">
+              <Spinner />
+            </div>
+          )}
+          <div className="space-y-2">{shelves?.map((l) => row(l, `${l.booksCount} books`))}</div>
+
           <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Your lists</h4>
           {!lists && !loadError && (
             <div className="flex justify-center py-8">
@@ -132,24 +161,7 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
             </div>
           )}
           {lists?.length === 0 && <div className="text-sm text-gray-500">You don't have any lists on Hardcover yet.</div>}
-          <div className="space-y-2">
-            {lists?.map((l) => (
-              <button
-                key={l.id}
-                onClick={() => pick(l)}
-                className="flex w-full items-center gap-4 rounded-lg bg-gray-900/40 p-3 text-left ring-1 ring-gray-700 transition hover:bg-gray-700/60 hover:ring-gray-500"
-              >
-                <Covers urls={l.coverUrls} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-semibold text-white">{l.name}</div>
-                  <div className="text-xs text-gray-400">
-                    {l.booksCount} books{l.followed ? " · followed" : ""}
-                  </div>
-                </div>
-                {synced.has(l.id) && <CheckCircleIcon className="h-6 w-6 text-green-400" title="Already synced" />}
-              </button>
-            ))}
-          </div>
+          <div className="space-y-2">{lists?.map((l) => row(l, `${l.booksCount} books${l.followed ? " · followed" : ""}`))}</div>
         </>
       )}
 

@@ -108,6 +108,72 @@ export async function fetchList(listId: number): Promise<{ info: ListInfo; books
   return { info: info!, books };
 }
 
+/** Hardcover's reading-status shelves. These aren't lists in the API, so they're a separate source. */
+export const SHELVES: Record<number, { name: string; slug: string; description: string }> = {
+  1: { name: "Want to Read", slug: "want-to-read", description: "Books on your Want to Read shelf." },
+  2: { name: "Currently Reading", slug: "currently-reading", description: "Books you're reading now." },
+  3: { name: "Read", slug: "read", description: "Books you've finished." },
+  4: { name: "Paused", slug: "paused", description: "Books you've paused." },
+  5: { name: "Did Not Finish", slug: "did-not-finish", description: "Books you stopped reading." },
+};
+
+/** Every book on one of your status shelves, most recently changed first. */
+export async function fetchShelf(statusId: number): Promise<{ info: ListInfo; books: ListBook[] }> {
+  const shelf = SHELVES[statusId];
+  if (!shelf) throw new Error(`Unknown Hardcover shelf ${statusId}`);
+  const hc = hardcover();
+  const books: ListBook[] = [];
+  const pageSize = 100;
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await hc.library.list({ status: statusId as 1, limit: pageSize, offset });
+    for (const entry of page.items) {
+      if (!entry.book) continue;
+      books.push(toListBook(entry.book as BookLike, books.length));
+    }
+    if (page.items.length < page.limit) break;
+  }
+  const me = (await hc.me.get()) as { username?: string };
+  return {
+    info: {
+      id: statusId,
+      slug: shelf.slug,
+      name: shelf.name,
+      description: shelf.description,
+      booksCount: books.length,
+      owner: me.username ?? null,
+      coverUrls: books.slice(0, 6).map((b) => b.coverUrl).filter((u): u is string => !!u),
+    },
+    books,
+  };
+}
+
+export type SourceType = "hardcover_list" | "hardcover_status";
+
+export function fetchSource(type: string, id: number) {
+  return type === "hardcover_status" ? fetchShelf(id) : fetchList(id);
+}
+
+/** Your status shelves with counts and a few covers, for the picker. */
+export async function myShelves() {
+  const hc = hardcover();
+  const me = (await hc.me.get()) as { username?: string };
+  const out = [];
+  for (const id of [1, 2, 3, 5]) {
+    const [count, first] = await Promise.all([hc.library.count({ status: id as 1 }), hc.library.list({ status: id as 1, limit: 4 })]);
+    out.push({
+      id,
+      sourceType: "hardcover_status" as const,
+      slug: SHELVES[id].slug,
+      name: SHELVES[id].name,
+      description: SHELVES[id].description,
+      booksCount: count,
+      owner: me.username ?? null,
+      coverUrls: first.items.map((e) => (e.book as BookLike | null)?.cachedImage?.url).filter((u): u is string => !!u),
+    });
+  }
+  return out;
+}
+
 /** The signed-in user's own lists and the lists they follow. */
 export async function myLists(): Promise<(ListInfo & { followed: boolean })[]> {
   const hc = hardcover();
