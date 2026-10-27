@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-tap-highlight-color: transparent; }
+  body { @apply bg-gray-900 text-gray-100 antialiased; }
+  ::selection { @apply bg-indigo-600 text-white; }
+}
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border px-4 py-2 text-sm font-medium leading-5 transition duration-150 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-sm { @apply px-2.5 py-1.5 text-xs; }
+  .btn-primary { @apply border-indigo-500 bg-indigo-600/80 text-white hover:border-indigo-500 hover:bg-indigo-600 active:bg-indigo-700; }
+  .btn-default { @apply border-gray-600 bg-gray-800 text-gray-200 hover:border-gray-500 hover:bg-gray-700 active:bg-gray-600; }
+  .btn-success { @apply border-green-500 bg-green-600/80 text-white hover:bg-green-600; }
+  .btn-warning { @apply border-yellow-500 bg-yellow-600/80 text-white hover:bg-yellow-600; }
+  .btn-danger { @apply border-red-500 bg-red-600/80 text-white hover:bg-red-600; }
+  .btn-ghost { @apply border-transparent bg-transparent text-gray-300 hover:bg-gray-700/60; }
+
+  .input { @apply block w-full rounded-md border border-gray-500 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-400 shadow-sm transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-60; }
+
+  .heading { @apply text-2xl font-bold leading-8 text-gray-100; }
+  .description { @apply mt-1 max-w-4xl text-sm leading-5 text-gray-400; }
+
+  .form-row { @apply mt-6 max-w-6xl sm:mt-5 sm:grid sm:grid-cols-3 sm:items-start sm:gap-4; }
+  .form-row > label { @apply block text-sm font-medium leading-5 text-gray-300 sm:mt-px sm:pt-2; }
+  .form-row .label-tip { @apply mt-1 block text-xs font-normal leading-4 text-gray-500; }
+  .form-input-area { @apply text-sm text-white sm:col-span-2; }
+
+  .card { @apply rounded-xl bg-gray-800 shadow-md ring-1 ring-gray-700; }
+
+  .badge { @apply inline-flex cursor-default items-center gap-1 whitespace-nowrap rounded-full border px-2 text-xs font-semibold leading-5; }
+  .badge-success { @apply border-green-500 bg-green-500/80 text-green-100; }
+  .badge-warning { @apply border-yellow-500 bg-yellow-500/80 text-yellow-100; }
+  .badge-danger { @apply border-red-500 bg-red-600/80 text-red-100; }
+  .badge-default { @apply border-indigo-500 bg-indigo-500/80 text-indigo-100; }
+  .badge-dark { @apply border-gray-600 bg-gray-700/80 text-gray-300; }
+
+  .hide-scrollbar { scrollbar-width: none; }
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
+}
+
+.media-backdrop {
+  background-image: linear-gradient(180deg, rgba(17, 24, 39, 0.47) 0%, rgba(17, 24, 39, 1) 100%);
+}
+.row-backdrop {
+  background-image: linear-gradient(90deg, rgba(31, 41, 55, 0.47) 0%, rgba(31, 41, 55, 1) 100%);
+}
