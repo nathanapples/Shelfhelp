@@ -16,7 +16,7 @@ export default function MissingPage() {
     <div>
       <PageTitle>Not in Library</PageTitle>
       <p className="-mt-3 mb-4 max-w-3xl text-sm text-gray-400">
-        Books on your lists that Shelfhelper couldn't find in Audiobookshelf. If one is actually there, open it and pick the right
+        Books on your lists that Shelfhelp couldn't find in Audiobookshelf. If one is actually there, open it and pick the right
         item. Requesting missing books through Chaptarr is planned.
       </p>
       <Tabs

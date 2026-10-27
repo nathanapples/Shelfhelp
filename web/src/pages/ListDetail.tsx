@@ -80,7 +80,7 @@ function ListSettings({ list, open, onClose, onSaved }: { list: ListDetail; open
     >
       {confirm ? (
         <div className="pt-4 text-sm text-gray-300">
-          <p>Shelfhelper will stop syncing this list. Your decisions about individual books are kept.</p>
+          <p>Shelfhelp will stop syncing this list. Your decisions about individual books are kept.</p>
           <label className="mt-4 flex items-center gap-3">
             <Toggle checked={deleteCollection} onChange={setDeleteCollection} />
             <span>Also delete the "{list.collectionName}" collection in Audiobookshelf</span>

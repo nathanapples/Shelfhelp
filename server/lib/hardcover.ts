@@ -11,7 +11,7 @@ export function hardcover(token = getSettings().hardcoverToken): HardcoverClient
   const client = new HardcoverClient({
     token,
     ...(process.env.HARDCOVER_ENDPOINT ? { endpoint: process.env.HARDCOVER_ENDPOINT } : {}),
-    userAgent: `shelfhelper/${config.version}`,
+    userAgent: `shelfhelp/${config.version}`,
     onWarning: (m) => console.warn(`[hardcover] ${m}`),
   });
   cached = { token, client };

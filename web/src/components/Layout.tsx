@@ -27,7 +27,7 @@ export function Logo({ className = "" }: { className?: string }) {
     <div className={`flex items-center gap-2.5 ${className}`}>
       <img src="/logo.svg" alt="" className="h-9 w-9" />
       <span className="bg-gradient-to-br from-indigo-400 to-purple-400 bg-clip-text text-2xl font-extrabold tracking-tight text-transparent">
-        Shelfhelper
+        Shelfhelp
       </span>
     </div>
   );
@@ -102,8 +102,8 @@ export function Layout({ children, version, authRequired }: { children: ReactNod
 
   const sidebarFooter = (
     <div className="px-6 pb-6 text-xs text-gray-500">
-      <a href="https://github.com/nathanapples/shelfhelper" target="_blank" rel="noreferrer" className="hover:text-gray-300">
-        Shelfhelper v{version}
+      <a href="https://github.com/nathanapples/shelfhelp" target="_blank" rel="noreferrer" className="hover:text-gray-300">
+        Shelfhelp v{version}
       </a>
     </div>
   );

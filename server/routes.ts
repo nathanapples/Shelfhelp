@@ -11,11 +11,11 @@ import { decide, getList, hardcoverUrl, isRunning, pushCollection, rematch, runn
 import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 
-const COOKIE = "shelfhelper_session";
+const COOKIE = "shelfhelp_session";
 const MASK = "••••••••";
 
 function sessionValue() {
-  return createHash("sha256").update(`shelfhelper:${config.appPassword}`).digest("hex");
+  return createHash("sha256").update(`shelfhelp:${config.appPassword}`).digest("hex");
 }
 
 function authed(req: FastifyRequest): boolean {

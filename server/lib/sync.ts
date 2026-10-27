@@ -203,7 +203,7 @@ export function hardcoverUrl(list: Pick<ListRow, "source_type" | "hc_owner" | "h
 function collectionDescription(list: ListRow) {
   const url = hardcoverUrl(list);
   const link = url ? ` ${url}` : "";
-  return `Synced from Hardcover by Shelfhelper.${link}`;
+  return `Synced from Hardcover by Shelfhelp.${link}`;
 }
 
 export function statusCounts(listId: number) {

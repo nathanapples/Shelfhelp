@@ -1,8 +1,8 @@
-# Shelfhelper
+# Shelfhelp
 
 Keeps [Audiobookshelf](https://www.audiobookshelf.org/) collections in step with your [Hardcover](https://hardcover.app) lists, with a web UI modeled on Seerr.
 
-Add a Hardcover list or one of your shelves (Want to Read, Currently Reading, Read, Did Not Finish), pick a library, and Shelfhelper creates a collection with every book on it that you own. When the list or shelf changes, the collection follows.
+Add a Hardcover list or one of your shelves (Want to Read, Currently Reading, Read, Did Not Finish), pick a library, and Shelfhelp creates a collection with every book on it that you own. When the list or shelf changes, the collection follows.
 
 ## How matching works
 
@@ -19,7 +19,7 @@ Each book on a list ends up as one of:
 | **In Library** | Confident match. Added to the collection. |
 | **Needs Review** | Possible match (for example an ASIN that points to a book whose title disagrees). Never added until you approve it. |
 | **Not in Library** | Nothing close enough. |
-| **Ignored** | You told Shelfhelper to skip it. |
+| **Ignored** | You told Shelfhelp to skip it. |
 
 Your decisions (approve, pick a different item, not mine, ignore) are remembered per book and library, so they apply to every list and survive future syncs.
 
@@ -29,15 +29,15 @@ Create a `docker-compose.yml`:
 
 ```yaml
 services:
-  shelfhelper:
-    image: ghcr.io/nathanapples/shelfhelper:latest
-    container_name: shelfhelper
+  shelfhelp:
+    image: ghcr.io/nathanapples/shelfhelp:latest
+    container_name: shelfhelp
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=America/Denver
     volumes:
-      - /apps/shelfhelper:/config
+      - /apps/shelfhelp:/config
     ports:
       - 5075:5075
     restart: unless-stopped
@@ -63,7 +63,7 @@ To update: `docker compose pull && docker compose up -d`.
 | `SYNC_INTERVAL_MINUTES` | 360 | Pins the sync schedule (0 turns it off) |
 | `PORT` | 5075 | Port inside the container |
 
-Everything Shelfhelper keeps (settings, lists, decisions, the library snapshot) lives in `/config/shelfhelper.db`.
+Everything Shelfhelp keeps (settings, lists, decisions, the library snapshot) lives in `/config/shelfhelp.db`.
 
 ## Roadmap
 
@@ -81,7 +81,7 @@ npm run dev:web                   # http://localhost:5173
 npm test                          # matcher tests
 ```
 
-Built with the official [Hardcover TypeScript SDK](https://github.com/hardcoverapp/hardcover-sdk), Fastify, React and Tailwind. The GitHub Action in `.github/workflows/docker.yml` publishes `ghcr.io/nathanapples/shelfhelper` (amd64 and arm64) on every push to `main`.
+Built with the official [Hardcover TypeScript SDK](https://github.com/hardcoverapp/hardcover-sdk), Fastify, React and Tailwind. The GitHub Action in `.github/workflows/docker.yml` publishes `ghcr.io/nathanapples/shelfhelp` (amd64 and arm64) on every push to `main`.
 
 ## License
 

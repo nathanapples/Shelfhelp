@@ -1,11 +1,20 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync } from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
 
 mkdirSync(config.configDir, { recursive: true });
 
-export const db = new DatabaseSync(path.join(config.configDir, "shelfhelper.db"));
+// The app used to be called Shelfhelper: carry its database over on first start.
+const dbPath = path.join(config.configDir, "shelfhelp.db");
+const oldPath = path.join(config.configDir, "shelfhelper.db");
+if (!existsSync(dbPath) && existsSync(oldPath)) {
+  for (const suffix of ["", "-wal", "-shm"]) {
+    if (existsSync(oldPath + suffix)) renameSync(oldPath + suffix, dbPath + suffix);
+  }
+}
+
+export const db = new DatabaseSync(dbPath);
 db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
 
 /**

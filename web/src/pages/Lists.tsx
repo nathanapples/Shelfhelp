@@ -164,7 +164,7 @@ export default function ListsPage({ status }: { status: Status }) {
 
   if (!configured) {
     return (
-      <Empty icon={<Cog6ToothIcon className="h-16 w-16" />} title="Welcome to Shelfhelper">
+      <Empty icon={<Cog6ToothIcon className="h-16 w-16" />} title="Welcome to Shelfhelp">
         <p>Connect Hardcover and Audiobookshelf to start syncing your lists into collections.</p>
         <Link to="/settings" className="btn btn-primary mt-6">
           Open Settings
@@ -195,7 +195,7 @@ export default function ListsPage({ status }: { status: Status }) {
       {error && <ErrorBlock message={error} />}
       {lists?.length === 0 && (
         <Empty icon={<RectangleStackIcon className="h-16 w-16" />} title="No lists yet">
-          <p>Add a Hardcover list or shelf and Shelfhelper will keep an Audiobookshelf collection in step with it.</p>
+          <p>Add a Hardcover list or shelf and Shelfhelp will keep an Audiobookshelf collection in step with it.</p>
           <button className="btn btn-primary mt-6" onClick={() => setAdding(true)}>
             <PlusIcon className="h-5 w-5" /> Add your first list
           </button>

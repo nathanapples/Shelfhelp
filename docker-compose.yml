@@ -1,13 +1,13 @@
 services:
-  shelfhelper:
-    image: ghcr.io/nathanapples/shelfhelper:latest
-    container_name: shelfhelper
+  shelfhelp:
+    image: ghcr.io/nathanapples/shelfhelp:latest
+    container_name: shelfhelp
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=America/Denver
     volumes:
-      - /apps/shelfhelper:/config
+      - /apps/shelfhelp:/config
     ports:
       - 5075:5075
     restart: unless-stopped

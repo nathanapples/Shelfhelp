@@ -22,8 +22,8 @@ function App() {
   useEffect(() => {
     load();
     const out = () => load();
-    window.addEventListener("shelfhelper:signedout", out);
-    return () => window.removeEventListener("shelfhelper:signedout", out);
+    window.addEventListener("shelfhelp:signedout", out);
+    return () => window.removeEventListener("shelfhelp:signedout", out);
   }, [load]);
 
   if (!status) return <LoadingBlock />;

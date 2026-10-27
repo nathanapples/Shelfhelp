@@ -282,11 +282,11 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
       )}
 
       {tab === "about" && (
-        <Section title="About Shelfhelper" description="Keeps Audiobookshelf collections in step with Hardcover lists.">
+        <Section title="About Shelfhelp" description="Keeps Audiobookshelf collections in step with Hardcover lists.">
           <dl className="mt-6 max-w-2xl divide-y divide-gray-700 rounded-xl bg-gray-800 ring-1 ring-gray-700">
             {[
               ["Version", status.version],
-              ["Source", <a key="s" className="text-indigo-400 hover:underline" href="https://github.com/nathanapples/shelfhelper" target="_blank" rel="noreferrer">github.com/nathanapples/shelfhelper</a>],
+              ["Source", <a key="s" className="text-indigo-400 hover:underline" href="https://github.com/nathanapples/shelfhelp" target="_blank" rel="noreferrer">github.com/nathanapples/shelfhelp</a>],
               ["Coming later", "Requests through Chaptarr, and read status sync per user"],
             ].map(([k, v]) => (
               <div key={String(k)} className="grid grid-cols-3 gap-4 px-5 py-3 text-sm">

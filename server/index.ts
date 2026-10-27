@@ -23,7 +23,7 @@ if (existsSync(config.webDir)) {
 }
 
 await app.listen({ port: config.port, host: config.host });
-console.log(`Shelfhelper ${config.version} listening on http://${config.host}:${config.port} (config in ${config.configDir})`);
+console.log(`Shelfhelp ${config.version} listening on http://${config.host}:${config.port} (config in ${config.configDir})`);
 
 reschedule();
 // A first sync shortly after start, so lists catch up after a restart.

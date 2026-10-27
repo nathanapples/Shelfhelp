@@ -157,7 +157,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   });
   const data = res.headers.get("content-type")?.includes("json") ? await res.json() : null;
   if (!res.ok) {
-    if (res.status === 401 && data?.error === "Sign in required") window.dispatchEvent(new Event("shelfhelper:signedout"));
+    if (res.status === 401 && data?.error === "Sign in required") window.dispatchEvent(new Event("shelfhelp:signedout"));
     throw new ApiError(data?.error ?? `Request failed (${res.status})`, res.status);
   }
   return data as T;

@@ -1,5 +1,5 @@
 {
-  "name": "shelfhelper",
+  "name": "shelfhelp",
   "version": "0.1.0",
   "description": "Sync Hardcover lists into Audiobookshelf collections, with a Seerr-style web UI",
   "scripts": {

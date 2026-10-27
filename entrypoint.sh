@@ -16,7 +16,7 @@ fi
 mkdir -p "$CONFIG_DIR"
 
 if [ "$(id -u)" = "0" ]; then
-    echo "shelfhelper: running as uid=$PUID gid=$PGID, TZ=${TZ:-UTC}"
+    echo "shelfhelp: running as uid=$PUID gid=$PGID, TZ=${TZ:-UTC}"
     chown -R "$PUID:$PGID" "$CONFIG_DIR" 2>/dev/null || true
     exec setpriv --reuid="$PUID" --regid="$PGID" --clear-groups --inh-caps=-all env HOME="$CONFIG_DIR" "$@"
 fi

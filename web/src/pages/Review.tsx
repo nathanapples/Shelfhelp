@@ -106,7 +106,7 @@ export default function ReviewPage() {
     <div>
       <PageTitle>Review</PageTitle>
       <p className="-mt-3 mb-6 max-w-3xl text-sm text-gray-400">
-        These books might be in your library, but Shelfhelper isn't sure enough to add them on its own. Your choice applies to every
+        These books might be in your library, but Shelfhelp isn't sure enough to add them on its own. Your choice applies to every
         list the book is on and is remembered for future syncs.
       </p>
       {loading && <LoadingBlock />}
