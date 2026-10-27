@@ -841,6 +841,8 @@ export default function ReadingPage() {
   if (error || !data) return <ErrorBlock message={error ?? "Couldn't load reading progress"} />;
   const c = data.counts;
   const countOf = (key: string) => data.books.filter((b) => cardState(b).key === key).length;
+  // Did Not Finish books are left out of the totals, like books under the minimum.
+  const dnf = data.books.filter((b) => cardState(b).key === "dnf");
   const waiting = c.pending + c.errors;
 
   const sync = async () => {
@@ -903,11 +905,11 @@ export default function ReadingPage() {
           <div className="mb-8 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <Stat
               label="With progress"
-              value={c.total - countOf("under")}
-              sub={`${c.listening - countOf("under")} listening, ${c.finished} finished`}
+              value={c.total - countOf("under") - dnf.length}
+              sub={`${c.listening - countOf("under") - dnf.filter((b) => !b.isFinished).length} listening, ${c.finished - dnf.filter((b) => b.isFinished).length} finished`}
               onClick={() => setTab("all")}
             />
-            <Stat label="In sync" value={countOf("synced")} sub={`of ${c.matched} matched`} accent="text-green-400" onClick={() => setTab("synced")} />
+            <Stat label="In sync" value={countOf("synced")} sub={`of ${c.matched - dnf.length} matched`} accent="text-green-400" onClick={() => setTab("synced")} />
             <Stat
               label="Waiting"
               value={waiting}
