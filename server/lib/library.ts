@@ -17,17 +17,18 @@ export async function refreshLibrary(libraryId: string, { force = false, maxAgeM
   const now = new Date().toISOString();
   tx(() => {
     const upsert = db.prepare(`
-      INSERT INTO abs_items (id, library_id, title, subtitle, authors, narrators, series, asin, isbn, duration, published_year, updated_at, seen_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO abs_items (id, library_id, title, subtitle, authors, narrators, series, asin, isbn, duration, published_year, updated_at, seen_at, num_audio)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         library_id = excluded.library_id, title = excluded.title, subtitle = excluded.subtitle,
         authors = excluded.authors, narrators = excluded.narrators, series = excluded.series,
         asin = excluded.asin, isbn = excluded.isbn, duration = excluded.duration,
-        published_year = excluded.published_year, updated_at = excluded.updated_at, seen_at = excluded.seen_at`);
+        published_year = excluded.published_year, updated_at = excluded.updated_at, seen_at = excluded.seen_at,
+        num_audio = excluded.num_audio`);
     for (const i of items) {
       upsert.run(
         i.id, i.libraryId, i.title, i.subtitle ?? null, JSON.stringify(i.authors), JSON.stringify(i.narrators),
-        JSON.stringify(i.series), i.asin ?? null, i.isbn ?? null, i.duration ?? null, i.publishedYear, i.updatedAt, now,
+        JSON.stringify(i.series), i.asin ?? null, i.isbn ?? null, i.duration ?? null, i.publishedYear, i.updatedAt, now, i.numAudio,
       );
     }
     // Items no longer in the library.
@@ -114,6 +115,7 @@ export function rowToItem(r: Record<string, unknown>): AbsItemRow {
     duration: (r.duration as number) ?? null,
     publishedYear: (r.published_year as number) ?? null,
     updatedAt: (r.updated_at as number) ?? null,
+    numAudio: (r.num_audio as number) ?? null,
   };
 }
 

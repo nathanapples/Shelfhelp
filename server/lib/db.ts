@@ -171,6 +171,27 @@ const migrations: string[] = [
     seen_at         TEXT NOT NULL
   );
   `,
+  `
+  ALTER TABLE abs_items ADD COLUMN num_audio INTEGER;
+
+  -- Every change sent to Hardcover, so it can be undone.
+  CREATE TABLE reading_history (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            TEXT NOT NULL DEFAULT (datetime('now')),
+    abs_item_id   TEXT NOT NULL,
+    hc_book_id    INTEGER NOT NULL,
+    title         TEXT NOT NULL,
+    description   TEXT NOT NULL,
+    kind          TEXT NOT NULL,
+    entry_id      INTEGER,
+    created_entry INTEGER NOT NULL DEFAULT 0,
+    prev_status   INTEGER,
+    prev_progress REAL,
+    prev_read_ids TEXT,
+    undone_at     TEXT,
+    undo_note     TEXT
+  );
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

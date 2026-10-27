@@ -37,3 +37,29 @@ test("only sends progress when it changed", () => {
   assert.equal(planFor(row({ progress: 0.43 }), entry(2, 43)).kind, "none");
   assert.equal(planFor(row({ progress: 0.6 }), entry(2, 43)).kind, "progress");
 });
+
+test("holds books under the minimum progress", () => {
+  const p = planFor(row({ progress: 0.03 }), undefined);
+  assert.equal(p.kind, "held");
+  assert.match(p.description, /Under 5%/);
+});
+
+test("finished books aren't held by the minimum", () => {
+  assert.equal(planFor(row({ progress: 1, is_finished: 1 }), undefined).kind, "add");
+});
+
+test("doesn't add new books when adding is off", () => {
+  const p = planFor(row({}), undefined, { minProgress: 5, addNew: false, includeEbooks: false });
+  assert.equal(p.kind, "held");
+});
+
+test("never lowers progress on Hardcover", () => {
+  const p = planFor(row({ progress: 0.2 }), entry(2, 60));
+  assert.equal(p.kind, "none");
+  assert.match(p.description, /further along/);
+});
+
+test("skips ebook-only items unless turned on", () => {
+  assert.equal(planFor(row({}), undefined, undefined, true).kind, "held");
+  assert.equal(planFor(row({}), undefined, { minProgress: 5, addNew: true, includeEbooks: true }, true).kind, "add");
+});

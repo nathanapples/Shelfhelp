@@ -12,8 +12,20 @@ export interface Settings {
   matchStrictness: Strictness;
   /** Send Audiobookshelf listening progress to Hardcover. */
   readingEnabled: boolean;
-  /** The first reading sync is a preview until this is true. */
+  /** Kept for older configs; no longer used. */
   readingApproved: boolean;
+  /** Send changes without asking. Off: every change waits for you to send it. */
+  readingAutoSend: boolean;
+  /** Books under this percent listened aren't synced. */
+  readingMinProgress: number;
+  /** Add books that aren't on your Hardcover shelves yet. */
+  readingAddNew: boolean;
+  /** Mark synced books as Owned on Hardcover. */
+  readingMarkOwned: boolean;
+  /** Include ebook-only items (no audio files). */
+  readingIncludeEbooks: boolean;
+  /** Audiobookshelf libraries Shelfhelp uses. Empty means every book library. */
+  absLibraries: string[];
 }
 
 const defaults: Settings = {
@@ -24,6 +36,12 @@ const defaults: Settings = {
   matchStrictness: "balanced",
   readingEnabled: true,
   readingApproved: false,
+  readingAutoSend: false,
+  readingMinProgress: 5,
+  readingAddNew: true,
+  readingMarkOwned: false,
+  readingIncludeEbooks: false,
+  absLibraries: [],
 };
 
 /** Environment variables win over saved values, so a compose file can pin them. */

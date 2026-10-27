@@ -20,7 +20,7 @@ import { getSettings, isConfigured } from "./settings.js";
 import { log } from "./activity.js";
 
 export type MatchStatus = "matched" | "review" | "missing" | "ignored";
-export type SyncStatus = "synced" | "pending" | "skipped" | "error" | "none";
+export type SyncStatus = "synced" | "pending" | "skipped" | "error" | "none" | "held";
 
 export interface HcBookView {
   id: number;
@@ -83,7 +83,7 @@ export const readingRunning = () => running;
 
 const SEARCH_AGAIN_MS = 7 * 24 * 3600_000;
 
-/** Pull progress, match, then (once approved) send changes to Hardcover. */
+/** Pull progress, match, then work out (and with auto-send, send) changes. */
 export async function syncReading(reason: string) {
   const settings = getSettings();
   if (running || !settings.readingEnabled) return;
@@ -91,21 +91,26 @@ export async function syncReading(reason: string) {
   running = true;
   try {
     const progress = await new Abs().myProgress();
-    const libraries = await new Abs().libraries();
+    const libraries = await new Abs().selectedLibraries();
+    const allowed = new Set(libraries.map((l) => l.id));
     for (const lib of libraries) await refreshLibrary(lib.id);
     const items = getItems([...new Set(progress.map((p) => p.libraryItemId))]);
     const now = new Date().toISOString();
 
     for (const p of progress) {
       const item = items.get(p.libraryItemId);
-      if (!item) continue; // a podcast or an item that's gone
+      // Podcasts, items that are gone, and libraries you haven't chosen.
+      if (!item || !allowed.has(item.libraryId)) continue;
       upsertProgress(p, item.libraryId, now);
     }
-    db.prepare("DELETE FROM reading WHERE seen_at <> ?").run(now);
+    // Forget books whose progress is gone, but keep rows from libraries you've
+    // turned off so their history and decisions are there if you turn them back on.
+    const stale = db.prepare("SELECT abs_item_id, library_id FROM reading WHERE seen_at <> ?").all(now) as { abs_item_id: string; library_id: string }[];
+    for (const r of stale) if (allowed.has(r.library_id)) db.prepare("DELETE FROM reading WHERE abs_item_id = ?").run(r.abs_item_id);
 
     await matchAll();
     await fillBookDetails();
-    const summary = await planAndPush(settings.readingApproved);
+    const summary = await plan(settings.readingAutoSend);
     log("info", `Reading progress (${reason}): ${summary}`);
   } catch (err) {
     log("error", `Reading progress sync failed: ${(err as Error).message}`);
@@ -130,8 +135,11 @@ function upsertProgress(p: AbsProgress, libraryId: string, now: string) {
   );
 }
 
+/** Rows from the libraries you've chosen in Settings. */
 function rows(): ReadingRow[] {
-  return db.prepare("SELECT * FROM reading").all() as unknown as ReadingRow[];
+  const chosen = getSettings().absLibraries;
+  const all = db.prepare("SELECT * FROM reading").all() as unknown as ReadingRow[];
+  return chosen.length ? all.filter((r) => chosen.includes(r.library_id)) : all;
 }
 
 /** Finds the Hardcover book for every item with progress. */
@@ -314,10 +322,21 @@ function view(c: HcBookView): HcBookView {
 
 type Entry = LibraryListItem;
 
-interface Plan {
-  kind: "add" | "status" | "progress" | "skip" | "none";
+export interface Plan {
+  kind: "add" | "status" | "progress" | "skip" | "none" | "held";
   status?: number;
   description: string;
+}
+
+export interface Rules {
+  minProgress: number;
+  addNew: boolean;
+  includeEbooks: boolean;
+}
+
+function rules(): Rules {
+  const s = getSettings();
+  return { minProgress: s.readingMinProgress, addNew: s.readingAddNew, includeEbooks: s.readingIncludeEbooks };
 }
 
 function stateKey(r: ReadingRow) {
@@ -333,9 +352,22 @@ function percent(r: ReadingRow) {
   return Math.min(100, Math.round(r.progress * 1000) / 10);
 }
 
-export function planFor(r: ReadingRow, entry: Entry | undefined): Plan {
+/**
+ * What to do for one book. Never moves a book backward on Hardcover: Read and
+ * Did Not Finish are left alone, and progress is never lowered.
+ */
+export function planFor(
+  r: ReadingRow,
+  entry: Entry | undefined,
+  rule: Rules = { minProgress: 5, addNew: true, includeEbooks: false },
+  ebookOnly = false,
+): Plan {
   const status = entry?.statusId ?? null;
   const pct = percent(r);
+  if (ebookOnly && !rule.includeEbooks) return { kind: "held", description: "Ebook only (ebooks are turned off in Settings)" };
+  if (!r.is_finished && pct < rule.minProgress) return { kind: "held", description: `Under ${rule.minProgress}% listened` };
+  if (!entry && !rule.addNew) return { kind: "held", description: "Not on your Hardcover shelves (adding books is off in Settings)" };
+
   if (r.is_finished) {
     const when = day(r.finished_at) ?? day(r.last_update);
     if (status === UserBookStatus.Read) return { kind: "skip", description: "Already Read on Hardcover" };
@@ -349,14 +381,25 @@ export function planFor(r: ReadingRow, entry: Entry | undefined): Plan {
     return { kind: "status", status: UserBookStatus.CurrentlyReading, description: `${STATUS_NAMES[status!] ?? "Unknown"} → Currently Reading at ${pct}%` };
   }
   const current = currentProgress(entry);
-  if (current !== null && Math.abs(current - pct) < 1) return { kind: "none", description: `Currently Reading at ${pct}%` };
+  if (current !== null && current >= pct - 0.5) {
+    return { kind: "none", description: current > pct + 1 ? `Hardcover is further along (${current}%), left as is` : `Currently Reading at ${pct}%` };
+  }
   return { kind: "progress", description: `Progress ${current ?? 0}% → ${pct}%` };
 }
 
-function currentProgress(entry: Entry): number | null {
-  const reads = (entry as unknown as { userBookReads?: { startedAt: string | null; finishedAt: string | null; progress: number | null }[] })
+function openRead(entry: Entry) {
+  const reads = (entry as unknown as { userBookReads?: { id: number; startedAt: string | null; finishedAt: string | null; progress: number | null }[] })
     .userBookReads;
-  const open = reads?.find((x) => x.startedAt && !x.finishedAt);
+  return reads?.find((x) => x.startedAt && !x.finishedAt) ?? null;
+}
+
+function readIds(entry: Entry | undefined): number[] {
+  const reads = (entry as unknown as { userBookReads?: { id: number }[] } | undefined)?.userBookReads ?? [];
+  return reads.map((r) => r.id);
+}
+
+function currentProgress(entry: Entry): number | null {
+  const open = openRead(entry);
   return open?.progress != null ? Math.round(open.progress * 10) / 10 : null;
 }
 
@@ -372,49 +415,98 @@ async function hardcoverLibrary(): Promise<Map<number, Entry>> {
   return out;
 }
 
-async function planAndPush(approved: boolean): Promise<string> {
-  const matched = rows().filter((r) => r.match_status === "matched" && r.hc_book_id);
-  const changed = matched.filter((r) => r.synced_key !== stateKey(r) || r.sync_status === "pending" || r.sync_status === "error");
-  db.prepare("UPDATE reading SET sync_status = 'none', sync_action = NULL WHERE match_status <> 'matched'").run();
-  if (!changed.length) return `${matched.length} matched, nothing new to send`;
-
-  const library = await hardcoverLibrary();
-  let sent = 0;
-  let pending = 0;
-  let skipped = 0;
-  let errors = 0;
-  const hc = hardcover();
-  const items = getItems(changed.map((r) => r.abs_item_id));
-
-  for (const r of changed) {
-    const entry = library.get(r.hc_book_id!);
-    const plan = planFor(r, entry);
-    const hcStatus = entry?.statusId ?? null;
-    if (plan.kind === "skip" || plan.kind === "none") {
-      mark(r, plan.kind === "skip" ? "skipped" : "synced", plan.description, hcStatus, currentOr(entry), true);
-      if (plan.kind === "skip") skipped++;
-      continue;
-    }
-    if (!approved) {
-      mark(r, "pending", plan.description, hcStatus, currentOr(entry), false);
-      pending++;
-      continue;
-    }
-    try {
-      await push(hc, r, plan, entry, items.get(r.abs_item_id)?.asin ?? null);
-      mark(r, "synced", plan.description, plan.status ?? hcStatus, percent(r), true);
-      sent++;
-    } catch (err) {
-      mark(r, "error", `${plan.description}: ${(err as Error).message}`, hcStatus, currentOr(entry), false);
-      errors++;
-    }
-  }
-  if (!approved) return `preview: ${pending} change${pending === 1 ? "" : "s"} waiting for your approval`;
-  return [`sent ${sent}`, skipped && `skipped ${skipped}`, errors && `${errors} failed`].filter(Boolean).join(", ");
+function ebookOnly(itemId: string) {
+  const r = db.prepare("SELECT num_audio FROM abs_items WHERE id = ?").get(itemId) as { num_audio: number | null } | undefined;
+  return r?.num_audio === 0;
 }
 
-function currentOr(entry: Entry | undefined) {
-  return entry ? currentProgress(entry) : null;
+/**
+ * Works out what each matched book needs. With auto-send on, sends it;
+ * otherwise every change waits as "pending" until you send it.
+ */
+async function plan(autoSend: boolean): Promise<string> {
+  db.prepare("UPDATE reading SET sync_status = 'none', sync_action = NULL WHERE match_status <> 'matched'").run();
+  const matched = rows().filter((r) => r.match_status === "matched" && r.hc_book_id);
+  const rule = rules();
+  // Books that changed in Audiobookshelf, plus anything still waiting or held back.
+  const todo = matched.filter(
+    (r) => r.synced_key !== stateKey(r) || ["pending", "error", "held", "none"].includes(r.sync_status),
+  );
+  if (!todo.length) return `${matched.length} matched, nothing new`;
+
+  const library = await hardcoverLibrary();
+  let pending = 0;
+  let held = 0;
+  for (const r of todo) {
+    const entry = library.get(r.hc_book_id!);
+    const p = planFor(r, entry, rule, ebookOnly(r.abs_item_id));
+    const hcStatus = entry?.statusId ?? null;
+    const hcProgress = entry ? currentProgress(entry) : null;
+    if (p.kind === "skip" || p.kind === "none") mark(r, p.kind === "skip" ? "skipped" : "synced", p.description, hcStatus, hcProgress, true);
+    else if (p.kind === "held") {
+      mark(r, "held", p.description, hcStatus, hcProgress, false);
+      held++;
+    } else {
+      mark(r, "pending", p.description, hcStatus, hcProgress, false);
+      pending++;
+    }
+  }
+  if (autoSend && pending) {
+    const result = await send(null, library);
+    return `${result.sent} sent automatically${result.failed ? `, ${result.failed} failed` : ""}${held ? `, ${held} held back` : ""}`;
+  }
+  return `${pending} change${pending === 1 ? "" : "s"} waiting for you${held ? `, ${held} held back` : ""}`;
+}
+
+/**
+ * Sends waiting changes: the ones listed, or all of them. Each is planned
+ * again first; if Hardcover changed since you looked, it isn't sent and goes
+ * back to waiting with the new plan.
+ */
+export async function send(ids: string[] | null, library?: Map<number, Entry>) {
+  const hc = hardcover();
+  const waiting = rows().filter((r) => r.match_status === "matched" && r.sync_status === "pending" && (!ids || ids.includes(r.abs_item_id)));
+  if (!waiting.length) return { sent: 0, failed: 0, changed: 0 };
+  const lib = library ?? (await hardcoverLibrary());
+  const rule = rules();
+  const items = getItems(waiting.map((r) => r.abs_item_id));
+  let sent = 0;
+  let failed = 0;
+  let changed = 0;
+  for (const r of waiting) {
+    const entry = lib.get(r.hc_book_id!);
+    const p = planFor(r, entry, rule, ebookOnly(r.abs_item_id));
+    if (p.description !== r.sync_action || p.kind === "skip" || p.kind === "none" || p.kind === "held") {
+      mark(r, p.kind === "skip" ? "skipped" : p.kind === "none" ? "synced" : p.kind === "held" ? "held" : "pending", p.description, entry?.statusId ?? null, entry ? currentProgress(entry) : null, p.kind === "skip" || p.kind === "none");
+      changed++;
+      continue;
+    }
+    const title = items.get(r.abs_item_id)?.title ?? json<HcBookView | null>(r.hc_book, null)?.title ?? "Unknown";
+    try {
+      const entryId = await push(hc, r, p, entry, items.get(r.abs_item_id)?.asin ?? null);
+      db.prepare(
+        `INSERT INTO reading_history (abs_item_id, hc_book_id, title, description, kind, entry_id, created_entry, prev_status, prev_progress, prev_read_ids)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        r.abs_item_id, r.hc_book_id!, title, p.description, p.kind, entryId ?? null, p.kind === "add" ? 1 : 0,
+        entry?.statusId ?? null, entry ? currentProgress(entry) : null, JSON.stringify(readIds(entry)),
+      );
+      mark(r, "synced", p.description, p.status ?? entry?.statusId ?? null, r.is_finished ? 100 : percent(r), true);
+      sent++;
+    } catch (err) {
+      mark(r, "error", `${p.description}: ${(err as Error).message}`, entry?.statusId ?? null, entry ? currentProgress(entry) : null, false);
+      failed++;
+    }
+  }
+  log("info", `Sent ${sent} reading change${sent === 1 ? "" : "s"} to Hardcover${failed ? `, ${failed} failed` : ""}${changed ? `, ${changed} changed since you looked and went back to waiting` : ""}`);
+  return { sent, failed, changed };
+}
+
+/** Leaves one change unsent. It comes back only if your progress changes. */
+export function skipChange(itemId: string) {
+  const r = db.prepare("SELECT * FROM reading WHERE abs_item_id = ?").get(itemId) as ReadingRow | undefined;
+  if (!r || r.sync_status !== "pending") return;
+  mark(r, "skipped", `Skipped by you: ${r.sync_action}`, r.hc_status, r.hc_progress, true);
 }
 
 function mark(r: ReadingRow, status: SyncStatus, action: string, hcStatus: number | null, hcProgress: number | null, done: boolean) {
@@ -464,9 +556,102 @@ async function push(hc: ReturnType<typeof hardcover>, r: ReadingRow, plan: Plan,
       await hc.reads.setProgress(entryId, { percent: percent(r) });
     } catch (err) {
       // Status went through; the edition may have no length to work percent out from.
-      log("warn", `Progress for "${(json<HcBookView | null>(r.hc_book, null))?.title ?? bookId}" not sent: ${(err as Error).message}`);
+      log("warn", `Progress for "${json<HcBookView | null>(r.hc_book, null)?.title ?? bookId}" not sent: ${(err as Error).message}`);
     }
   }
+  if (getSettings().readingMarkOwned && editionId) {
+    await hc.library.markOwned(editionId).catch((err: Error) => log("warn", `Couldn't mark as owned: ${err.message}`));
+  }
+  return entryId;
+}
+
+// ---------------------------------------------------------------------------
+// History and undo
+
+export function history() {
+  return db.prepare("SELECT * FROM reading_history ORDER BY id DESC LIMIT 500").all() as Record<string, unknown>[];
+}
+
+/**
+ * Puts Hardcover back the way it was before one change. A book Shelfhelp
+ * added is removed; a status change is reverted and the reading session it
+ * started is deleted; a progress update goes back to the old percent.
+ */
+export async function undo(id: number) {
+  const h = db.prepare("SELECT * FROM reading_history WHERE id = ?").get(id) as
+    | {
+        id: number; abs_item_id: string; hc_book_id: number; title: string; kind: string; entry_id: number | null;
+        created_entry: number; prev_status: number | null; prev_progress: number | null; prev_read_ids: string | null; undone_at: string | null;
+      }
+    | undefined;
+  if (!h) throw new Error("That change wasn't found.");
+  if (h.undone_at) throw new Error("That change was already undone.");
+  const hc = hardcover();
+  const entry = h.entry_id ? await hc.library.get(h.entry_id) : await hc.library.forBook(h.hc_book_id);
+  if (!entry) throw new Error(`"${h.title}" isn't in your Hardcover library anymore.`);
+  let note: string;
+
+  if (h.created_entry) {
+    await hc.library.remove(entry.id);
+    note = "Removed from your Hardcover library";
+  } else if (h.kind === "status" && h.prev_status) {
+    await hc.library.setStatus(entry.id, h.prev_status as 1);
+    const before = h.prev_read_ids ? json<number[]>(h.prev_read_ids, []) : null;
+    let removed = 0;
+    if (before) {
+      for (const read of await hc.reads.list(entry.id)) {
+        if (!before.includes(read.id)) {
+          await hc.reads.delete(read.id);
+          removed++;
+        }
+      }
+    }
+    note = `Set back to ${STATUS_NAMES[h.prev_status] ?? "its old status"}${removed ? " and removed the reading session it started" : ""}`;
+  } else if (h.kind === "progress") {
+    await hc.reads.setProgress(entry.id, { percent: h.prev_progress ?? 0 });
+    note = `Progress set back to ${h.prev_progress ?? 0}%`;
+  } else {
+    throw new Error("This change can't be undone automatically.");
+  }
+
+  db.prepare("UPDATE reading_history SET undone_at = datetime('now'), undo_note = ? WHERE id = ?").run(note, h.id);
+  // Keep it from being sent again until your progress changes.
+  const r = db.prepare("SELECT * FROM reading WHERE abs_item_id = ?").get(h.abs_item_id) as ReadingRow | undefined;
+  if (r) mark(r, "skipped", `Undone by you. ${note}`, h.created_entry ? null : h.prev_status, h.prev_progress, true);
+  log("info", `Undid "${h.title}": ${note}`);
+  return note;
+}
+
+/**
+ * Changes sent before history existed, rebuilt from what was recorded on the
+ * book, so they can still be undone.
+ */
+export function backfillHistory() {
+  const done = db.prepare("SELECT value FROM settings WHERE key = '_historyBackfilled'").get();
+  if (done) return;
+  const synced = db.prepare("SELECT * FROM reading WHERE sync_status = 'synced' AND sync_action IS NOT NULL").all() as unknown as ReadingRow[];
+  const items = getItems(synced.map((r) => r.abs_item_id));
+  const byName = Object.fromEntries(Object.entries(STATUS_NAMES).map(([k, v]) => [v, Number(k)]));
+  for (const r of synced) {
+    const a = r.sync_action!;
+    let kind: string | null = null;
+    let prevStatus: number | null = null;
+    let prevProgress: number | null = null;
+    if (a.startsWith("Add as")) kind = "add";
+    else if (a.includes(" → ") && !a.startsWith("Progress")) {
+      kind = "status";
+      prevStatus = byName[a.split(" → ")[0]] ?? null;
+    } else if (a.startsWith("Progress")) {
+      kind = "progress";
+      prevProgress = Number(a.match(/Progress ([\d.]+)%/)?.[1] ?? 0);
+    }
+    if (!kind || !r.hc_book_id) continue;
+    db.prepare(
+      `INSERT INTO reading_history (ts, abs_item_id, hc_book_id, title, description, kind, created_entry, prev_status, prev_progress)
+       VALUES (COALESCE(?, datetime('now')), ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(r.synced_at, r.abs_item_id, r.hc_book_id, items.get(r.abs_item_id)?.title ?? "Unknown", a, kind, kind === "add" ? 1 : 0, prevStatus, prevProgress);
+  }
+  db.prepare("INSERT INTO settings (key, value) VALUES ('_historyBackfilled', 'true')").run();
 }
 
 // ---------------------------------------------------------------------------
@@ -538,7 +723,8 @@ export function readingView() {
   const count = (f: (b: (typeof books)[number]) => boolean) => books.filter(f).length;
   return {
     enabled: getSettings().readingEnabled,
-    approved: getSettings().readingApproved,
+    autoSend: getSettings().readingAutoSend,
+    minProgress: getSettings().readingMinProgress,
     running,
     counts: {
       total: books.length,
@@ -552,6 +738,7 @@ export function readingView() {
       pending: count((b) => b.matchStatus === "matched" && b.syncStatus === "pending"),
       skipped: count((b) => b.matchStatus === "matched" && b.syncStatus === "skipped"),
       errors: count((b) => b.matchStatus === "matched" && b.syncStatus === "error"),
+      held: count((b) => b.matchStatus === "matched" && b.syncStatus === "held"),
     },
     books,
   };

@@ -7,7 +7,7 @@ import { sessionSecret } from "./lib/settings.js";
 import { routes } from "./routes.js";
 import { reschedule } from "./lib/scheduler.js";
 import { syncAll } from "./lib/sync.js";
-import { syncReading } from "./lib/reading.js";
+import { backfillHistory, syncReading } from "./lib/reading.js";
 
 const app = Fastify({ logger: false, bodyLimit: 1_000_000 });
 
@@ -26,6 +26,7 @@ if (existsSync(config.webDir)) {
 await app.listen({ port: config.port, host: config.host });
 console.log(`Shelfhelp ${config.version} listening on http://${config.host}:${config.port} (config in ${config.configDir})`);
 
+backfillHistory();
 reschedule();
 // A first sync shortly after start, so lists catch up after a restart.
 setTimeout(() => {

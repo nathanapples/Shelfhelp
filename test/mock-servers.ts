@@ -173,6 +173,21 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> })
       return { update_user_book_read: { id: r.id, error: null, userBookRead: r } };
     }
   }
+  if (q.includes("mutation RemoveUserBook(")) {
+    const e = [...userBooks.values()].find((x) => x.id === v.id);
+    if (e) userBooks.delete(e.bookId);
+    console.log(`[hc] removed book ${e?.bookId}`);
+    return { delete_user_book: e ? { id: e.id, bookId: e.bookId, userId: 1 } : null };
+  }
+  if (q.includes("mutation RemoveUserBookRead")) {
+    for (const e of userBooks.values()) e.reads = e.reads.filter((r) => r.id !== v.id);
+    console.log(`[hc] removed read ${v.id}`);
+    return { delete_user_book_read: { id: v.id, error: null } };
+  }
+  if (q.includes("query GetUserBookForBook")) {
+    const e = userBooks.get(Number(v.bookId));
+    return { user_books: e ? [{ ...entryJson(e), edition: null }] : [] };
+  }
   if (q.includes("query GetEditionsForBook")) return { editions: [edition(Number(v.bookId))] };
   if (q.includes("query GetBooks")) {
     return { books: (v.ids as number[]).map((id) => listBooks(books.findIndex((b) => b.id === id), 1)[0]?.book).filter(Boolean) };
@@ -262,6 +277,7 @@ const itemJson = (i: (typeof items)[number]) => ({
   updatedAt: 1,
   media: {
     duration: i.duration ?? 36000,
+    numAudioFiles: i.id === "li_16" ? 0 : 1,
     metadata: { title: i.title, authorName: i.authorName, narratorName: "Ray Porter", seriesName: i.seriesName ?? "", asin: i.asin ?? null, isbn: null, publishedYear: "2015" },
   },
 });
@@ -301,12 +317,15 @@ http
             prog("li_15", 0.6, false, 5),
             prog("li_12", 1, true, 30),
             prog("li_7", 0.1, false, 1),
+            prog("li_3", 0.02, false, 1),
+            prog("li_16", 0.3, false, 4),
             { ...prog("pod_1", 0.5), episodeId: "ep_1" },
           ],
         });
       }
-      if (p === "/api/libraries") return send(200, { libraries: [{ id: "lib_audio", name: "Audiobooks", mediaType: "book" }, { id: "lib_pod", name: "Podcasts", mediaType: "podcast" }] });
+      if (p === "/api/libraries") return send(200, { libraries: [{ id: "lib_audio", name: "Audiobooks", mediaType: "book" }, { id: "lib_kids", name: "Kids", mediaType: "book" }, { id: "lib_pod", name: "Podcasts", mediaType: "podcast" }] });
       if ((m = p.match(/^\/api\/libraries\/([^/]+)\/items$/))) {
+        if (m[1] !== "lib_audio") return send(200, { results: [], total: 0 });
         const page = Number(url.searchParams.get("page") ?? 0);
         const limit = Number(url.searchParams.get("limit") ?? 0) || items.length;
         return send(200, { results: items.slice(page * limit, page * limit + limit).map(itemJson), total: items.length });

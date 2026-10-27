@@ -10,7 +10,7 @@ import { getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } f
 import { decide, getList, hardcoverUrl, isRunning, pushCollection, rematch, runningLists, statusCounts, syncAll, syncList, type ListRow } from "./lib/sync.js";
 import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
-import { decideItem, readingView, rememberBook, syncReading, type HcBookView } from "./lib/reading.js";
+import { decideItem, history, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
 
 const COOKIE = "shelfhelp_session";
 const MASK = "••••••••";
@@ -164,9 +164,15 @@ export async function routes(app: FastifyInstance) {
     if (patch.absToken === MASK) delete patch.absToken;
     if (patch.syncIntervalMinutes !== undefined) patch.syncIntervalMinutes = Math.max(0, Number(patch.syncIntervalMinutes) || 0);
     if (patch.matchStrictness && !["strict", "balanced", "loose"].includes(patch.matchStrictness)) delete patch.matchStrictness;
+    if (patch.readingMinProgress !== undefined) patch.readingMinProgress = Math.min(100, Math.max(0, Number(patch.readingMinProgress) || 0));
+    if (patch.absLibraries !== undefined && !Array.isArray(patch.absLibraries)) delete patch.absLibraries;
+    delete patch.readingApproved;
     const before = getSettings().matchStrictness;
     const saved = saveSettings(patch);
     reschedule();
+    if (["readingMinProgress", "readingAddNew", "readingIncludeEbooks", "readingEnabled", "absLibraries"].some((k) => k in patch)) {
+      syncReading("settings changed").catch(() => {});
+    }
     if (patch.matchStrictness && patch.matchStrictness !== before) {
       for (const l of db.prepare("SELECT * FROM lists").all() as unknown as ListRow[]) rematch(l);
     }
@@ -197,9 +203,14 @@ export async function routes(app: FastifyInstance) {
   });
 
   // Audiobookshelf
-  app.get("/api/abs/libraries", async (_req, reply) => {
+  app.get<{ Querystring: { all?: string } }>("/api/abs/libraries", async (req, reply) => {
     try {
-      return await new Abs().libraries();
+      const abs = new Abs();
+      if (req.query.all === "1") {
+        const chosen = getSettings().absLibraries;
+        return (await abs.libraries()).map((l) => ({ ...l, selected: !chosen.length || chosen.includes(l.id) }));
+      }
+      return await abs.selectedLibraries();
     } catch (err) {
       return fail(reply, err);
     }
@@ -431,11 +442,41 @@ export async function routes(app: FastifyInstance) {
     return { started: true };
   });
 
-  app.post("/api/reading/approve", async () => {
-    saveSettings({ readingApproved: true });
-    log("info", "Reading progress approved: changes will now be sent to Hardcover");
-    syncReading("approved").catch(() => {});
+  // Sends exactly the changes you picked (or every waiting one). Nothing else.
+  app.post<{ Body: { ids?: string[] } }>("/api/reading/send", async (req, reply) => {
+    try {
+      return await send(req.body?.ids?.length ? req.body.ids : null);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.post<{ Body: { id: string } }>("/api/reading/skip", async (req) => {
+    skipChange(req.body.id);
     return { ok: true };
+  });
+
+  app.get("/api/reading/history", async () =>
+    history().map((h) => ({
+      id: h.id,
+      ts: h.ts,
+      absItemId: h.abs_item_id,
+      hcBookId: h.hc_book_id,
+      title: h.title,
+      description: h.description,
+      kind: h.kind,
+      undoneAt: h.undone_at,
+      undoNote: h.undo_note,
+      coverUrl: `/api/abs/cover/${h.abs_item_id}`,
+    })),
+  );
+
+  app.post<{ Params: { id: string } }>("/api/reading/history/:id/undo", async (req, reply) => {
+    try {
+      return { note: await undo(Number(req.params.id)) };
+    } catch (err) {
+      return fail(reply, err);
+    }
   });
 
   app.post<{ Body: { absItemId: string; action: "match" | "ignore" | "missing" | "reset"; hcBookId?: number; hcBook?: HcBookView } }>(

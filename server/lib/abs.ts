@@ -40,6 +40,7 @@ export interface AbsItemRow extends AbsItem {
   narrators: string[];
   publishedYear: number | null;
   updatedAt: number | null;
+  numAudio: number | null;
 }
 
 interface RawItem {
@@ -48,6 +49,7 @@ interface RawItem {
   updatedAt?: number;
   media: {
     duration?: number;
+    numAudioFiles?: number;
     metadata: {
       title?: string;
       subtitle?: string | null;
@@ -102,6 +104,13 @@ export class Abs {
   async myProgress(): Promise<AbsProgress[]> {
     const me = await this.request<{ mediaProgress?: AbsProgress[] }>("GET", "/api/me");
     return (me.mediaProgress ?? []).filter((p) => p.libraryItemId && !p.episodeId);
+  }
+
+  /** Book libraries you've chosen in Settings (all of them if none are chosen). Podcast libraries never appear. */
+  async selectedLibraries(): Promise<AbsLibrary[]> {
+    const all = await this.libraries();
+    const chosen = getSettings().absLibraries;
+    return chosen.length ? all.filter((l) => chosen.includes(l.id)) : all;
   }
 
   async libraries(): Promise<AbsLibrary[]> {
@@ -182,5 +191,6 @@ function toRow(r: RawItem): AbsItemRow {
     duration: r.media.duration ?? null,
     publishedYear: Number.isFinite(year) ? year : null,
     updatedAt: r.updatedAt ?? null,
+    numAudio: r.media.numAudioFiles ?? null,
   };
 }

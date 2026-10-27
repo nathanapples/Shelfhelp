@@ -111,7 +111,12 @@ export interface Settings {
   syncIntervalMinutes: number;
   matchStrictness: "strict" | "balanced" | "loose";
   readingEnabled: boolean;
-  readingApproved: boolean;
+  readingAutoSend: boolean;
+  readingMinProgress: number;
+  readingAddNew: boolean;
+  readingMarkOwned: boolean;
+  readingIncludeEbooks: boolean;
+  absLibraries: string[];
   lockedByEnv: string[];
 }
 
@@ -187,7 +192,7 @@ export function duration(seconds: number | null): string | null {
 }
 
 export type ReadingMatch = "matched" | "review" | "missing" | "ignored";
-export type ReadingSync = "synced" | "pending" | "skipped" | "error" | "none";
+export type ReadingSync = "synced" | "pending" | "skipped" | "error" | "none" | "held";
 
 export interface HcBookRef {
   id: number;
@@ -242,10 +247,11 @@ export interface ReadingBook {
 
 export interface ReadingData {
   enabled: boolean;
-  approved: boolean;
+  autoSend: boolean;
+  minProgress: number;
   running: boolean;
   counts: Record<
-    "total" | "listening" | "finished" | "matched" | "review" | "missing" | "ignored" | "synced" | "pending" | "skipped" | "errors",
+    "total" | "listening" | "finished" | "matched" | "review" | "missing" | "ignored" | "synced" | "pending" | "skipped" | "errors" | "held",
     number
   >;
   books: ReadingBook[];
@@ -259,4 +265,17 @@ export function shortDate(ms: number | null): string | null {
 /** Joins reasons into readable sentences: "Title and author match. Same series position (#1)." */
 export function sentences(parts: string[]): string {
   return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1).replace(/\.$/, "")).join(". ") + (parts.length ? "." : "");
+}
+
+export interface HistoryEntry {
+  id: number;
+  ts: string;
+  absItemId: string;
+  hcBookId: number;
+  title: string;
+  description: string;
+  kind: string;
+  undoneAt: string | null;
+  undoNote: string | null;
+  coverUrl: string;
 }

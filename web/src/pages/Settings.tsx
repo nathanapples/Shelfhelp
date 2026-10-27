@@ -6,8 +6,8 @@ import { api, type Library, type Settings, type Status } from "../lib/api";
 import { ErrorBlock, LoadingBlock, PageTitle, Spinner, Tabs, Toggle } from "../components/ui";
 import { useToast } from "../components/toast";
 
-type Tab = "general" | "hardcover" | "abs" | "activity" | "about";
-const TABS: Tab[] = ["general", "hardcover", "abs", "activity", "about"];
+type Tab = "general" | "hardcover" | "abs" | "reading" | "activity" | "about";
+const TABS: Tab[] = ["general", "hardcover", "abs", "reading", "activity", "about"];
 
 function Section({ title, description, children }: { title: string; description: ReactNode; children: ReactNode }) {
   return (
@@ -58,6 +58,11 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
     api<Settings>("/settings").then(setS).catch((e) => setError(e.message));
   }, []);
   useEffect(() => setTest(null), [tab]);
+  const [libs, setLibs] = useState<(Library & { selected: boolean })[] | null>(null);
+  useEffect(() => {
+    if (tab !== "abs" || !status.configured.abs) return;
+    api<(Library & { selected: boolean })[]>("/abs/libraries?all=1").then(setLibs).catch(() => setLibs([]));
+  }, [tab, status.configured.abs]);
 
   if (error) return <ErrorBlock message={error} />;
   if (!s) return <LoadingBlock />;
@@ -138,6 +143,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
           { id: "general", label: "General" },
           { id: "hardcover", label: status.configured.hardcover ? "Hardcover" : "Hardcover ●" },
           { id: "abs", label: status.configured.abs ? "Audiobookshelf" : "Audiobookshelf ●" },
+          { id: "reading", label: "Reading" },
           { id: "activity", label: "Activity" },
           { id: "about", label: "About" },
         ]}
@@ -194,16 +200,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
               ))}
             </div>
           </div>
-          <div className="form-row">
-            <label>
-              Reading progress
-              <span className="label-tip">Send your Audiobookshelf listening progress to Hardcover. See the Reading page.</span>
-            </label>
-            <div className="form-input-area sm:pt-2">
-              <Toggle checked={s.readingEnabled} onChange={(v) => set("readingEnabled", v)} />
-            </div>
-          </div>
-          {actions(["syncIntervalMinutes", "matchStrictness", "readingEnabled"])}
+          {actions(["syncIntervalMinutes", "matchStrictness"])}
         </Section>
       )}
 
@@ -278,7 +275,110 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
             </div>
           </div>
           <TestResult result={test} />
-          {actions(["absUrl", "absToken"], testAbs)}
+          {libs && libs.length > 0 && (
+            <div className="form-row">
+              <label>
+                Libraries
+                <span className="label-tip">Which book libraries Shelfhelp uses for collections and reading. Podcast libraries are never used.</span>
+              </label>
+              <div className="form-input-area space-y-3 sm:pt-2">
+                {libs.map((l) => (
+                  <label key={l.id} className="flex cursor-pointer items-center gap-3">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500"
+                      checked={l.selected}
+                      onChange={() => {
+                        const next = libs.map((x) => (x.id === l.id ? { ...x, selected: !x.selected } : x));
+                        setLibs(next);
+                        // Every library checked is saved as "all", so new libraries are included too.
+                        set("absLibraries", next.every((x) => x.selected) ? [] : next.filter((x) => x.selected).map((x) => x.id));
+                      }}
+                    />
+                    <span className="text-white">{l.name}</span>
+                  </label>
+                ))}
+                {libs.every((l) => !l.selected) && <p className="text-xs text-yellow-300">Pick at least one library.</p>}
+              </div>
+            </div>
+          )}
+          {actions(["absUrl", "absToken", "absLibraries"], testAbs)}
+        </Section>
+      )}
+
+      {tab === "reading" && (
+        <Section
+          title="Reading Progress"
+          description="How your Audiobookshelf listening progress is sent to Hardcover. Books never move backward: Read and Did Not Finish are left alone, and progress is never lowered."
+        >
+          <div className="form-row">
+            <label>
+              Sync reading progress
+              <span className="label-tip">Turn the whole Reading feature on or off.</span>
+            </label>
+            <div className="form-input-area sm:pt-2">
+              <Toggle checked={s.readingEnabled} onChange={(v) => set("readingEnabled", v)} />
+            </div>
+          </div>
+          <div className="form-row">
+            <label>
+              Send automatically
+              <span className="label-tip">Off: every change waits on the Reading page until you send it. On: changes go out on each sync.</span>
+            </label>
+            <div className="form-input-area sm:pt-2">
+              <Toggle checked={s.readingAutoSend} onChange={(v) => set("readingAutoSend", v)} />
+              {s.readingAutoSend && (
+                <p className="mt-2 text-xs text-yellow-300">Changes will be sent without asking. Everything sent shows up in History, where it can be undone.</p>
+              )}
+            </div>
+          </div>
+          <div className="form-row">
+            <label>
+              Minimum progress
+              <span className="label-tip">Books with less than this listened aren't synced. Finished books always are.</span>
+            </label>
+            <div className="form-input-area">
+              <div className="flex max-w-xs items-center gap-3">
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={s.readingMinProgress}
+                  onChange={(e) => set("readingMinProgress", Number(e.target.value))}
+                />
+                <span className="text-gray-400">%</span>
+              </div>
+            </div>
+          </div>
+          <div className="form-row">
+            <label>
+              Add new books
+              <span className="label-tip">Add books to Hardcover that aren't on any of your shelves yet. Off: only books already on your shelves are updated.</span>
+            </label>
+            <div className="form-input-area sm:pt-2">
+              <Toggle checked={s.readingAddNew} onChange={(v) => set("readingAddNew", v)} />
+            </div>
+          </div>
+          <div className="form-row">
+            <label>
+              Mark as owned
+              <span className="label-tip">Also mark the audiobook edition as Owned on Hardcover when a book is synced.</span>
+            </label>
+            <div className="form-input-area sm:pt-2">
+              <Toggle checked={s.readingMarkOwned} onChange={(v) => set("readingMarkOwned", v)} />
+            </div>
+          </div>
+          <div className="form-row">
+            <label>
+              Include ebooks
+              <span className="label-tip">Sync items that are only an ebook, with no audio.</span>
+            </label>
+            <div className="form-input-area sm:pt-2">
+              <Toggle checked={s.readingIncludeEbooks} onChange={(v) => set("readingIncludeEbooks", v)} />
+            </div>
+          </div>
+          {actions(["readingEnabled", "readingAutoSend", "readingMinProgress", "readingAddNew", "readingMarkOwned", "readingIncludeEbooks"])}
         </Section>
       )}
 
