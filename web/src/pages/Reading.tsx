@@ -48,26 +48,53 @@ const TAB_HELP: Record<Tab, string> = {
   history: "Everything sent to Hardcover, newest first. Any change can be undone.",
 };
 
-/** What each icon in the Issues tab means. */
-function IssueLegend({ min, showUnder }: { min: number; showUnder: boolean }) {
+type IssueType = "review" | "notfound" | "dnf" | "skipped" | "under";
+const ISSUE_TYPES: IssueType[] = ["review", "notfound", "dnf", "skipped", "under"];
+const DEFAULT_ISSUES: IssueType[] = ["review", "notfound", "skipped"];
+
+/** Filter chips for the Issues tab. Each one is also the legend for its icon. */
+function IssueFilters({
+  min,
+  on,
+  counts,
+  toggle,
+}: {
+  min: number;
+  on: Set<IssueType>;
+  counts: Record<IssueType, number>;
+  toggle: (t: IssueType) => void;
+}) {
   const dot = (cls: string, child: React.ReactNode) => (
     <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full shadow ring-1 ${cls}`}>{child}</span>
   );
-  const items: [React.ReactNode, string][] = [
-    [dot("bg-yellow-500 ring-yellow-400 text-yellow-100", <span className="text-[0.8em] font-black leading-none">?</span>), "Not sure which Hardcover book"],
-    [dot("bg-red-600 ring-red-500 text-red-100", <XSolid className="h-3/4 w-3/4" />), "Not found on Hardcover"],
-    [dot("bg-orange-500 ring-orange-400 text-orange-50", <NoSymbolSolid className="h-3/4 w-3/4" />), "Did Not Finish on Hardcover"],
-    [dot("bg-gray-600 ring-gray-500 text-gray-200", <PauseSolid className="h-3/4 w-3/4" />), "Skipped (your choice, or not on your shelves)"],
-    ...(showUnder ? [[dot("bg-sky-600 ring-sky-400 text-sky-50", <HourglassIcon className="h-3/4 w-3/4" />), `Under ${min}% listened`] as [React.ReactNode, string]] : []),
-  ];
+  const chips: Record<IssueType, [React.ReactNode, string]> = {
+    review: [dot("bg-yellow-500 ring-yellow-400 text-yellow-100", <span className="text-[0.8em] font-black leading-none">?</span>), "Not sure which book"],
+    notfound: [dot("bg-red-600 ring-red-500 text-red-100", <XSolid className="h-3/4 w-3/4" />), "Not found"],
+    dnf: [dot("bg-orange-500 ring-orange-400 text-orange-50", <NoSymbolSolid className="h-3/4 w-3/4" />), "Did not finish"],
+    skipped: [dot("bg-gray-600 ring-gray-500 text-gray-200", <PauseSolid className="h-3/4 w-3/4" />), "Skipped"],
+    under: [dot("bg-sky-600 ring-sky-400 text-sky-50", <HourglassIcon className="h-3/4 w-3/4" />), `Under ${min}%`],
+  };
   return (
-    <div className="mb-5 flex flex-wrap gap-x-5 gap-y-2">
-      {items.map(([icon, text]) => (
-        <span key={text} className="flex items-center gap-2 text-xs text-gray-400">
-          {icon}
-          {text}
-        </span>
-      ))}
+    <div className="mb-5 flex flex-wrap gap-2">
+      {ISSUE_TYPES.map((t) => {
+        const active = on.has(t);
+        const [icon, label] = chips[t];
+        return (
+          <button
+            key={t}
+            type="button"
+            onClick={() => toggle(t)}
+            aria-pressed={active}
+            className={`flex items-center gap-2 rounded-full py-1 pl-1 pr-3 text-xs font-medium ring-1 transition ${
+              active ? "bg-gray-700 text-white ring-gray-500" : "bg-transparent text-gray-500 ring-gray-700 hover:text-gray-300"
+            }`}
+          >
+            <span className={active ? "" : "opacity-40 grayscale"}>{icon}</span>
+            {label}
+            <span className={`rounded-full px-1.5 text-[11px] ${active ? "bg-gray-900/60 text-gray-200" : "text-gray-600"}`}>{counts[t]}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -759,17 +786,21 @@ export default function ReadingPage() {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const setTab = (t: Tab) => setParams({ tab: t }, { replace: true });
-  const [showUnder, setShowUnder] = useState(() => {
+  const [issueTypes, setIssueTypes] = useState<Set<IssueType>>(() => {
     try {
-      return localStorage.getItem("shelfhelp.showUnder") === "1";
+      const saved = JSON.parse(localStorage.getItem("shelfhelp.issueTypes") ?? "null");
+      if (Array.isArray(saved)) return new Set(saved.filter((t) => ISSUE_TYPES.includes(t)));
     } catch {
-      return false;
+      /* private mode or bad value */
     }
+    return new Set(DEFAULT_ISSUES);
   });
-  const toggleUnder = (v: boolean) => {
-    setShowUnder(v);
+  const toggleIssue = (t: IssueType) => {
+    const next = new Set(issueTypes);
+    next.has(t) ? next.delete(t) : next.add(t);
+    setIssueTypes(next);
     try {
-      localStorage.setItem("shelfhelp.showUnder", v ? "1" : "0");
+      localStorage.setItem("shelfhelp.issueTypes", JSON.stringify([...next]));
     } catch {
       /* private mode */
     }
@@ -798,11 +829,11 @@ export default function ReadingPage() {
   }, [data, tab]);
   // One list, most pressing first; the icons say what each one needs.
   const issues = useMemo(() => {
-    const order = ["review", "notfound", "dnf", "skipped", ...(showUnder ? ["under"] : [])];
+    const order = ISSUE_TYPES.filter((t) => issueTypes.has(t)) as string[];
     return (data?.books ?? [])
       .filter((b) => order.includes(cardState(b).key))
       .sort((a, b) => order.indexOf(cardState(a).key) - order.indexOf(cardState(b).key));
-  }, [data, showUnder]);
+  }, [data, issueTypes]);
   const open = data?.books.find((b) => b.absItemId === openId) ?? null;
   const pending = useMemo(() => (data?.books ?? []).filter((b) => b.matchStatus === "matched" && b.syncStatus === "pending"), [data]);
 
@@ -898,7 +929,7 @@ export default function ReadingPage() {
             onChange={setTab}
             tabs={[
               { id: "waiting", label: "Waiting", count: waiting },
-              { id: "issues", label: "Issues", count: countOf("review") + countOf("notfound") + countOf("dnf") + countOf("skipped") + (showUnder ? countOf("under") : 0) },
+              { id: "issues", label: "Issues", count: ISSUE_TYPES.filter((t) => issueTypes.has(t)).reduce((n, t) => n + countOf(t), 0) },
               { id: "synced", label: "In Sync", count: countOf("synced") },
               { id: "all", label: "All", count: c.total },
               { id: "history", label: "History" },
@@ -906,26 +937,20 @@ export default function ReadingPage() {
           />
           <div className="-mt-3 mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-gray-400">{TAB_HELP[tab]}</p>
-            {tab === "issues" && (
-              <label className="flex flex-shrink-0 cursor-pointer items-center gap-2 text-sm text-gray-300">
-                <input
-                  type="checkbox"
-                  checked={showUnder}
-                  onChange={(e) => toggleUnder(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500"
-                />
-                Show books under {data.minProgress}% ({countOf("under")})
-              </label>
-            )}
           </div>
 
           {tab === "history" ? (
             <HistoryList onUndone={reload} />
           ) : tab === "issues" ? (
             <>
-              <IssueLegend min={data.minProgress} showUnder={showUnder} />
+              <IssueFilters
+                min={data.minProgress}
+                on={issueTypes}
+                toggle={toggleIssue}
+                counts={Object.fromEntries(ISSUE_TYPES.map((t) => [t, countOf(t)])) as Record<IssueType, number>}
+              />
               {issues.length === 0 ? (
-                <div className="py-16 text-center text-sm text-gray-500">No issues.</div>
+                <div className="py-16 text-center text-sm text-gray-500">{issueTypes.size ? "No issues of the selected kinds." : "Pick a kind of issue above to see it."}</div>
               ) : (
                 <ul className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]">
                   {issues.map((b) => (

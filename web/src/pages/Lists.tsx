@@ -10,7 +10,7 @@ import {
   RectangleStackIcon,
 } from "@heroicons/react/24/outline";
 import { api, timeAgo, type BookStatus, type List, type Status } from "../lib/api";
-import { useApi } from "../lib/hooks";
+import { jobStarted, useApi } from "../lib/hooks";
 import { AddListModal } from "../components/AddListModal";
 import { Cover, Empty, ErrorBlock, LoadingBlock, PageTitle, Spinner } from "../components/ui";
 import { useToast } from "../components/toast";
@@ -150,6 +150,7 @@ function ListCard({ list, onSynced }: { list: List; onSynced: () => void }) {
 }
 
 export default function ListsPage({ status }: { status: Status }) {
+  const toast = useToast();
   const [adding, setAdding] = useState(false);
   const [poll, setPoll] = useState<number | false>(false);
   const { data: lists, error, loading, reload } = useApi<List[]>("/lists", { poll });
@@ -161,6 +162,15 @@ export default function ListsPage({ status }: { status: Status }) {
   }, [lists, reloadTotals]);
 
   const configured = status.configured.hardcover && status.configured.abs;
+  const syncAll = async () => {
+    try {
+      await api("/sync", { method: "POST" });
+      jobStarted();
+      setTimeout(reload, 500);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
 
   if (!configured) {
     return (
@@ -184,9 +194,16 @@ export default function ListsPage({ status }: { status: Status }) {
     <div>
       <PageTitle
         extra={
-          <button className="btn btn-primary" onClick={() => setAdding(true)}>
-            <PlusIcon className="h-5 w-5" /> Add Collection
-          </button>
+          <>
+            {lists && lists.length > 0 && (
+              <button className="btn btn-default" onClick={syncAll} title="Sync every collection now">
+                <ArrowPathIcon className="h-5 w-5" /> Sync All
+              </button>
+            )}
+            <button className="btn btn-primary" onClick={() => setAdding(true)}>
+              <PlusIcon className="h-5 w-5" /> Add Collection
+            </button>
+          </>
         }
       >
         Collections

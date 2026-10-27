@@ -88,14 +88,6 @@ export function Layout({ children, version, authRequired }: { children: ReactNod
     if (location.pathname !== "/search") setQ("");
   }, [location.pathname]);
 
-  const syncAll = async () => {
-    try {
-      await api("/sync", { method: "POST" });
-      jobStarted();
-    } catch (e) {
-      toast((e as Error).message, "error");
-    }
-  };
 
   const signOut = async () => {
     await api("/auth/logout", { method: "POST" }).catch(() => {});
@@ -182,10 +174,6 @@ export function Layout({ children, version, authRequired }: { children: ReactNod
               </span>
             </div>
           )}
-          <button onClick={syncAll} className="btn btn-default rounded-full px-3" title="Sync all lists now">
-            <ArrowPathIcon className="h-5 w-5" />
-            <span className="hidden sm:inline">Sync All</span>
-          </button>
           {authRequired && (
             <button onClick={signOut} className="rounded-full p-2 text-gray-400 hover:bg-gray-700 hover:text-white" title="Sign out">
               <ArrowRightOnRectangleIcon className="h-6 w-6" />

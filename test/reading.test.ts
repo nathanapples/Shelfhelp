@@ -71,11 +71,18 @@ test("never lowers progress on Hardcover", () => {
 });
 
 
-test("fixes reading dates on a book that's already Read", () => {
+test("fills in a missing start date on a book that's already Read", () => {
   const r = row({ is_finished: 1, progress: 1, started_at: ms("2026-02-01"), finished_at: ms("2026-02-18") });
   const p = planFor(r, entry(3, 100, { startedAt: null, finishedAt: "2026-02-20" }));
   assert.equal(p.kind, "dates");
-  assert.match(p.description, /started \(none\) → 2026-02-01, finished 2026-02-20 → 2026-02-18/);
+  assert.equal(p.dates?.startedAt, "2026-02-01");
+  // The finish date already on Hardcover is kept, even though it differs.
+  assert.equal(p.dates?.finishedAt, undefined);
+});
+
+test("never changes dates already on Hardcover", () => {
+  const r = row({ is_finished: 1, progress: 1, started_at: ms("2026-03-31"), finished_at: ms("2026-04-10") });
+  assert.equal(planFor(r, entry(3, 100, { startedAt: "2025-01-05", finishedAt: "2025-02-01" })).kind, "skip");
 });
 
 test("no date change when Hardcover already has the same dates", () => {
@@ -83,10 +90,11 @@ test("no date change when Hardcover already has the same dates", () => {
   assert.equal(planFor(r, entry(3, 100, { startedAt: "2026-02-01", finishedAt: "2026-02-18" })).kind, "skip");
 });
 
-test("progress update carries a start date fix", () => {
-  const p = planFor(row({ progress: 0.6, started_at: ms("2026-03-05") }), entry(2, 40, { startedAt: "2026-03-09" }));
+test("progress update fills in a missing start date", () => {
+  const p = planFor(row({ progress: 0.6, started_at: ms("2026-03-05") }), entry(2, 40, { startedAt: null }));
   assert.equal(p.kind, "progress");
   assert.equal(p.dates?.startedAt, "2026-03-05");
+  assert.equal(planFor(row({ progress: 0.6, started_at: ms("2026-03-05") }), entry(2, 40, { startedAt: "2026-03-09" })).dates, undefined);
 });
 
 test("prefers the copy on your shelves when Hardcover lists a book twice", () => {

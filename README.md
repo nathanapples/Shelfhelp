@@ -29,7 +29,7 @@ The Reading page sends your Audiobookshelf listening progress to Hardcover:
 
 - A book you've started becomes **Currently Reading** with your progress.
 - A book you've finished becomes **Read** with the finish date.
-- Reading dates follow Audiobookshelf: the start date (first played) and finish date are set on Hardcover, and fixed if they differ.
+- Missing reading dates are filled in from Audiobookshelf (start = first played, finish = finished). Dates already on Hardcover are never changed.
 - It only moves forward. Read stays Read, Did Not Finish is never touched, and progress is never lowered.
 - Books under 5% listened (adjustable) are left out.
 

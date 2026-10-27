@@ -499,10 +499,12 @@ function reads(entry: Entry | undefined): HcRead[] {
 }
 
 /**
- * Adds a date fix when Hardcover's reading dates don't match Audiobookshelf's:
- * the start date (first played) and, for finished books, the finish date. It
- * only touches the read that matches this listen: the one in progress, or the
- * newest finished one.
+ * Fills in reading dates Hardcover doesn't have yet, from Audiobookshelf: the
+ * start date (first played) and, for finished books, the finish date. Dates
+ * already on Hardcover are never changed: Audiobookshelf's start date is when
+ * its progress record was made, which can be later than when you really
+ * started (after an import or a move to a new server). Only the read that
+ * matches this listen is touched: the one in progress, or the newest finished one.
  */
 function withDates(p: Plan, r: ReadingRow, entry: Entry): Plan {
   const read = r.is_finished ? reads(entry).find((x) => x.finishedAt) : reads(entry).find((x) => !x.finishedAt);
@@ -511,16 +513,16 @@ function withDates(p: Plan, r: ReadingRow, entry: Entry): Plan {
   const wantFinish = r.is_finished ? (day(r.finished_at) ?? day(r.last_update)) : undefined;
   const change: NonNullable<Plan["dates"]> = { readId: read.id, before: { startedAt: read.startedAt, finishedAt: read.finishedAt } };
   const text: string[] = [];
-  if (wantStart && read.startedAt !== wantStart) {
+  if (wantStart && !read.startedAt) {
     change.startedAt = wantStart;
-    text.push(`started ${read.startedAt ?? "(none)"} → ${wantStart}`);
+    text.push(`started ${wantStart}`);
   }
-  if (wantFinish && read.finishedAt !== wantFinish) {
+  if (wantFinish && !read.finishedAt) {
     change.finishedAt = wantFinish;
-    text.push(`finished ${read.finishedAt ?? "(none)"} → ${wantFinish}`);
+    text.push(`finished ${wantFinish}`);
   }
   if (!text.length) return p;
-  const dates = `Dates: ${text.join(", ")}`;
+  const dates = `Add missing dates: ${text.join(", ")}`;
   if (p.kind === "skip" || p.kind === "none") return { kind: "dates", dates: change, description: dates };
   return { ...p, dates: change, description: `${p.description}; ${dates.charAt(0).toLowerCase()}${dates.slice(1)}` };
 }
