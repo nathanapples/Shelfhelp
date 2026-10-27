@@ -94,9 +94,14 @@ export function inLibrary(bookIds: number[]): Map<number, string> {
   if (!bookIds.length) return known;
   const ph = bookIds.map(() => "?").join(",");
   const queries = [
-    `SELECT DISTINCT hc_book_id, abs_item_id FROM id_links WHERE hc_book_id IN (${ph}) AND abs_item_id IN (SELECT id FROM abs_items)`,
+    // An ASIN/ISBN link counts unless the library linker decided that item is a different book.
+    `SELECT DISTINCT i.hc_book_id, i.abs_item_id FROM id_links i
+     LEFT JOIN library_links l ON l.abs_item_id = i.abs_item_id
+     WHERE i.hc_book_id IN (${ph}) AND i.abs_item_id IN (SELECT id FROM abs_items)
+       AND (l.abs_item_id IS NULL OR (l.status = 'matched' AND l.hc_book_id = i.hc_book_id))`,
     `SELECT hc_book_id, abs_item_id FROM list_books WHERE status = 'matched' AND hc_book_id IN (${ph})`,
     `SELECT hc_book_id, abs_item_id FROM reading WHERE match_status = 'matched' AND hc_book_id IN (${ph})`,
+    `SELECT hc_book_id, abs_item_id FROM library_links WHERE status = 'matched' AND hc_book_id IN (${ph}) AND abs_item_id IN (SELECT id FROM abs_items)`,
   ];
   for (const q of queries) {
     for (const r of db.prepare(q).all(...bookIds) as { hc_book_id: number; abs_item_id: string | null }[]) {
@@ -133,6 +138,10 @@ type SdkBook = {
   hasAudiobook?: boolean | null;
   audioSeconds?: number | null;
 };
+
+export function summarizeBook(b: SdkBook | object): HcSummary {
+  return summarize(b as SdkBook);
+}
 
 function summarize(b: SdkBook): HcSummary {
   const fs = (b.cachedFeaturedSeries && typeof b.cachedFeaturedSeries === "object" ? b.cachedFeaturedSeries : {}) as {

@@ -1,78 +1,16 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowPathIcon, ArrowTopRightOnSquareIcon, InboxArrowDownIcon, LinkIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon, ArrowTopRightOnSquareIcon, InboxArrowDownIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { api, timeAgo, type BookRequest, type RequestStatus, type Status } from "../lib/api";
 import { useApi } from "../lib/hooks";
-import { RequestBadge, RequestControls, formatLabel, type RequestableBook } from "../components/Request";
-import { Cover, Empty, ErrorBlock, LoadingBlock, PageTitle, Spinner, Tabs } from "../components/ui";
+import { RequestBadge, formatLabel } from "../components/Request";
+import { Cover, Empty, ErrorBlock, LoadingBlock, PageTitle, Spinner } from "../components/ui";
 import { useToast } from "../components/toast";
 
 type Tab = "open" | "available" | "failed" | "all";
 const OPEN: RequestStatus[] = ["pending", "requested", "downloading", "downloaded"];
 const inTab = (t: Tab, r: BookRequest) =>
   t === "all" || (t === "open" ? OPEN.includes(r.status) : t === "available" ? r.status === "available" : r.status === "failed");
-
-function AddByLink({ status, onRequested }: { status: Status; onRequested: () => void }) {
-  const [ref, setRef] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [book, setBook] = useState<RequestableBook | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const find = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!ref.trim()) return;
-    setBusy(true);
-    setError(null);
-    setBook(null);
-    try {
-      setBook(await api<RequestableBook>(`/hardcover/book?ref=${encodeURIComponent(ref.trim())}`));
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="mb-8 rounded-xl bg-gray-800 p-4 ring-1 ring-gray-700 sm:p-5">
-      <h2 className="flex items-center gap-2 text-lg font-bold text-white">
-        <LinkIcon className="h-5 w-5 text-indigo-400" /> Request from a Hardcover link
-      </h2>
-      <p className="mt-1 text-sm text-gray-400">Paste a hardcover.app book link or a Hardcover book id. You can also search for a book in the bar above.</p>
-      <form onSubmit={find} className="mt-3 flex gap-2">
-        <input
-          className="input"
-          placeholder="https://hardcover.app/books/project-hail-mary"
-          value={ref}
-          onChange={(e) => setRef(e.target.value)}
-          autoCapitalize="off"
-          autoCorrect="off"
-        />
-        <button className="btn btn-default flex-shrink-0" disabled={busy || !ref.trim()}>
-          {busy && <Spinner className="h-4 w-4" />} Find
-        </button>
-      </form>
-      {error && <p className="mt-2 text-sm text-red-300">{error}</p>}
-      {book && (
-        <div className="mt-4 flex gap-4 rounded-lg bg-gray-900/50 p-3 ring-1 ring-gray-700">
-          <Cover src={book.coverUrl} alt={book.title} className="h-32 w-[5.5rem] flex-shrink-0 rounded-md ring-1 ring-gray-700" />
-          <div className="min-w-0 flex-1">
-            <div className="font-semibold text-white">{book.title}</div>
-            <div className="text-sm text-gray-300">{book.authors.join(", ")}</div>
-            <div className="mt-0.5 text-xs text-gray-500">
-              {[book.releaseYear, book.seriesName && `${book.seriesName}${book.seriesPosition != null ? ` #${book.seriesPosition}` : ""}`, `hc:${book.id}`]
-                .filter(Boolean)
-                .join(" · ")}
-            </div>
-            <div className="mt-3">
-              <RequestControls book={book} enabled={status.requestsEnabled} defaultFormat={status.requestFormat} onDone={onRequested} />
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function RequestRow({ r, onChanged }: { r: BookRequest; onChanged: () => void }) {
   const toast = useToast();
@@ -149,12 +87,29 @@ function RequestRow({ r, onChanged }: { r: BookRequest; onChanged: () => void })
   );
 }
 
+type FormatFilter = "all" | "audiobook" | "ebook";
+
+function Chip({ active, onClick, children, count }: { active: boolean; onClick: () => void; children: React.ReactNode; count?: number }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ring-1 transition ${
+        active ? "bg-indigo-600 text-white ring-indigo-500" : "bg-gray-800 text-gray-300 ring-gray-600 hover:bg-gray-700"
+      }`}
+    >
+      {children}
+      {count !== undefined && <span className={`rounded-full px-1.5 text-xs ${active ? "bg-indigo-400/40" : "bg-gray-700"}`}>{count}</span>}
+    </button>
+  );
+}
+
 export default function RequestsPage({ status }: { status: Status }) {
   const toast = useToast();
   const { data, error, loading, reload, setData } = useApi<{ requests: BookRequest[]; counts: Partial<Record<RequestStatus, number>> }>("/requests", {
     poll: 15000,
   });
-  const [tab, setTab] = useState<Tab>("open");
+  const [filter, setFilter] = useState<Tab>("all");
+  const [format, setFormat] = useState<FormatFilter>("all");
   const [checking, setChecking] = useState(false);
 
   const check = async () => {
@@ -168,9 +123,9 @@ export default function RequestsPage({ status }: { status: Status }) {
     }
   };
 
-  const all = data?.requests ?? [];
+  const all = (data?.requests ?? []).filter((r) => format === "all" || r.format === format);
   const count = (t: Tab) => all.filter((r) => inTab(t, r)).length;
-  const rows = all.filter((r) => inTab(tab, r));
+  const rows = all.filter((r) => inTab(filter, r));
 
   return (
     <div>
@@ -185,8 +140,9 @@ export default function RequestsPage({ status }: { status: Status }) {
       >
         Requests
       </PageTitle>
-      <p className="-mt-3 mb-6 max-w-3xl text-sm text-gray-400">
-        Books you've asked Chaptarr for. Shelfhelp checks on them every few minutes and marks audiobooks Available once they show up in Audiobookshelf.
+      <p className="-mt-3 mb-5 max-w-3xl text-sm text-gray-400">
+        Books you've asked Chaptarr for. To request one, search for it or paste a Hardcover link into the search bar. Audiobooks become Available once
+        they show up in Audiobookshelf.
       </p>
 
       {!status.requestsEnabled && (
@@ -199,23 +155,38 @@ export default function RequestsPage({ status }: { status: Status }) {
         </div>
       )}
 
-      <AddByLink status={status} onRequested={reload} />
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        {(
+          [
+            ["all", "All"],
+            ["open", "In progress"],
+            ["available", "Available"],
+            ["failed", "Failed"],
+          ] as const
+        ).map(([id, label]) => (
+          <Chip key={id} active={filter === id} onClick={() => setFilter(id)} count={count(id)}>
+            {label}
+          </Chip>
+        ))}
+        <span className="mx-1 hidden h-5 w-px bg-gray-600 sm:block" />
+        {(
+          [
+            ["all", "Any format"],
+            ["audiobook", "Audiobooks"],
+            ["ebook", "Ebooks"],
+          ] as const
+        ).map(([id, label]) => (
+          <Chip key={id} active={format === id} onClick={() => setFormat(id)}>
+            {label}
+          </Chip>
+        ))}
+      </div>
 
-      <Tabs<Tab>
-        value={tab}
-        onChange={setTab}
-        tabs={[
-          { id: "open", label: "In Progress", count: count("open") },
-          { id: "available", label: "Available", count: count("available") },
-          { id: "failed", label: "Failed", count: count("failed") },
-          { id: "all", label: "All", count: all.length },
-        ]}
-      />
       {loading && <LoadingBlock />}
       {error && <ErrorBlock message={error} />}
       {data && rows.length === 0 && (
-        <Empty icon={<InboxArrowDownIcon className="h-16 w-16" />} title={all.length ? "Nothing here" : "No requests yet"}>
-          {all.length ? "No requests in this group." : "Search for a book or paste a Hardcover link to request it."}
+        <Empty icon={<InboxArrowDownIcon className="h-16 w-16" />} title={data.requests.length ? "Nothing matches" : "No requests yet"}>
+          {data.requests.length ? "Try another filter." : "Search for a book or paste a Hardcover link in the search bar to request it."}
         </Empty>
       )}
       <ul className="max-w-4xl space-y-3">

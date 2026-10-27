@@ -40,6 +40,7 @@ export interface AbsItemRow extends AbsItem {
   narrators: string[];
   publishedYear: number | null;
   updatedAt: number | null;
+  addedAt: number | null;
   numAudio: number | null;
 }
 
@@ -47,6 +48,7 @@ interface RawItem {
   id: string;
   libraryId: string;
   updatedAt?: number;
+  addedAt?: number;
   media: {
     duration?: number;
     numAudioFiles?: number;
@@ -191,6 +193,7 @@ function toRow(r: RawItem): AbsItemRow {
     duration: r.media.duration ?? null,
     publishedYear: Number.isFinite(year) ? year : null,
     updatedAt: r.updatedAt ?? null,
+    addedAt: r.addedAt ?? null,
     numAudio: r.media.numAudioFiles ?? null,
   };
 }

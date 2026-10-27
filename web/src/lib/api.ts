@@ -371,3 +371,61 @@ export interface JobsData {
   running: Job[];
   last: Record<string, LastRun>;
 }
+
+export interface DiscoverRowInfo {
+  id: string;
+  title: string;
+  subtitle: string;
+}
+
+export interface DiscoverBook extends SearchHit {
+  addedAt?: number;
+}
+
+export interface LibraryItemView {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  authors: string[];
+  narrators: string[];
+  series: { name: string; sequence: number | null }[];
+  duration: number | null;
+  coverUrl: string;
+  asin?: string | null;
+  isbn?: string | null;
+  publishedYear?: number | null;
+  numAudio?: number | null;
+}
+
+export interface Similar {
+  confirmed: { via: string; item: LibraryItemView }[];
+  similar: { absItemId: string; score: number; titleSim: number; authorSim: number | null; notes: string[]; item: LibraryItemView }[];
+  linkedCount: LinkCounts;
+}
+
+export interface LinkCounts {
+  matched: number;
+  review: number;
+  missing: number;
+  ignored: number;
+  unchecked: number;
+}
+
+export type LinkStatus = "matched" | "review" | "missing" | "ignored" | "unchecked";
+
+export interface LinkRow {
+  absItemId: string;
+  item: LibraryItemView;
+  status: LinkStatus;
+  source: string | null;
+  hcBook: HcBookRef | null;
+  score: number | null;
+  reasons: string[];
+  candidates: (HcBookRef & { score: number; titleSim: number; authorSim: number | null; idVia: string[]; notes: string[] })[];
+}
+
+export interface LinkPage {
+  total: number;
+  counts: LinkCounts;
+  rows: LinkRow[];
+}

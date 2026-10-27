@@ -213,7 +213,7 @@ function ShelfBadge({ mine }: { mine: MyShelf | null | undefined }) {
   );
 }
 
-function HcRow({
+export function HcRow({
   book,
   candidate,
   current,

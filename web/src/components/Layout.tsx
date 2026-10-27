@@ -6,7 +6,9 @@ import {
   ArrowRightOnRectangleIcon,
   Bars3Icon,
   BookOpenIcon,
+  BuildingLibraryIcon,
   CogIcon,
+  SparklesIcon,
   InboxArrowDownIcon,
   MagnifyingGlassIcon,
   RectangleStackIcon,
@@ -18,9 +20,11 @@ import { Spinner } from "./ui";
 import { useToast } from "./toast";
 
 const nav: { to: string; label: string; icon: React.ComponentType<{ className?: string }>; end?: boolean; count?: string }[] = [
-  { to: "/reading", label: "Reading", icon: BookOpenIcon },
-  { to: "/", label: "Collections", icon: RectangleStackIcon, end: true },
+  { to: "/", label: "Discover", icon: SparklesIcon, end: true },
   { to: "/requests", label: "Requests", icon: InboxArrowDownIcon, count: "requests" },
+  { to: "/reading", label: "Reading", icon: BookOpenIcon },
+  { to: "/collections", label: "Collections", icon: RectangleStackIcon },
+  { to: "/library", label: "Library", icon: BuildingLibraryIcon },
   { to: "/settings", label: "Settings", icon: CogIcon },
 ];
 
@@ -169,7 +173,7 @@ export function Layout({
               type="search"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search Hardcover"
+              placeholder="Search Hardcover or paste a link"
               className="block w-full rounded-full border border-gray-600 bg-gray-900/80 py-2 pl-10 pr-4 text-white placeholder-gray-400 transition focus:border-gray-500 focus:bg-gray-900 focus:outline-none focus:ring-0 sm:text-base"
             />
           </form>

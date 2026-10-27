@@ -45,9 +45,17 @@ Progress comes from the Audiobookshelf user whose API key Shelfhelp uses. Every 
 
 Some of these rules follow [ShelfBridge](https://github.com/rohit-purandare/ShelfBridge) and [audiobookshelf-hardcover-sync](https://github.com/drallgood/audiobookshelf-hardcover-sync).
 
+## Discover
+
+The home page. Rows of trending books, new releases, what's coming soon, books on your Want to Read shelf that aren't in Audiobookshelf yet, and what was recently added. A check mark means you already have it; tap any book to see what's in Audiobookshelf and request it.
+
+## Library
+
+Links every Audiobookshelf book to its Hardcover book, using the same matching as Reading and Collections. It runs after each sync and only looks up books that are new or changed, paced to stay inside Hardcover's rate limit. Discover, search and the book popup use these links to tell you what you already have. An ASIN or ISBN match only counts when the titles agree, so a mislabeled ASIN can't hide a book you don't own. Books that need a look are under Check, and you can link any book by hand.
+
 ## Requests (Chaptarr)
 
-Connect [Chaptarr](https://github.com/Chaptarr/chaptarr) in Settings, Chaptarr, then turn Requests on. Search for a book or paste a hardcover.app link on the Requests page and request it as an audiobook (the default), an ebook, or both.
+Connect [Chaptarr](https://github.com/Chaptarr/chaptarr) in Settings, Chaptarr, then turn Requests on. Search for a book or paste a hardcover.app link into the search bar and request it as an audiobook (the default), an ebook, or both.
 
 - Books are found in Chaptarr by their Hardcover id (`hc:123`), not by title.
 - Only the requested book is monitored. A new author is added with nothing else monitored and no new books followed.

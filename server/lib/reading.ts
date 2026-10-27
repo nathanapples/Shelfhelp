@@ -350,10 +350,10 @@ function saveMatch(itemId: string, d: Decided) {
   ).run(d.status, d.source, d.hcBookId, keepBook, JSON.stringify([d.reason]), itemId);
 }
 
-type Candidate = HcBookView & { idVia: string[] };
+export type Candidate = HcBookView & { idVia: string[] };
 
 /** Hardcover books this item might be: by its ASIN/ISBN, then by searching. */
-async function findCandidates(item: { id: string; title: string; authors: string[]; asin?: string | null }): Promise<Candidate[]> {
+export async function findCandidates(item: { id: string; title: string; authors: string[]; asin?: string | null }): Promise<Candidate[]> {
   const linked = db.prepare("SELECT hc_book_id, via FROM id_links WHERE abs_item_id = ?").all(item.id) as { hc_book_id: number; via: string }[];
   const byId = new Map<number, string[]>();
   for (const l of linked) byId.set(l.hc_book_id, [...(byId.get(l.hc_book_id) ?? []), l.via]);
@@ -399,11 +399,11 @@ async function findCandidates(item: { id: string; title: string; authors: string
   return [...out.values()];
 }
 
-function toHcBook(c: Candidate): HcBook {
+export function toHcBook(c: Candidate): HcBook {
   return { id: c.id, title: c.title, authors: c.authors, seriesName: c.seriesName, seriesPosition: c.seriesPosition };
 }
 
-function view(c: HcBookView): HcBookView {
+export function view(c: HcBookView): HcBookView {
   return {
     id: c.id, slug: c.slug, title: c.title, authors: c.authors, coverUrl: c.coverUrl,
     seriesName: c.seriesName, seriesPosition: c.seriesPosition, releaseYear: c.releaseYear,

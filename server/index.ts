@@ -7,6 +7,7 @@ import { sessionSecret } from "./lib/settings.js";
 import { routes } from "./routes.js";
 import { reschedule } from "./lib/scheduler.js";
 import { startRequestWatcher } from "./lib/requests.js";
+import { linkLibrary } from "./lib/linking.js";
 import { syncAll } from "./lib/sync.js";
 import { backfillHistory, syncReading } from "./lib/reading.js";
 
@@ -34,7 +35,11 @@ startRequestWatcher();
 setTimeout(() => {
   syncAll("startup")
     .catch(() => {})
-    .finally(() => syncReading("startup").catch(() => {}));
+    .finally(() =>
+      syncReading("startup")
+        .catch(() => {})
+        .finally(() => linkLibrary("startup")),
+    );
 }, 15_000).unref();
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {

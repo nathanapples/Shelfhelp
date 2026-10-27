@@ -23,23 +23,24 @@ export async function refreshLibrary(
   const now = new Date().toISOString();
   tx(() => {
     const upsert = db.prepare(`
-      INSERT INTO abs_items (id, library_id, title, subtitle, authors, narrators, series, asin, isbn, duration, published_year, updated_at, seen_at, num_audio)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO abs_items (id, library_id, title, subtitle, authors, narrators, series, asin, isbn, duration, published_year, updated_at, seen_at, num_audio, added_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         library_id = excluded.library_id, title = excluded.title, subtitle = excluded.subtitle,
         authors = excluded.authors, narrators = excluded.narrators, series = excluded.series,
         asin = excluded.asin, isbn = excluded.isbn, duration = excluded.duration,
         published_year = excluded.published_year, updated_at = excluded.updated_at, seen_at = excluded.seen_at,
-        num_audio = excluded.num_audio`);
+        num_audio = excluded.num_audio, added_at = excluded.added_at`);
     for (const i of items) {
       upsert.run(
         i.id, i.libraryId, i.title, i.subtitle ?? null, JSON.stringify(i.authors), JSON.stringify(i.narrators),
-        JSON.stringify(i.series), i.asin ?? null, i.isbn ?? null, i.duration ?? null, i.publishedYear, i.updatedAt, now, i.numAudio,
+        JSON.stringify(i.series), i.asin ?? null, i.isbn ?? null, i.duration ?? null, i.publishedYear, i.updatedAt, now, i.numAudio, i.addedAt,
       );
     }
     // Items no longer in the library.
     db.prepare("DELETE FROM abs_items WHERE library_id = ? AND seen_at <> ?").run(libraryId, now);
     db.prepare("DELETE FROM id_links WHERE abs_item_id NOT IN (SELECT id FROM abs_items)").run();
+    db.prepare("DELETE FROM library_links WHERE abs_item_id NOT IN (SELECT id FROM abs_items)").run();
   });
   refreshedAt.set(libraryId, Date.now());
   indexes.delete(libraryId);
@@ -149,6 +150,7 @@ export function rowToItem(r: Record<string, unknown>): AbsItemRow {
     duration: (r.duration as number) ?? null,
     publishedYear: (r.published_year as number) ?? null,
     updatedAt: (r.updated_at as number) ?? null,
+    addedAt: (r.added_at as number) ?? null,
     numAudio: (r.num_audio as number) ?? null,
   };
 }

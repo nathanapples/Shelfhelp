@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowDownTrayIcon,
@@ -10,7 +10,7 @@ import {
   MagnifyingGlassIcon,
   SpeakerWaveIcon,
 } from "@heroicons/react/24/outline";
-import { api, type Format, type RequestFormat, type RequestMap, type RequestOutcome, type RequestStatus } from "../lib/api";
+import { api, duration, type Similar, type Format, type RequestFormat, type RequestMap, type RequestOutcome, type RequestStatus } from "../lib/api";
 import { Cover, Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
 
@@ -161,10 +161,107 @@ export function RequestControls({
         </button>
       </div>
       {book.absItemId && wanted.includes("audiobook") && (
-        <p className="text-xs text-yellow-300">This audiobook already looks like it's in Audiobookshelf.</p>
+        <p className="text-xs text-yellow-300">This audiobook is already in Audiobookshelf. See below.</p>
       )}
       {book.hasAudiobook === false && wanted.includes("audiobook") && (
         <p className="text-xs text-gray-400">Hardcover doesn't list an audiobook edition, so Chaptarr may not find one.</p>
+      )}
+    </div>
+  );
+}
+
+/** What Audiobookshelf already has that matches or looks like this book. */
+export function InLibrary({ book, onLinked }: { book: RequestableBook; onLinked?: () => void }) {
+  const toast = useToast();
+  const [data, setData] = useState<Similar | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const load = () => {
+    const q = new URLSearchParams({ hcBookId: String(book.id), title: book.title, authors: book.authors.join("|") });
+    api<Similar>(`/library/similar?${q}`)
+      .then(setData)
+      .catch((e) => setError((e as Error).message));
+  };
+  useEffect(load, [book.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const same = async (absItemId: string) => {
+    setBusy(absItemId);
+    try {
+      await api("/library/decisions", {
+        method: "POST",
+        body: {
+          absItemId,
+          action: "match",
+          hcBookId: book.id,
+          hcBook: {
+            id: book.id,
+            slug: book.slug,
+            title: book.title,
+            authors: book.authors,
+            coverUrl: book.coverUrl,
+            seriesName: book.seriesName ?? null,
+            seriesPosition: typeof book.seriesPosition === "number" ? book.seriesPosition : null,
+            releaseYear: book.releaseYear ?? null,
+          },
+        },
+      });
+      toast("Linked. Shelfhelp will treat it as this book everywhere.");
+      load();
+      onLinked?.();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (error) return null;
+  if (!data) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-gray-400">
+        <Spinner className="h-4 w-4" /> Checking Audiobookshelf...
+      </div>
+    );
+  }
+  const unchecked = data.linkedCount.unchecked;
+  return (
+    <div>
+      <h4 className="text-sm font-semibold uppercase tracking-wide text-gray-400">In your Audiobookshelf</h4>
+      {data.confirmed.length === 0 && data.similar.length === 0 && (
+        <p className="mt-1 text-sm text-gray-300">Nothing with this title or author.</p>
+      )}
+      <ul className="mt-2 space-y-2">
+        {data.confirmed.map(({ via, item }) => (
+          <li key={item.id} className="flex items-center gap-3 rounded-lg bg-green-900/20 p-2 ring-1 ring-green-800">
+            <Cover src={item.coverUrl} alt={item.title} className="h-12 w-12 flex-shrink-0 rounded" />
+            <div className="min-w-0 flex-1 text-sm">
+              <div className="truncate font-semibold text-white">{item.title}</div>
+              <div className="truncate text-gray-400">
+                {[item.authors.join(", "), item.narrators.length ? `read by ${item.narrators.join(", ")}` : null, duration(item.duration)].filter(Boolean).join(" · ")}
+              </div>
+            </div>
+            <span className="badge badge-success flex-shrink-0">Same book · {via}</span>
+          </li>
+        ))}
+        {data.similar.map((s) => (
+          <li key={s.absItemId} className="flex items-center gap-3 rounded-lg bg-gray-900/50 p-2 ring-1 ring-gray-700">
+            <Cover src={s.item.coverUrl} alt={s.item.title} className="h-12 w-12 flex-shrink-0 rounded" />
+            <div className="min-w-0 flex-1 text-sm">
+              <div className="truncate font-semibold text-white">{s.item.title}</div>
+              <div className="truncate text-gray-400">
+                {[s.item.authors.join(", "), duration(s.item.duration), s.titleSim >= 0.6 ? "similar title" : "same author, different title"].filter(Boolean).join(" · ")}
+              </div>
+            </div>
+            <button className="btn btn-sm btn-default flex-shrink-0" onClick={() => same(s.absItemId)} disabled={!!busy} title="Link this Audiobookshelf book to this Hardcover book">
+              {busy === s.absItemId ? <Spinner className="h-4 w-4" /> : <CheckCircleIcon className="h-4 w-4" />} Same book
+            </button>
+          </li>
+        ))}
+      </ul>
+      {unchecked > 0 && (
+        <p className="mt-2 text-xs text-gray-500">
+          {unchecked} Audiobookshelf books aren't linked to Hardcover yet, so this may miss some. <Link to="/library" className="text-indigo-400 hover:underline">Library</Link> shows progress.
+        </p>
       )}
     </div>
   );
@@ -214,6 +311,9 @@ export function RequestModal({
             <RequestControls book={book} enabled={enabled} defaultFormat={defaultFormat} onDone={onDone} />
           </div>
         </div>
+      </div>
+      <div className="mt-6 border-t border-gray-700 pt-4">
+        <InLibrary book={book} />
       </div>
     </Modal>
   );

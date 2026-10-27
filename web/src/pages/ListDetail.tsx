@@ -41,7 +41,7 @@ function ListSettings({ list, open, onClose, onSaved }: { list: ListDetail; open
     try {
       await api(`/lists/${list.id}?deleteCollection=${deleteCollection ? 1 : 0}`, { method: "DELETE" });
       toast(`Stopped syncing "${list.name}"`);
-      navigate("/");
+      navigate("/collections");
     } catch (e) {
       toast((e as Error).message, "error");
       setBusy(false);

@@ -230,6 +230,28 @@ const migrations: string[] = [
     UNIQUE (hc_book_id, format)
   );
   `,
+  `
+  -- When each item was added to Audiobookshelf, for "Recently added".
+  ALTER TABLE abs_items ADD COLUMN added_at INTEGER;
+
+  -- Every Audiobookshelf book linked to its Hardcover book, so Shelfhelp can
+  -- tell what you already have before you request it.
+  CREATE TABLE library_links (
+    abs_item_id   TEXT PRIMARY KEY,
+    library_id    TEXT NOT NULL,
+    status        TEXT NOT NULL,
+    source        TEXT,
+    hc_book_id    INTEGER,
+    hc_book       TEXT,
+    score         REAL,
+    reasons       TEXT,
+    candidates    TEXT,
+    searched_key  TEXT,
+    searched_at   TEXT,
+    updated_at    TEXT NOT NULL
+  );
+  CREATE INDEX library_links_book ON library_links(hc_book_id);
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

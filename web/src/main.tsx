@@ -16,6 +16,8 @@ import SettingsPage from "./pages/Settings";
 import ReadingPage from "./pages/Reading";
 import LoginPage from "./pages/Login";
 import RequestsPage from "./pages/Requests";
+import DiscoverPage from "./pages/Discover";
+import LibraryPage from "./pages/Library";
 
 function App() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -34,7 +36,9 @@ function App() {
   return (
     <Layout version={status.version} authRequired={status.authRequired} showRequests={status.configured.chaptarr}>
       <Routes>
-        <Route path="/" element={<ListsPage status={status} />} />
+        <Route path="/" element={<DiscoverPage status={status} />} />
+        <Route path="/collections" element={<ListsPage status={status} />} />
+        <Route path="/library" element={<LibraryPage status={status} />} />
         <Route path="/lists/:id" element={<ListDetailPage />} />
         <Route path="/review" element={<ReviewPage />} />
         <Route path="/missing" element={<MissingPage />} />

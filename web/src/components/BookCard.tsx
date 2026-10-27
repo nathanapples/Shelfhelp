@@ -21,6 +21,7 @@ export function BookCard({
   width = "w-36 sm:w-40 md:w-44",
   corner,
   note,
+  fit = "cover",
 }: {
   book: CardBook;
   onClick?: () => void;
@@ -31,6 +32,8 @@ export function BookCard({
   corner?: ReactNode;
   /** A line under the title in the hover details. */
   note?: ReactNode;
+  /** "contain" for square audiobook covers. */
+  fit?: "cover" | "contain";
 }) {
   const [hover, setHover] = useState(false);
   return (
@@ -48,7 +51,7 @@ export function BookCard({
         style={{ paddingBottom: "150%" }}
       >
         <div className="absolute inset-0 h-full w-full overflow-hidden">
-          <Cover src={book.coverUrl} alt={book.title} className="absolute inset-0 h-full w-full" />
+          <Cover src={book.coverUrl} alt={book.title} fit={fit} className={`absolute inset-0 h-full w-full ${fit === "contain" ? "bg-gray-900" : ""}`} />
           <div className="absolute left-0 right-0 flex items-center justify-between p-2">
             <span className="pointer-events-none rounded-full border border-purple-600 bg-purple-600/80 px-2 text-[10px] font-semibold uppercase leading-5 tracking-wider text-white shadow-md">
               {pill}

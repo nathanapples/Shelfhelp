@@ -89,3 +89,19 @@ test("Hardcover links, slugs and ids", () => {
   assert.deepEqual(parseHardcoverRef("Dark-Matter"), { slug: "dark-matter" });
   assert.equal(parseHardcoverRef("two words"), null);
 });
+
+test("an ASIN link counts as owned unless the linker rejected it", async () => {
+  const { db } = await import("../server/lib/db.ts");
+  const { inLibrary } = await import("../server/lib/requests.ts");
+  const now = new Date().toISOString();
+  const add = db.prepare("INSERT INTO abs_items (id, library_id, title, authors, narrators, series, seen_at) VALUES (?, 'lib', ?, '[]', '[]', '[]', ?)");
+  add.run("good", "Golden Son", now);
+  add.run("wrong", "Morning Star", now);
+  db.prepare("INSERT INTO id_links (abs_item_id, hc_book_id, via) VALUES ('good', 5, 'asin'), ('wrong', 6, 'asin')").run();
+  db.prepare("INSERT INTO library_links (abs_item_id, library_id, status, hc_book_id, updated_at) VALUES ('wrong', 'lib', 'review', 6, ?)").run(now);
+  const found = inLibrary([5, 6]);
+  assert.equal(found.get(5), "good");
+  assert.equal(found.has(6), false);
+  db.prepare("UPDATE library_links SET status = 'matched' WHERE abs_item_id = 'wrong'").run();
+  assert.equal(inLibrary([6]).get(6), "wrong");
+});

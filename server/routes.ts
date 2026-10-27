@@ -12,6 +12,8 @@ import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
+import { ROWS, discoverRow, type RowId } from "./lib/discover.js";
+import { applyDecision, linkLibrary, linkView, similarInLibrary } from "./lib/linking.js";
 import { forgetRequest, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
 import { decideItem, history, myShelfStatus, readingRunning, rematchItem, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
 
@@ -280,7 +282,9 @@ export async function routes(app: FastifyInstance) {
     try {
       const q = (req.query.q ?? "").trim();
       if (!q) return [];
-      const hits = await searchBooks(q);
+      // A pasted Hardcover link or hc:<id> opens that one book.
+      const direct = /hardcover\.app\/books\//i.test(q) || /^hc:\d+$/i.test(q) ? parseHardcoverRef(q) : null;
+      const hits = direct ? [await hardcoverBook(direct)].filter((b): b is NonNullable<typeof b> => !!b) : await searchBooks(q);
       // What we already know about each result in your libraries.
       const ids = hits.map((h) => h.id);
       const known = inLibrary(ids);
@@ -309,6 +313,72 @@ export async function routes(app: FastifyInstance) {
       return fail(reply, err);
     }
   });
+
+  // Discover
+  app.get("/api/discover", async () => ROWS);
+  app.get<{ Params: { row: string } }>("/api/discover/:row", async (req, reply) => {
+    try {
+      if (!ROWS.some((r) => r.id === req.params.row)) return reply.code(404).send({ error: "No such row" });
+      return await discoverRow(req.params.row as RowId);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  // Library links: every Audiobookshelf book matched to Hardcover
+  app.get<{ Querystring: { status?: string; q?: string; offset?: string } }>("/api/library/links", async (req) =>
+    linkView({ status: req.query.status, q: req.query.q, offset: Number(req.query.offset) || 0 }),
+  );
+
+  app.post<{ Body: { force?: boolean } }>("/api/library/link", async (req, reply) => {
+    const r = linkLibrary("by you", { force: !!req.body?.force });
+    if (r === "not-configured") return reply.code(400).send({ error: "Set up Hardcover and Audiobookshelf first." });
+    return { result: r };
+  });
+
+  app.get<{ Querystring: { hcBookId: string; title?: string; authors?: string } }>("/api/library/similar", async (req, reply) => {
+    try {
+      const id = Number(req.query.hcBookId);
+      let title = req.query.title ?? "";
+      let authors = (req.query.authors ?? "").split("|").filter(Boolean);
+      if (!title) {
+        const b = await hardcoverBook({ id });
+        if (!b) return reply.code(404).send({ error: "No such book" });
+        title = b.title;
+        authors = b.authors;
+      }
+      return similarInLibrary({ id, title, authors });
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.post<{ Body: { absItemId: string; action: "match" | "ignore" | "missing" | "reset"; hcBookId?: number; hcBook?: HcBookView } }>(
+    "/api/library/decisions",
+    async (req, reply) => {
+      try {
+        const { absItemId, action, hcBookId, hcBook } = req.body;
+        const item = getItems([absItemId]).get(absItemId);
+        if (!item) return reply.code(404).send({ error: "That book isn't in Audiobookshelf anymore." });
+        const before = db
+          .prepare("SELECT hc_book_id, library_id FROM overrides WHERE abs_item_id = ? AND action = 'match'")
+          .get(absItemId) as { hc_book_id: number; library_id: string } | undefined;
+        decideItem(absItemId, action, hcBookId);
+        applyDecision(absItemId, action, hcBook ?? null);
+        if (action === "match" && hcBookId) {
+          rememberBook(absItemId, hcBook ?? null);
+          await decide(hcBookId, item.libraryId, "match", absItemId);
+        } else if (before && action === "reset") {
+          await decide(before.hc_book_id, before.library_id, "reset");
+        }
+        if (action === "reset") linkLibrary("rematch");
+        syncReading("decision").catch(() => {});
+        return { ok: true };
+      } catch (err) {
+        return fail(reply, err);
+      }
+    },
+  );
 
   // Chaptarr
   app.post<{ Body: { url?: string; apiKey?: string } }>("/api/settings/test/chaptarr", async (req, reply) => {
@@ -665,6 +735,7 @@ export async function routes(app: FastifyInstance) {
           .prepare("SELECT hc_book_id, library_id FROM overrides WHERE abs_item_id = ? AND action = 'match'")
           .get(absItemId) as { hc_book_id: number; library_id: string } | undefined;
         const libraryId = decideItem(absItemId, action, hcBookId);
+        applyDecision(absItemId, action, hcBook ?? null);
         // One match for both features: tell the collections too.
         if (libraryId && action === "match" && hcBookId) {
           rememberBook(absItemId, hcBook ?? null);

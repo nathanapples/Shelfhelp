@@ -194,6 +194,15 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> })
     return { user_books: e ? [{ ...entryJson(e), edition: null }] : [] };
   }
   if (q.includes("query GetEditionsForBook")) return { editions: [edition(Number(v.bookId))] };
+  if (q.includes("query TrendingBookIds")) {
+    const ids = books.map((b) => b.id);
+    return { books_trending: { ids: v.duration === "one_year" ? ids.slice().reverse() : ids.slice(4).concat(ids.slice(0, 4)), error: null } };
+  }
+  if (q.includes("query ReleasedBooks")) {
+    const future = String(v.from) > new Date().toISOString().slice(0, 10);
+    const picked = future ? [2, 6, 9, 13] : [0, 3, 7, 10, 12, 15];
+    return { books: picked.filter((i) => i < books.length).map((i) => listBooks(i, 1)[0].book) };
+  }
   if (q.includes("query GetBookBySlug")) {
     const i = books.findIndex((_, n) => listBooks(n, 1)[0].book.slug === v.slug);
     return { books: i >= 0 ? [listBooks(i, 1)[0].book] : [] };
@@ -310,6 +319,7 @@ const itemJson = (i: (typeof items)[number]) => ({
   libraryId: "lib_audio",
   mediaType: "book",
   updatedAt: 1,
+  addedAt: Date.now() - items.indexOf(i) * 86400_000,
   media: {
     duration: i.duration ?? 36000,
     numAudioFiles: i.id === "li_16" ? 0 : 1,
