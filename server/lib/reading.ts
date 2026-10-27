@@ -355,6 +355,8 @@ function percent(r: ReadingRow) {
  * What to do for one book. Never moves a book backward on Hardcover: Read and
  * Did Not Finish are left alone, and progress is never lowered.
  */
+export const DNF_NOTE = "Marked Did Not Finish on Hardcover";
+
 export function planFor(
   r: ReadingRow,
   entry: Entry | undefined,
@@ -365,6 +367,9 @@ export function planFor(
   if (!r.is_finished && pct < rule.minProgress) return { kind: "held", description: `Under ${rule.minProgress}% listened` };
   if (!entry && !rule.addNew) return { kind: "held", description: "Not on your Hardcover shelves (adding new books is off)" };
 
+  // Did Not Finish on Hardcover is yours to change; Shelfhelp never touches it.
+  if (status === UserBookStatus.DidNotFinish) return { kind: "skip", description: DNF_NOTE };
+
   if (r.is_finished) {
     const when = day(r.finished_at) ?? day(r.last_update);
     if (status === UserBookStatus.Read) return { kind: "skip", description: "Already Read on Hardcover" };
@@ -372,7 +377,6 @@ export function planFor(
     return { kind: "status", status: UserBookStatus.Read, description: `${STATUS_NAMES[status!] ?? "Unknown"} → Read${when ? ` (finished ${when})` : ""}` };
   }
   if (status === UserBookStatus.Read) return { kind: "skip", description: "Already Read on Hardcover; a re-listen isn't synced" };
-  if (status === UserBookStatus.DidNotFinish) return { kind: "skip", description: "Marked Did Not Finish on Hardcover" };
   if (!entry) return { kind: "add", status: UserBookStatus.CurrentlyReading, description: `Add as Currently Reading at ${pct}%` };
   if (status !== UserBookStatus.CurrentlyReading) {
     return { kind: "status", status: UserBookStatus.CurrentlyReading, description: `${STATUS_NAMES[status!] ?? "Unknown"} → Currently Reading at ${pct}%` };
@@ -435,10 +439,11 @@ async function plan(autoSend: boolean): Promise<string> {
   db.prepare("UPDATE reading SET sync_status = 'none', sync_action = NULL WHERE match_status <> 'matched'").run();
   const matched = rows().filter((r) => r.match_status === "matched" && r.hc_book_id);
   const rule = rules();
-  // Books that changed in Audiobookshelf, plus anything still waiting or held back.
-  const todo = matched.filter(
-    (r) => r.synced_key !== stateKey(r) || ["pending", "error", "held", "none"].includes(r.sync_status),
-  );
+  // Every matched book is checked against your current Hardcover shelves, so a
+  // change made there (like taking a book off Did Not Finish) is noticed. Books
+  // you skipped or undid stay that way until your listening progress changes.
+  const yours = (r: ReadingRow) => r.sync_status === "skipped" && /^(Skipped by you|Undone by you)/.test(r.sync_action ?? "");
+  const todo = matched.filter((r) => r.synced_key !== stateKey(r) || !yours(r));
   // Always refreshed, so the page shows your current Hardcover shelves.
   const library = await hardcoverLibrary();
   if (!todo.length) return `${matched.length} matched, nothing new`;

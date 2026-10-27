@@ -29,8 +29,13 @@ test("never moves a Read book backward", () => {
   assert.equal(planFor(row({ is_finished: 1, progress: 1 }), entry(3)).kind, "skip");
 });
 
-test("leaves Did Not Finish alone while listening", () => {
+test("never changes Did Not Finish, even when you finish the book", () => {
   assert.equal(planFor(row({}), entry(5)).kind, "skip");
+  assert.equal(planFor(row({ is_finished: 1, progress: 1 }), entry(5)).kind, "skip");
+});
+
+test("syncs again once the book is taken off Did Not Finish", () => {
+  assert.equal(planFor(row({ is_finished: 1, progress: 1 }), entry(2, 50)).kind, "status");
 });
 
 test("only sends progress when it changed", () => {

@@ -15,7 +15,7 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { CheckIcon as CheckSolid, EyeSlashIcon as EyeSlashSolid, XMarkIcon as XSolid, ArrowUpIcon as ArrowUpSolid, ExclamationTriangleIcon as WarnSolid, PauseIcon as PauseSolid } from "@heroicons/react/24/solid";
+import { CheckIcon as CheckSolid, EyeSlashIcon as EyeSlashSolid, XMarkIcon as XSolid, ArrowUpIcon as ArrowUpSolid, ExclamationTriangleIcon as WarnSolid, PauseIcon as PauseSolid, NoSymbolIcon as NoSymbolSolid } from "@heroicons/react/24/solid";
 import {
   api,
   duration,
@@ -37,22 +37,32 @@ import { Cover, Empty, ErrorBlock, LoadingBlock, Modal, PageTitle, ScoreBar, Spi
 import { useToast } from "../components/toast";
 
 type Tab = "waiting" | "synced" | "issues" | "all" | "history";
-type IssueKey = "review" | "notfound" | "skipped" | "under";
+type IssueKey = "review" | "notfound" | "dnf" | "skipped" | "under";
 
 /** One line under the tabs saying what each one holds. */
 const TAB_HELP: Record<Tab, string> = {
   waiting: "Matched books with a change ready for Hardcover. Nothing is sent until you send it.",
-  synced: "Hardcover already matches your listening, or was left as is because the book is Read or Did Not Finish there.",
+  synced: "Hardcover already matches your listening, or was left as is because the book is already Read there.",
   issues: "Books that won't be synced until something changes. Open one to fix it.",
   all: "Every Audiobookshelf book you've started or finished.",
   history: "Everything sent to Hardcover, newest first. Any change can be undone.",
 };
 
-const ISSUE_GROUPS: { key: IssueKey; title: string; help: (min: number) => string }[] = [
-  { key: "review", title: "Needs review", help: () => "A possible Hardcover book was found, but Shelfhelp isn't sure it's the right one. Confirm it or pick another." },
-  { key: "notfound", title: "Not found on Hardcover", help: () => "No matching book was found. Search Hardcover for it yourself." },
-  { key: "skipped", title: "Skipped", help: () => "Books you chose not to sync, and books that aren't on your Hardcover shelves while adding new books is off." },
-  { key: "under", title: "Under the minimum", help: (min) => `Less than ${min}% listened. They're picked up once you pass ${min}%.` },
+const ISSUE_GROUPS: { key: string; keys: IssueKey[]; title: string; help: (min: number) => string }[] = [
+  {
+    key: "review",
+    keys: ["review", "notfound"],
+    title: "Needs review",
+    help: () => "Shelfhelp isn't sure which Hardcover book this is (?), or couldn't find one (✕). Open a book to confirm, pick another, or search.",
+  },
+  {
+    key: "dnf",
+    keys: ["dnf"],
+    title: "Did not finish",
+    help: () => "Marked Did Not Finish on Hardcover, so Shelfhelp leaves them alone. Change the status on Hardcover and syncing picks up again.",
+  },
+  { key: "skipped", keys: ["skipped"], title: "Skipped", help: () => "Books you chose not to sync, and books that aren't on your Hardcover shelves while adding new books is off." },
+  { key: "under", keys: ["under"], title: "Under the minimum", help: (min) => `Less than ${min}% listened. They're picked up once you pass ${min}%.` },
 ];
 
 /** One state per card, combining "is it matched?" and "is it in sync?". */
@@ -60,6 +70,7 @@ function cardState(b: ReadingBook) {
   if (b.matchStatus === "ignored") return { key: "skipped", label: "Not synced (your choice)", dot: "bg-gray-600 ring-gray-500 text-gray-200", Icon: EyeSlashSolid };
   if (b.matchStatus === "missing") return { key: "notfound", label: "Not found on Hardcover", dot: "bg-red-600 ring-red-500 text-red-100", Icon: XSolid };
   if (b.matchStatus === "review") return { key: "review", label: "Needs review", dot: "bg-yellow-500 ring-yellow-400 text-yellow-100", Icon: null };
+  if (b.hcStatus === 5) return { key: "dnf", label: "Did Not Finish on Hardcover", dot: "bg-orange-500 ring-orange-400 text-orange-50", Icon: NoSymbolSolid };
   if (b.syncStatus === "pending") return { key: "waiting", label: "Waiting to send", dot: "bg-indigo-500 ring-indigo-400 text-indigo-100", Icon: ArrowUpSolid };
   if (b.syncStatus === "held" && b.heldReason === "threshold") return { key: "under", label: b.syncAction ?? "Under the minimum", dot: "bg-gray-600 ring-gray-500 text-gray-200", Icon: PauseSolid };
   if (b.syncStatus === "held") return { key: "skipped", label: b.syncAction ?? "Not synced", dot: "bg-gray-600 ring-gray-500 text-gray-200", Icon: PauseSolid };
@@ -114,9 +125,15 @@ function ReadingCard({ book, onOpen }: { book: ReadingBook; onOpen: () => void }
       >
         <Cover src={book.coverUrl} alt={book.title} className="absolute inset-0 h-full w-full" />
         <div className="absolute left-0 right-0 top-0 flex items-center justify-between p-2">
-          <span className="rounded-full border border-purple-600 bg-purple-600/80 px-2 text-[10px] font-semibold uppercase leading-5 tracking-wider text-white shadow-md">
-            {book.isFinished ? "Finished" : "Listening"}
-          </span>
+          {book.hcStatus === 5 ? (
+            <span className="rounded-full border border-orange-500 bg-orange-600/90 px-2 text-[10px] font-semibold uppercase leading-5 tracking-wider text-white shadow-md">
+              DNF
+            </span>
+          ) : (
+            <span className="rounded-full border border-purple-600 bg-purple-600/80 px-2 text-[10px] font-semibold uppercase leading-5 tracking-wider text-white shadow-md">
+              {book.isFinished ? "Finished" : "Listening"}
+            </span>
+          )}
           <StateDot book={book} />
         </div>
         <div className={`absolute inset-0 flex flex-col justify-end bg-gray-800/85 p-3 transition-opacity duration-300 ${hover ? "opacity-100" : "opacity-0"}`}>
@@ -379,6 +396,8 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
                   ? book.heldReason === "threshold"
                     ? "Nothing is sent until you pass the minimum progress set in Reading settings."
                     : "Nothing is sent. Turn on Add new books in Reading settings (the gear button) to add it, or put it on a shelf on Hardcover first."
+                : book.hcStatus === 5
+                  ? "Marked Did Not Finish on Hardcover. Shelfhelp won't change it or send progress. Change the status on Hardcover and syncing picks up again on the next check."
                 : book.syncStatus === "skipped"
                   ? `${book.syncAction}. Shelfhelp never moves a book backward.`
                   : `Hardcover shows ${hcLine(book)}${book.syncedAt ? `, updated ${timeAgo(book.syncedAt)}` : ""}.`
@@ -749,7 +768,7 @@ export default function ReadingPage() {
   }, [data, tab]);
   const issues = useMemo(() => {
     const all = data?.books ?? [];
-    return ISSUE_GROUPS.filter((g) => g.key !== "under" || showUnder).map((g) => ({ ...g, books: all.filter((b) => cardState(b).key === g.key) }));
+    return ISSUE_GROUPS.filter((g) => g.key !== "under" || showUnder).map((g) => ({ ...g, books: all.filter((b) => (g.keys as string[]).includes(cardState(b).key)) }));
   }, [data, showUnder]);
   const open = data?.books.find((b) => b.absItemId === openId) ?? null;
   const pending = useMemo(() => (data?.books ?? []).filter((b) => b.matchStatus === "matched" && b.syncStatus === "pending"), [data]);
@@ -809,7 +828,7 @@ export default function ReadingPage() {
         <>
           <div className="mb-8 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <Stat label="With progress" value={c.total} sub={`${c.listening} listening, ${c.finished} finished`} onClick={() => setTab("all")} />
-            <Stat label="In sync" value={c.synced + c.skipped} sub={`of ${c.matched} matched`} accent="text-green-400" onClick={() => setTab("synced")} />
+            <Stat label="In sync" value={countOf("synced")} sub={`of ${c.matched} matched`} accent="text-green-400" onClick={() => setTab("synced")} />
             <Stat
               label="Waiting"
               value={waiting}
@@ -831,8 +850,8 @@ export default function ReadingPage() {
             onChange={setTab}
             tabs={[
               { id: "waiting", label: "Waiting", count: waiting },
-              { id: "synced", label: "In Sync", count: c.synced + c.skipped },
-              { id: "issues", label: "Issues", count: c.review + c.missing + countOf("skipped") + (showUnder ? countOf("under") : 0) },
+              { id: "synced", label: "In Sync", count: countOf("synced") },
+              { id: "issues", label: "Issues", count: countOf("review") + countOf("notfound") + countOf("dnf") + countOf("skipped") + (showUnder ? countOf("under") : 0) },
               { id: "all", label: "All", count: c.total },
               { id: "history", label: "History" },
             ]}

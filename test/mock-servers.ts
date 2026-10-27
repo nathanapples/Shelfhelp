@@ -261,6 +261,15 @@ http
     let data = "";
     req.on("data", (c) => (data += c));
     req.on("end", () => {
+      // Test hook: change a book's status, like doing it on hardcover.app.
+      if (req.url?.startsWith("/test/status")) {
+        const { bookId, status } = JSON.parse(data);
+        let e = userBooks.get(bookId);
+        if (!e) userBooks.set(bookId, (e = { id: nextId++, bookId, statusId: status, editionId: null, reads: [] }));
+        e.statusId = status;
+        res.writeHead(200, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ ok: true }));
+      }
       const out = hardcover(JSON.parse(data || "{}"));
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ data: out }));
