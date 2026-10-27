@@ -48,3 +48,41 @@ export function useDebounced<T>(value: T, ms = 350): T {
   }, [value, ms]);
   return v;
 }
+
+import type { JobsData } from "./api";
+
+/** Running syncs and how the last ones ended. Polls fast while something runs. */
+export function useJobs() {
+  const [data, setData] = useState<JobsData | null>(null);
+  const busy = useRef(false);
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      try {
+        const d = await api<JobsData>("/jobs");
+        if (!alive) return;
+        setData(d);
+        busy.current = d.running.length > 0;
+      } catch {
+        /* ignore */
+      }
+      if (alive) timer = setTimeout(tick, busy.current ? 1000 : 5000);
+    };
+    tick();
+    const kick = () => {
+      clearTimeout(timer);
+      tick();
+    };
+    window.addEventListener("shelfhelp:job-started", kick);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+      window.removeEventListener("shelfhelp:job-started", kick);
+    };
+  }, []);
+  return data;
+}
+
+/** Tell the progress indicators to look right away. */
+export const jobStarted = () => window.dispatchEvent(new Event("shelfhelp:job-started"));

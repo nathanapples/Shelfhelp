@@ -10,7 +10,8 @@ import { getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } f
 import { decide, getList, hardcoverUrl, isRunning, pushCollection, rematch, runningLists, statusCounts, syncAll, syncList, type ListRow } from "./lib/sync.js";
 import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
-import { decideItem, history, myShelfStatus, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
+import { jobsView } from "./lib/progress.js";
+import { decideItem, history, myShelfStatus, readingRunning, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
 
 const COOKIE = "shelfhelp_session";
 const MASK = "••••••••";
@@ -377,6 +378,7 @@ export async function routes(app: FastifyInstance) {
   });
 
   app.get("/api/sync/state", async () => ({ running: runningLists() }));
+  app.get("/api/jobs", async () => jobsView());
 
   // Review and missing, across all lists (one row per book and library).
   function crossList(status: "review" | "missing" | "ignored") {
@@ -438,8 +440,11 @@ export async function routes(app: FastifyInstance) {
   // Reading progress
   app.get("/api/reading", async () => readingView());
 
-  app.post("/api/reading/sync", async () => {
+  app.post("/api/reading/sync", async (_req, reply) => {
     // Check Now always re-reads Audiobookshelf, so metadata you just fixed is used.
+    const settings = getSettings();
+    if (!settings.readingEnabled) return reply.code(409).send({ error: "Reading progress is turned off. Turn it on with the gear button." });
+    if (readingRunning()) return { started: false, running: true };
     syncReading("manual", { force: true }).catch(() => {});
     return { started: true };
   });

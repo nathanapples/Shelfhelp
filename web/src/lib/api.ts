@@ -288,3 +288,26 @@ export interface HistoryEntry {
   undoNote: string | null;
   coverUrl: string;
 }
+
+export interface Job {
+  id: string;
+  label: string;
+  phase: string;
+  current: number;
+  total: number;
+  startedAt: number;
+}
+
+export interface LastRun {
+  id: string;
+  label: string;
+  ok: boolean;
+  message: string;
+  finishedAt: number;
+  seconds: number;
+}
+
+export interface JobsData {
+  running: Job[];
+  last: Record<string, LastRun>;
+}

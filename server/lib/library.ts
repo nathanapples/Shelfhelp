@@ -5,15 +5,21 @@ import { lookupIdentifiers } from "./hardcover.js";
 import { LibraryIndex, type AbsItem } from "./matcher.js";
 import { normalizeAsin, normalizeIsbn } from "./normalize.js";
 import { log } from "./activity.js";
+import { step } from "./progress.js";
 
 const refreshedAt = new Map<string, number>();
 const indexes = new Map<string, { builtAt: number; index: LibraryIndex }>();
 
 /** Pulls the library from Audiobookshelf unless it was pulled in the last few minutes. */
-export async function refreshLibrary(libraryId: string, { force = false, maxAgeMs = 5 * 60_000 } = {}) {
+export async function refreshLibrary(
+  libraryId: string,
+  { force = false, maxAgeMs = 5 * 60_000, job }: { force?: boolean; maxAgeMs?: number; job?: string } = {},
+) {
   const last = refreshedAt.get(libraryId) ?? 0;
   if (!force && Date.now() - last < maxAgeMs) return;
+  step(job, "Reading your Audiobookshelf library");
   const items = await new Abs().items(libraryId);
+  step(job, `Saving ${items.length} books from Audiobookshelf`);
   const now = new Date().toISOString();
   tx(() => {
     const upsert = db.prepare(`
@@ -37,11 +43,11 @@ export async function refreshLibrary(libraryId: string, { force = false, maxAgeM
   });
   refreshedAt.set(libraryId, Date.now());
   indexes.delete(libraryId);
-  await linkIdentifiers(libraryId);
+  await linkIdentifiers(libraryId, job);
 }
 
 /** Looks up any ASIN/ISBN in the library that Hardcover hasn't been asked about yet. */
-async function linkIdentifiers(libraryId: string) {
+async function linkIdentifiers(libraryId: string, job?: string) {
   const rows = db.prepare("SELECT id, asin, isbn FROM abs_items WHERE library_id = ?").all(libraryId) as {
     id: string;
     asin: string | null;
@@ -63,7 +69,9 @@ async function linkIdentifiers(libraryId: string) {
     return;
   }
   log("info", `Looking up ${asins.size} ASINs and ${isbns.size} ISBNs on Hardcover`);
-  const found = await lookupIdentifiers([...asins], [...isbns]);
+  const found = await lookupIdentifiers([...asins], [...isbns], (done, total) =>
+    step(job, "Looking up new ASINs and ISBNs on Hardcover", done, total),
+  );
   const now = new Date().toISOString();
   tx(() => {
     const ins = db.prepare("INSERT OR IGNORE INTO id_lookups (key, looked_up_at) VALUES (?, ?)");

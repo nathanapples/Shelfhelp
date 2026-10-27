@@ -5,6 +5,7 @@ import { idLinks, libraryIndex, refreshLibrary } from "./library.js";
 import { matchBook, type Candidate } from "./matcher.js";
 import { getSettings, isConfigured } from "./settings.js";
 import { log } from "./activity.js";
+import { finishJob, startJob, step } from "./progress.js";
 
 export interface ListRow {
   id: number;
@@ -57,20 +58,27 @@ export async function syncList(listId: number, { forceLibrary = false } = {}) {
   const list = getList(listId);
   if (!list) throw new Error(`List ${listId} not found`);
   running.add(listId);
+  const job = `list:${listId}`;
+  startJob(job, list.name);
   try {
+    step(job, "Getting the list from Hardcover");
     const { info, books } = await fetchSource(list.source_type, list.hc_list_id);
-    await refreshLibrary(list.abs_library_id, { force: forceLibrary });
+    await refreshLibrary(list.abs_library_id, { force: forceLibrary, job });
+    step(job, `Matching ${books.length} books`);
     rematch(list, books);
+    step(job, "Updating the Audiobookshelf collection");
     db.prepare("UPDATE lists SET name = ?, hc_slug = ?, description = ?, hc_owner = COALESCE(?, hc_owner) WHERE id = ?").run(
       info.name, info.slug, info.description, info.owner, listId,
     );
     const summary = await pushCollection(listId);
     db.prepare("UPDATE lists SET last_synced_at = datetime('now'), last_status = 'ok', last_error = NULL WHERE id = ?").run(listId);
     log("info", `Synced "${info.name}": ${summary}`, listId);
+    finishJob(job, true, summary);
   } catch (err) {
     const message = (err as Error).message;
     db.prepare("UPDATE lists SET last_synced_at = datetime('now'), last_status = 'error', last_error = ? WHERE id = ?").run(message, listId);
     log("error", `Sync failed: ${message}`, listId);
+    finishJob(job, false, message);
     throw err;
   } finally {
     running.delete(listId);

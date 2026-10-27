@@ -12,7 +12,8 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { api } from "../lib/api";
-import { useApi } from "../lib/hooks";
+import { jobStarted, useApi, useJobs } from "../lib/hooks";
+import { Spinner } from "./ui";
 import { useToast } from "./toast";
 
 const nav: { to: string; label: string; icon: React.ComponentType<{ className?: string }>; end?: boolean; count?: string }[] = [
@@ -72,6 +73,8 @@ export function Layout({ children, version, authRequired }: { children: ReactNod
   const [params] = useSearchParams();
   const [q, setQ] = useState(location.pathname === "/search" ? (params.get("q") ?? "") : "");
   const toast = useToast();
+  const jobs = useJobs();
+  const job = jobs?.running[0] ?? null;
 
   useEffect(() => {
     const on = () => setScrolled(window.scrollY > 20);
@@ -88,7 +91,7 @@ export function Layout({ children, version, authRequired }: { children: ReactNod
   const syncAll = async () => {
     try {
       await api("/sync", { method: "POST" });
-      toast("Syncing all lists", "info");
+      jobStarted();
     } catch (e) {
       toast((e as Error).message, "error");
     }
@@ -166,6 +169,19 @@ export function Layout({ children, version, authRequired }: { children: ReactNod
               className="block w-full rounded-full border border-gray-600 bg-gray-900/80 py-2 pl-10 pr-4 text-white placeholder-gray-400 transition focus:border-gray-500 focus:bg-gray-900 focus:outline-none focus:ring-0 sm:text-base"
             />
           </form>
+          {job && (
+            <div
+              className="flex min-w-0 max-w-[45%] items-center gap-2 rounded-full bg-gray-800/90 px-3 py-1.5 text-xs text-gray-200 ring-1 ring-indigo-700/60"
+              title={`${job.label}: ${job.phase}`}
+            >
+              <Spinner className="h-4 w-4 flex-shrink-0" />
+              <span className="hidden truncate md:inline">
+                <span className="font-semibold">{job.label}</span>: {job.phase}
+                {job.total ? ` (${job.current}/${job.total})` : ""}
+                {jobs && jobs.running.length > 1 ? ` +${jobs.running.length - 1} more` : ""}
+              </span>
+            </div>
+          )}
           <button onClick={syncAll} className="btn btn-default rounded-full px-3" title="Sync all lists now">
             <ArrowPathIcon className="h-5 w-5" />
             <span className="hidden sm:inline">Sync All</span>

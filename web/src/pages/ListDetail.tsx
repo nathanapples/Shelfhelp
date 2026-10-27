@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowPathIcon, ArrowTopRightOnSquareIcon, Cog6ToothIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { api, timeAgo, type BookStatus, type ListDetail } from "../lib/api";
-import { useApi } from "../lib/hooks";
+import { jobStarted, useApi, useJobs } from "../lib/hooks";
+import { JobProgress } from "../components/JobProgress";
 import { BookCard } from "../components/BookCard";
 import { BookModal } from "../components/BookModal";
 import { Cover, ErrorBlock, LoadingBlock, Modal, Spinner, Tabs, Toggle } from "../components/ui";
@@ -138,6 +139,11 @@ export default function ListDetailPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [poll, setPoll] = useState<number | false>(false);
   const { data: list, error, loading, reload } = useApi<ListDetail>(`/lists/${id}`, { poll });
+  const jobs = useJobs();
+  const lastRun = jobs?.last[`list:${id}`]?.finishedAt ?? 0;
+  useEffect(() => {
+    if (lastRun) reload();
+  }, [lastRun, reload]);
 
   if (list && !!poll !== list.syncing) setPoll(list.syncing ? 2500 : false);
 
@@ -151,7 +157,7 @@ export default function ListDetailPage() {
   const backdrop = list.covers[0] ?? null;
   const sync = async () => {
     await api(`/lists/${list.id}/sync`, { method: "POST" });
-    toast(`Syncing "${list.name}"`, "info");
+    jobStarted();
     setTimeout(reload, 400);
   };
 
@@ -209,7 +215,10 @@ export default function ListDetailPage() {
           </div>
         </div>
 
-        <div className="mt-10">
+        <div className="mt-8">
+          <JobProgress jobs={jobs} id={`list:${list.id}`} />
+        </div>
+        <div className="mt-2">
           <Tabs<Filter>
             value={filter}
             onChange={setFilter}

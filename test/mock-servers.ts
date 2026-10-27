@@ -271,8 +271,11 @@ http
         return res.end(JSON.stringify({ ok: true }));
       }
       const out = hardcover(JSON.parse(data || "{}"));
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ data: out }));
+      // MOCK_DELAY_MS slows every answer down, to watch progress in the UI.
+      setTimeout(() => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ data: out }));
+      }, Number(process.env.MOCK_DELAY_MS ?? 0));
     });
   })
   .listen(5091, () => console.log("mock Hardcover on :5091"));

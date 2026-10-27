@@ -18,6 +18,7 @@ import { judge, scoreCandidate, type HcBook } from "./matcher.js";
 import { normalizeAsin, seriesNumber } from "./normalize.js";
 import { getSettings, isConfigured } from "./settings.js";
 import { log } from "./activity.js";
+import { currentJob, finishJob, startJob, step } from "./progress.js";
 
 export type MatchStatus = "matched" | "review" | "missing" | "ignored";
 export type SyncStatus = "synced" | "pending" | "skipped" | "error" | "none" | "held";
@@ -84,16 +85,19 @@ export const readingRunning = () => running;
 const SEARCH_AGAIN_MS = 7 * 24 * 3600_000;
 
 /** Pull progress, match, then work out (and with auto-send, send) changes. */
-export async function syncReading(reason: string, { force = false } = {}) {
+export async function syncReading(reason: string, { force = false } = {}): Promise<"started" | "running" | "off" | "not-configured"> {
   const settings = getSettings();
-  if (running || !settings.readingEnabled) return;
-  if (!isConfigured().hardcover || !isConfigured().abs) return;
+  if (!settings.readingEnabled) return "off";
+  if (!isConfigured().hardcover || !isConfigured().abs) return "not-configured";
+  if (running) return "running";
   running = true;
+  startJob(JOB, "Reading");
   try {
+    step(JOB, "Getting your listening progress from Audiobookshelf");
     const progress = await new Abs().myProgress();
     const libraries = await new Abs().selectedLibraries();
     const allowed = new Set(libraries.map((l) => l.id));
-    for (const lib of libraries) await refreshLibrary(lib.id, { force });
+    for (const lib of libraries) await refreshLibrary(lib.id, { force, job: JOB });
     const items = getItems([...new Set(progress.map((p) => p.libraryItemId))]);
     const now = new Date().toISOString();
 
@@ -109,16 +113,23 @@ export async function syncReading(reason: string, { force = false } = {}) {
     for (const r of stale) if (allowed.has(r.library_id)) db.prepare("DELETE FROM reading WHERE abs_item_id = ?").run(r.abs_item_id);
 
     await matchAll();
+    step(JOB, "Getting book details from Hardcover");
     await fillBookDetails();
     const summary = await plan(settings.readingAutoSend);
     log("info", `Reading progress (${reason}): ${summary}`);
+    finishJob(JOB, true, summary);
   } catch (err) {
-    log("error", `Reading progress sync failed: ${(err as Error).message}`);
-    throw err;
+    const message = (err as Error).message;
+    log("error", `Reading progress sync failed: ${message}`);
+    finishJob(JOB, false, message);
   } finally {
     running = false;
   }
+  return "started";
 }
+
+const JOB = "reading";
+export const readingJob = () => currentJob(JOB);
 
 function upsertProgress(p: AbsProgress, libraryId: string, now: string) {
   const progress = p.isFinished ? 1 : Math.max(p.progress || 0, p.ebookProgress || 0);
@@ -148,7 +159,9 @@ async function matchAll() {
   const items = getItems(all.map((r) => r.abs_item_id));
   const strictness = getSettings().matchStrictness;
 
+  let i = 0;
   for (const row of all) {
+    step(JOB, "Matching your books to Hardcover", i++, all.length);
     const item = items.get(row.abs_item_id);
     if (!item) continue;
     const decided = decidedMatch(row.abs_item_id, row.library_id);
@@ -409,6 +422,7 @@ async function hardcoverLibrary(): Promise<Map<number, Entry>> {
   const hc = hardcover();
   const out = new Map<number, Entry>();
   for (let offset = 0; ; offset += 100) {
+    step(JOB, `Checking your Hardcover shelves (${offset} books so far)`);
     const page = await hc.library.list({ limit: 100, offset });
     for (const e of page.items) out.set(e.bookId, e);
     if (page.items.length < page.limit) break;
@@ -446,6 +460,7 @@ async function plan(autoSend: boolean): Promise<string> {
   const todo = matched.filter((r) => r.synced_key !== stateKey(r) || !yours(r));
   // Always refreshed, so the page shows your current Hardcover shelves.
   const library = await hardcoverLibrary();
+  step(JOB, "Working out what to send");
   if (!todo.length) return `${matched.length} matched, nothing new`;
   let pending = 0;
   let held = 0;
@@ -485,7 +500,11 @@ export async function send(ids: string[] | null, library?: Map<number, Entry>) {
   let sent = 0;
   let failed = 0;
   let changed = 0;
+  const sendJob = currentJob(JOB) ? JOB : "reading-send";
+  if (sendJob === "reading-send") startJob(sendJob, "Sending to Hardcover");
+  let n = 0;
   for (const r of waiting) {
+    step(sendJob, "Sending changes to Hardcover", n++, waiting.length);
     const entry = lib.get(r.hc_book_id!);
     const p = planFor(r, entry, rule);
     if (p.description !== r.sync_action || p.kind === "skip" || p.kind === "none" || p.kind === "held") {
@@ -510,6 +529,7 @@ export async function send(ids: string[] | null, library?: Map<number, Entry>) {
       failed++;
     }
   }
+  if (sendJob === "reading-send") finishJob(sendJob, failed === 0, `Sent ${sent}${failed ? `, ${failed} failed` : ""}`);
   log("info", `Sent ${sent} reading change${sent === 1 ? "" : "s"} to Hardcover${failed ? `, ${failed} failed` : ""}${changed ? `, ${changed} changed since you looked and went back to waiting` : ""}`);
   return { sent, failed, changed };
 }

@@ -254,11 +254,17 @@ export async function resolveList(input: string): Promise<number> {
  * Which Hardcover books these ASINs and ISBNs belong to: edition ASINs and
  * ISBNs, plus Audible/Amazon ID mappings. Returns [identifier, bookId, via].
  */
-export async function lookupIdentifiers(asins: string[], isbns: string[]): Promise<[string, number, string][]> {
+export async function lookupIdentifiers(
+  asins: string[],
+  isbns: string[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<[string, number, string][]> {
   const hc = hardcover();
   const out: [string, number, string][] = [];
   const chunk = 150;
-  for (let i = 0; i < Math.max(asins.length, isbns.length); i += chunk) {
+  const total = Math.max(asins.length, isbns.length);
+  for (let i = 0; i < total; i += chunk) {
+    onProgress?.(i, total);
     const a = asins.slice(i, i + chunk);
     const n = isbns.slice(i, i + chunk);
     const data = await hc.graphql<{

@@ -32,7 +32,8 @@ import {
   type MyShelf,
   type Settings,
 } from "../lib/api";
-import { useApi, useDebounced } from "../lib/hooks";
+import { jobStarted, useApi, useDebounced, useJobs } from "../lib/hooks";
+import { JobProgress } from "../components/JobProgress";
 import { Cover, Empty, ErrorBlock, LoadingBlock, Modal, PageTitle, ScoreBar, Spinner, Tabs, Toggle } from "../components/ui";
 import { useToast } from "../components/toast";
 
@@ -758,6 +759,13 @@ export default function ReadingPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => setPoll(data?.running ? 2000 : 30000), [data?.running]);
+  const jobs = useJobs();
+  const lastRun = jobs?.last.reading?.finishedAt ?? 0;
+  const lastSend = jobs?.last["reading-send"]?.finishedAt ?? 0;
+  // Reload the books as soon as a sync finishes.
+  useEffect(() => {
+    if (lastRun || lastSend) reload();
+  }, [lastRun, lastSend, reload]);
 
   // Opens on Waiting, or on Issues when changes are sent automatically.
   const asked = params.get("tab") as Tab | null;
@@ -780,9 +788,17 @@ export default function ReadingPage() {
   const waiting = c.pending + c.errors;
 
   const sync = async () => {
-    await api("/reading/sync", { method: "POST" });
-    toast("Checking Audiobookshelf for progress. Nothing is sent until you send it.", "info");
-    setTimeout(reload, 500);
+    try {
+      const r = await api<{ started: boolean; running?: boolean }>("/reading/sync", { method: "POST" });
+      if (r.running) {
+        const job = jobs?.running.find((j) => j.id === "reading");
+        toast(`Already checking${job ? `: ${job.phase.toLowerCase()}` : ""}. Progress is shown below.`, "info");
+      }
+      jobStarted();
+      setTimeout(reload, 500);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
   };
 
   return (
@@ -810,6 +826,8 @@ export default function ReadingPage() {
         Your Audiobookshelf listening progress, sent to Hardcover.
         {data.enabled && (data.autoSend ? " Changes are sent automatically." : " Nothing is sent until you send it.")}
       </p>
+      <JobProgress jobs={jobs} id="reading" />
+      <JobProgress jobs={jobs} id="reading-send" idle={false} />
 
       {!data.enabled && (
         <div className="mb-6 rounded-xl bg-gray-800 p-4 text-sm text-gray-300 ring-1 ring-gray-700">
@@ -850,8 +868,8 @@ export default function ReadingPage() {
             onChange={setTab}
             tabs={[
               { id: "waiting", label: "Waiting", count: waiting },
-              { id: "synced", label: "In Sync", count: countOf("synced") },
               { id: "issues", label: "Issues", count: countOf("review") + countOf("notfound") + countOf("dnf") + countOf("skipped") + (showUnder ? countOf("under") : 0) },
+              { id: "synced", label: "In Sync", count: countOf("synced") },
               { id: "all", label: "All", count: c.total },
               { id: "history", label: "History" },
             ]}
