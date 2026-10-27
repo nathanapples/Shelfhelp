@@ -110,6 +110,8 @@ export interface Settings {
   absToken: string;
   syncIntervalMinutes: number;
   matchStrictness: "strict" | "balanced" | "loose";
+  readingEnabled: boolean;
+  readingApproved: boolean;
   lockedByEnv: string[];
 }
 
@@ -182,4 +184,79 @@ export function duration(seconds: number | null): string | null {
   const h = Math.floor(seconds / 3600);
   const m = Math.round((seconds % 3600) / 60);
   return h ? `${h} hr ${m} min` : `${m} min`;
+}
+
+export type ReadingMatch = "matched" | "review" | "missing" | "ignored";
+export type ReadingSync = "synced" | "pending" | "skipped" | "error" | "none";
+
+export interface HcBookRef {
+  id: number;
+  slug: string | null;
+  title: string;
+  authors: string[];
+  coverUrl: string | null;
+  seriesName: string | null;
+  seriesPosition: number | null;
+  releaseYear: number | null;
+}
+
+export interface HcCandidate extends HcBookRef {
+  score: number;
+  titleSim: number;
+  authorSim: number | null;
+  idVia: string[];
+  notes: string[];
+}
+
+export interface ReadingBook {
+  absItemId: string;
+  libraryId: string;
+  title: string;
+  subtitle: string | null;
+  authors: string[];
+  narrators: string[];
+  series: { name: string; sequence: number | null }[];
+  asin: string | null;
+  isbn: string | null;
+  coverUrl: string;
+  progress: number;
+  isFinished: boolean;
+  startedAt: number | null;
+  finishedAt: number | null;
+  lastUpdate: number | null;
+  duration: number | null;
+  matchStatus: ReadingMatch;
+  matchSource: "auto" | "manual" | "collection" | null;
+  hcBookId: number | null;
+  hcBook: HcBookRef | null;
+  score: number | null;
+  reasons: string[];
+  candidates: HcCandidate[];
+  hcStatus: number | null;
+  hcStatusName: string | null;
+  hcProgress: number | null;
+  syncStatus: ReadingSync;
+  syncAction: string | null;
+  syncedAt: string | null;
+}
+
+export interface ReadingData {
+  enabled: boolean;
+  approved: boolean;
+  running: boolean;
+  counts: Record<
+    "total" | "listening" | "finished" | "matched" | "review" | "missing" | "ignored" | "synced" | "pending" | "skipped" | "errors",
+    number
+  >;
+  books: ReadingBook[];
+}
+
+export function shortDate(ms: number | null): string | null {
+  if (!ms) return null;
+  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** Joins reasons into readable sentences: "Title and author match. Same series position (#1)." */
+export function sentences(parts: string[]): string {
+  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1).replace(/\.$/, "")).join(". ") + (parts.length ? "." : "");
 }

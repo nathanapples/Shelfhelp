@@ -22,6 +22,19 @@ export interface AbsCollection {
   books: { id: string }[];
 }
 
+export interface AbsProgress {
+  libraryItemId: string;
+  episodeId: string | null;
+  duration: number;
+  progress: number;
+  currentTime: number;
+  isFinished: boolean;
+  ebookProgress?: number | null;
+  lastUpdate: number;
+  startedAt: number;
+  finishedAt: number | null;
+}
+
 export interface AbsItemRow extends AbsItem {
   libraryId: string;
   narrators: string[];
@@ -83,6 +96,12 @@ export class Abs {
 
   async me() {
     return this.request<{ id: string; username: string; type: string; permissions?: Record<string, boolean> }>("GET", "/api/me");
+  }
+
+  /** Listening progress for the API key's user (books only, not podcast episodes). */
+  async myProgress(): Promise<AbsProgress[]> {
+    const me = await this.request<{ mediaProgress?: AbsProgress[] }>("GET", "/api/me");
+    return (me.mediaProgress ?? []).filter((p) => p.libraryItemId && !p.episodeId);
   }
 
   async libraries(): Promise<AbsLibrary[]> {

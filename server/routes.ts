@@ -10,6 +10,7 @@ import { getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } f
 import { decide, getList, hardcoverUrl, isRunning, pushCollection, rematch, runningLists, statusCounts, syncAll, syncList, type ListRow } from "./lib/sync.js";
 import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
+import { decideItem, readingView, rememberBook, syncReading, type HcBookView } from "./lib/reading.js";
 
 const COOKIE = "shelfhelp_session";
 const MASK = "••••••••";
@@ -421,4 +422,43 @@ export async function routes(app: FastifyInstance) {
   });
 
   app.get("/api/activity", async () => recentActivity());
+
+  // Reading progress
+  app.get("/api/reading", async () => readingView());
+
+  app.post("/api/reading/sync", async () => {
+    syncReading("manual").catch(() => {});
+    return { started: true };
+  });
+
+  app.post("/api/reading/approve", async () => {
+    saveSettings({ readingApproved: true });
+    log("info", "Reading progress approved: changes will now be sent to Hardcover");
+    syncReading("approved").catch(() => {});
+    return { ok: true };
+  });
+
+  app.post<{ Body: { absItemId: string; action: "match" | "ignore" | "missing" | "reset"; hcBookId?: number; hcBook?: HcBookView } }>(
+    "/api/reading/decisions",
+    async (req, reply) => {
+      try {
+        const { absItemId, action, hcBookId, hcBook } = req.body;
+        const before = db
+          .prepare("SELECT hc_book_id, library_id FROM overrides WHERE abs_item_id = ? AND action = 'match'")
+          .get(absItemId) as { hc_book_id: number; library_id: string } | undefined;
+        const libraryId = decideItem(absItemId, action, hcBookId);
+        // One match for both features: tell the collections too.
+        if (libraryId && action === "match" && hcBookId) {
+          rememberBook(absItemId, hcBook ?? null);
+          await decide(hcBookId, libraryId, "match", absItemId);
+        } else if (before && action === "reset") {
+          await decide(before.hc_book_id, before.library_id, "reset");
+        }
+        syncReading("decision").catch(() => {});
+        return { ok: true };
+      } catch (err) {
+        return fail(reply, err);
+      }
+    },
+  );
 }

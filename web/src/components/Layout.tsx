@@ -5,6 +5,7 @@ import {
   ArrowPathIcon,
   ArrowRightOnRectangleIcon,
   Bars3Icon,
+  BookOpenIcon,
   CogIcon,
   MagnifyingGlassIcon,
   RectangleStackIcon,
@@ -16,6 +17,7 @@ import { useToast } from "./toast";
 
 const nav: { to: string; label: string; icon: React.ComponentType<{ className?: string }>; end?: boolean; count?: string }[] = [
   { to: "/", label: "Collections", icon: RectangleStackIcon, end: true },
+  { to: "/reading", label: "Reading", icon: BookOpenIcon },
   { to: "/settings", label: "Settings", icon: CogIcon },
 ];
 

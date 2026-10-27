@@ -10,6 +10,10 @@ export interface Settings {
   /** Minutes between automatic syncs. 0 turns the schedule off. */
   syncIntervalMinutes: number;
   matchStrictness: Strictness;
+  /** Send Audiobookshelf listening progress to Hardcover. */
+  readingEnabled: boolean;
+  /** The first reading sync is a preview until this is true. */
+  readingApproved: boolean;
 }
 
 const defaults: Settings = {
@@ -18,6 +22,8 @@ const defaults: Settings = {
   absToken: "",
   syncIntervalMinutes: 360,
   matchStrictness: "balanced",
+  readingEnabled: true,
+  readingApproved: false,
 };
 
 /** Environment variables win over saved values, so a compose file can pin them. */

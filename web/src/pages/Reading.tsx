@@ -1,0 +1,513 @@
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import {
+  ArrowPathIcon,
+  ArrowTopRightOnSquareIcon,
+  ArrowUpIcon,
+  ArrowUturnLeftIcon,
+  BookOpenIcon,
+  CheckIcon,
+  ExclamationTriangleIcon,
+  EyeIcon,
+  EyeSlashIcon,
+  MagnifyingGlassIcon,
+  XMarkIcon,
+} from "@heroicons/react/24/outline";
+import { CheckIcon as CheckSolid, EyeSlashIcon as EyeSlashSolid, XMarkIcon as XSolid, ArrowUpIcon as ArrowUpSolid, ExclamationTriangleIcon as WarnSolid } from "@heroicons/react/24/solid";
+import {
+  api,
+  duration,
+  sentences,
+  shortDate,
+  timeAgo,
+  type HcBookRef,
+  type HcCandidate,
+  type ReadingBook,
+  type ReadingData,
+  type SearchHit,
+} from "../lib/api";
+import { useApi, useDebounced } from "../lib/hooks";
+import { Cover, Empty, ErrorBlock, LoadingBlock, Modal, PageTitle, ScoreBar, Spinner, Tabs } from "../components/ui";
+import { useToast } from "../components/toast";
+
+type Tab = "all" | "synced" | "waiting" | "review" | "missing" | "ignored";
+
+/** One state per card, combining "is it matched?" and "is it in sync?". */
+function cardState(b: ReadingBook) {
+  if (b.matchStatus === "ignored") return { key: "ignored", label: "Ignored", dot: "bg-gray-600 ring-gray-500 text-gray-200", Icon: EyeSlashSolid };
+  if (b.matchStatus === "missing") return { key: "missing", label: "Not found on Hardcover", dot: "bg-red-600 ring-red-500 text-red-100", Icon: XSolid };
+  if (b.matchStatus === "review") return { key: "review", label: "Needs review", dot: "bg-yellow-500 ring-yellow-400 text-yellow-100", Icon: null };
+  if (b.syncStatus === "pending") return { key: "waiting", label: "Waiting to send", dot: "bg-indigo-500 ring-indigo-400 text-indigo-100", Icon: ArrowUpSolid };
+  if (b.syncStatus === "error") return { key: "waiting", label: "Couldn't send", dot: "bg-red-600 ring-red-500 text-red-100", Icon: WarnSolid };
+  return { key: "synced", label: b.syncStatus === "skipped" ? "Left as is on Hardcover" : "In sync", dot: "bg-green-400 ring-green-500 text-green-100", Icon: CheckSolid };
+}
+
+function StateDot({ book, className = "h-5 w-5" }: { book: ReadingBook; className?: string }) {
+  const s = cardState(book);
+  return (
+    <span className={`flex items-center justify-center rounded-full shadow ring-1 ${s.dot} ${className}`} title={s.label}>
+      {s.Icon ? <s.Icon className="h-3/4 w-3/4" /> : <span className="text-[0.8em] font-black leading-none">?</span>}
+    </span>
+  );
+}
+
+function ProgressBar({ book, className = "" }: { book: ReadingBook; className?: string }) {
+  return (
+    <div className={`h-1.5 overflow-hidden rounded-full bg-gray-700 ${className}`}>
+      <div className={book.isFinished ? "h-full bg-green-500" : "h-full bg-indigo-500"} style={{ width: `${Math.max(2, book.progress)}%` }} />
+    </div>
+  );
+}
+
+function absLine(b: ReadingBook) {
+  return b.isFinished ? `Finished${b.finishedAt ? ` ${shortDate(b.finishedAt)}` : ""}` : `${Math.round(b.progress)}% listened`;
+}
+
+function hcLine(b: ReadingBook) {
+  if (b.matchStatus !== "matched") return cardState(b).label;
+  if (b.syncStatus === "pending") return b.syncAction ?? "Waiting to send";
+  if (!b.hcStatusName) return "Not on your Hardcover shelves";
+  return `${b.hcStatusName}${b.hcStatus === 2 && b.hcProgress != null ? ` ${Math.round(b.hcProgress)}%` : ""}`;
+}
+
+function ReadingCard({ book, onOpen }: { book: ReadingBook; onOpen: () => void }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="group w-full text-left outline-none"
+    >
+      <div
+        className={`relative overflow-hidden rounded-xl bg-gray-800 ring-1 transition duration-300 ${
+          hover ? "scale-105 shadow-lg ring-gray-500" : "shadow ring-gray-700"
+        }`}
+        style={{ paddingBottom: "100%" }}
+      >
+        <Cover src={book.coverUrl} alt={book.title} className="absolute inset-0 h-full w-full" />
+        <div className="absolute left-0 right-0 top-0 flex items-center justify-between p-2">
+          <span className="rounded-full border border-purple-600 bg-purple-600/80 px-2 text-[10px] font-semibold uppercase leading-5 tracking-wider text-white shadow-md">
+            {book.isFinished ? "Finished" : "Listening"}
+          </span>
+          <StateDot book={book} />
+        </div>
+        <div className={`absolute inset-0 flex flex-col justify-end bg-gray-800/85 p-3 transition-opacity duration-300 ${hover ? "opacity-100" : "opacity-0"}`}>
+          <div className="text-xs font-semibold uppercase tracking-wider text-gray-400">Hardcover</div>
+          <div className="mt-0.5 line-clamp-2 text-sm font-semibold text-white">{book.hcBook?.title ?? "No match yet"}</div>
+          <div className="mt-1 line-clamp-2 text-xs text-gray-300">{hcLine(book)}</div>
+          <span className="btn btn-sm btn-primary mt-3 w-full">{book.matchStatus === "review" ? "Review" : "Details"}</span>
+        </div>
+        <div className="absolute inset-x-0 bottom-0 p-2">
+          <ProgressBar book={book} className="shadow" />
+        </div>
+      </div>
+      <div className="mt-2 px-0.5">
+        <div className="truncate text-sm font-semibold text-white">{book.title}</div>
+        <div className="truncate text-xs text-gray-400">{absLine(book)}</div>
+      </div>
+    </button>
+  );
+}
+
+function Stat({ label, value, sub, accent, onClick }: { label: string; value: number | string; sub: string; accent?: string; onClick?: () => void }) {
+  return (
+    <button onClick={onClick} className="card h-full p-4 text-left transition hover:ring-gray-500 sm:p-5">
+      <div className="text-xs font-semibold uppercase tracking-wider text-gray-400">{label}</div>
+      <div className={`mt-1 text-3xl font-bold tabular-nums ${accent ?? "text-white"}`}>{value}</div>
+      <div className="mt-0.5 text-xs text-gray-500">{sub}</div>
+    </button>
+  );
+}
+
+function HcRow({
+  book,
+  candidate,
+  current,
+  busy,
+  onUse,
+}: {
+  book: HcBookRef;
+  candidate?: HcCandidate;
+  current?: boolean;
+  busy?: boolean;
+  onUse?: () => void;
+}) {
+  return (
+    <div className={`flex gap-3 rounded-lg p-3 ring-1 ${current ? "bg-green-900/20 ring-green-700" : "bg-gray-900/40 ring-gray-700"}`}>
+      <Cover src={book.coverUrl} alt={book.title} className="h-24 w-16 flex-shrink-0 rounded-md ring-1 ring-gray-700" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="truncate font-semibold text-white">{book.title}</div>
+            <div className="truncate text-sm text-gray-300">{book.authors.join(", ") || "No author"}</div>
+            <div className="flex flex-wrap gap-x-3 text-xs text-gray-400">
+              {book.seriesName && (
+                <span>
+                  {book.seriesName}
+                  {book.seriesPosition != null ? ` #${book.seriesPosition}` : ""}
+                </span>
+              )}
+              {book.releaseYear && <span>{book.releaseYear}</span>}
+              {book.slug && (
+                <a
+                  href={`https://hardcover.app/books/${book.slug}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300"
+                >
+                  Hardcover <ArrowTopRightOnSquareIcon className="h-3 w-3" />
+                </a>
+              )}
+            </div>
+          </div>
+          {onUse && (
+            <button className="btn btn-sm btn-primary flex-shrink-0" onClick={onUse} disabled={busy}>
+              <CheckIcon className="h-4 w-4" /> Use this
+            </button>
+          )}
+          {current && <span className="badge badge-success flex-shrink-0">Current</span>}
+        </div>
+        {candidate && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+            <ScoreBar score={candidate.score} />
+            <span className="text-xs text-gray-400">Title {Math.round(candidate.titleSim * 100)}%</span>
+            <span className="text-xs text-gray-400">Author {candidate.authorSim === null ? "n/a" : `${Math.round(candidate.authorSim * 100)}%`}</span>
+            {candidate.idVia.map((v) => (
+              <span key={v} className="badge badge-default">
+                {v.toUpperCase()} match
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; onClose: () => void; onChanged: () => void }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState("");
+  const dq = useDebounced(q, 450);
+  const [results, setResults] = useState<SearchHit[] | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    setQ("");
+    setResults(null);
+  }, [book?.absItemId]);
+  useEffect(() => {
+    if (!dq.trim()) return setResults(null);
+    setSearching(true);
+    api<SearchHit[]>(`/hardcover/search?q=${encodeURIComponent(dq)}`)
+      .then(setResults)
+      .catch(() => setResults([]))
+      .finally(() => setSearching(false));
+  }, [dq]);
+
+  if (!book) return null;
+
+  const decide = async (action: "match" | "ignore" | "missing" | "reset", hc?: HcBookRef) => {
+    setBusy(true);
+    try {
+      await api("/reading/decisions", { method: "POST", body: { absItemId: book.absItemId, action, hcBookId: hc?.id, hcBook: hc } });
+      toast(
+        action === "match"
+          ? `Matched to "${hc?.title}" on Hardcover`
+          : action === "ignore"
+            ? `Won't sync "${book.title}"`
+            : action === "missing"
+              ? `Marked "${book.title}" as not on Hardcover`
+              : `"${book.title}" is back to automatic matching`,
+      );
+      setTimeout(onChanged, 600);
+      onClose();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const state = cardState(book);
+  const current = book.candidates.find((c) => c.id === book.hcBookId);
+  const others = book.candidates.filter((c) => c.id !== book.hcBookId);
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="max-w-3xl"
+      backdrop={book.coverUrl}
+      footer={
+        <>
+          {book.matchSource === "manual" && (
+            <button className="btn btn-default" onClick={() => decide("reset")} disabled={busy}>
+              <ArrowUturnLeftIcon className="h-4 w-4" /> Back to automatic
+            </button>
+          )}
+          {book.matchStatus !== "missing" && (
+            <button className="btn btn-default" onClick={() => decide("missing")} disabled={busy}>
+              <XMarkIcon className="h-4 w-4" /> Not on Hardcover
+            </button>
+          )}
+          {book.matchStatus !== "ignored" ? (
+            <button className="btn btn-default" onClick={() => decide("ignore")} disabled={busy}>
+              <EyeSlashIcon className="h-4 w-4" /> Don't sync
+            </button>
+          ) : (
+            <button className="btn btn-default" onClick={() => decide("reset")} disabled={busy}>
+              <EyeIcon className="h-4 w-4" /> Sync again
+            </button>
+          )}
+          {book.matchStatus === "review" && book.hcBook && (
+            <button className="btn btn-success" onClick={() => decide("match", book.hcBook!)} disabled={busy}>
+              <CheckIcon className="h-4 w-4" /> Approve match
+            </button>
+          )}
+        </>
+      }
+    >
+      <div className="flex gap-4 pt-5 sm:gap-6">
+        <Cover src={book.coverUrl} alt={book.title} className="h-28 w-28 flex-shrink-0 rounded-lg shadow-lg ring-1 ring-gray-700 sm:h-36 sm:w-36" />
+        <div className="min-w-0 flex-1 pr-8">
+          <div className="text-xs font-semibold uppercase tracking-wider text-gray-400">In Audiobookshelf</div>
+          <h2 className="mt-1 text-2xl font-bold leading-tight text-white">{book.title}</h2>
+          <div className="text-gray-300">{book.authors.join(", ")}</div>
+          {book.narrators.length > 0 && <div className="text-sm text-gray-400">Narrated by {book.narrators.join(", ")}</div>}
+          <ProgressBar book={book} className="mt-3 max-w-sm" />
+          <div className="mt-1.5 flex flex-wrap gap-x-3 text-xs text-gray-400">
+            <span>{absLine(book)}</span>
+            {book.startedAt && <span>Started {shortDate(book.startedAt)}</span>}
+            {!book.isFinished && book.lastUpdate && <span>Last listened {timeAgo(new Date(book.lastUpdate).toISOString())}</span>}
+            {duration(book.duration) && <span>{duration(book.duration)}</span>}
+            {book.asin && <span>ASIN {book.asin}</span>}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-lg bg-gray-900/40 p-4 ring-1 ring-gray-700">
+        <div className="flex items-center gap-2">
+          <StateDot book={book} className="h-5 w-5" />
+          <span className="font-semibold text-white">{state.label}</span>
+        </div>
+        <p className="mt-1 text-sm text-gray-400">
+          {book.matchStatus === "matched"
+            ? book.syncStatus === "pending"
+              ? `Ready to send: ${book.syncAction}.`
+              : book.syncStatus === "error"
+                ? book.syncAction
+                : book.syncStatus === "skipped"
+                  ? `${book.syncAction}. Shelfhelp never moves a book backward.`
+                  : `Hardcover shows ${hcLine(book)}${book.syncedAt ? `, updated ${timeAgo(book.syncedAt)}` : ""}.`
+            : sentences(book.reasons)}
+        </p>
+      </div>
+
+      {book.hcBook && (
+        <div className="mt-6">
+          <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-gray-400">
+            {book.matchStatus === "matched" ? "Matched on Hardcover" : "Best guess on Hardcover"}
+          </h4>
+          <HcRow book={book.hcBook} candidate={current} current={book.matchStatus === "matched"} />
+        </div>
+      )}
+
+      {others.length > 0 && (
+        <div className="mt-6">
+          <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-gray-400">Other possibilities</h4>
+          <div className="space-y-2">
+            {others.map((c) => (
+              <HcRow key={c.id} book={c} candidate={c} busy={busy} onUse={() => decide("match", c)} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-6">
+        <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-gray-400">Search Hardcover</h4>
+        <div className="relative">
+          <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+          <input className="input pl-10" placeholder="Title or author" value={q} onChange={(e) => setQ(e.target.value)} />
+          {searching && <Spinner className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2" />}
+        </div>
+        {results && (
+          <div className="mt-3 space-y-2">
+            {results.length === 0 && <div className="text-sm text-gray-500">No books on Hardcover match that.</div>}
+            {results.map((h) => (
+              <HcRow
+                key={h.id}
+                book={h}
+                busy={busy}
+                current={h.id === book.hcBookId && book.matchStatus === "matched"}
+                onUse={h.id === book.hcBookId && book.matchStatus === "matched" ? undefined : () => decide("match", h)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+      <p className="mt-6 text-xs text-gray-500">
+        Changing a match here also updates your collections. It doesn't undo anything already sent to Hardcover.
+      </p>
+    </Modal>
+  );
+}
+
+export default function ReadingPage() {
+  const toast = useToast();
+  const [params, setParams] = useSearchParams();
+  const tab = (params.get("tab") as Tab) || "all";
+  const setTab = (t: Tab) => setParams(t === "all" ? {} : { tab: t }, { replace: true });
+  const [poll, setPoll] = useState<number | false>(false);
+  const { data, error, loading, reload } = useApi<ReadingData>("/reading", { poll });
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [approving, setApproving] = useState(false);
+
+  useEffect(() => setPoll(data?.running ? 2000 : 30000), [data?.running]);
+
+  const books = useMemo(() => {
+    const all = data?.books ?? [];
+    return tab === "all" ? all : all.filter((b) => cardState(b).key === tab);
+  }, [data, tab]);
+  const open = data?.books.find((b) => b.absItemId === openId) ?? null;
+
+  if (loading) return <LoadingBlock />;
+  if (error || !data) return <ErrorBlock message={error ?? "Couldn't load reading progress"} />;
+  const c = data.counts;
+  const waiting = c.pending + c.errors;
+
+  const sync = async () => {
+    await api("/reading/sync", { method: "POST" });
+    toast("Checking Audiobookshelf for progress", "info");
+    setTimeout(reload, 500);
+  };
+  const approve = async () => {
+    setApproving(true);
+    try {
+      await api("/reading/approve", { method: "POST" });
+      toast(`Sending ${waiting} change${waiting === 1 ? "" : "s"} to Hardcover`);
+      setTimeout(reload, 800);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  return (
+    <div>
+      <PageTitle
+        extra={
+          <button className="btn btn-default" onClick={sync} disabled={data.running}>
+            {data.running ? <Spinner className="h-5 w-5" /> : <ArrowPathIcon className="h-5 w-5" />} {data.running ? "Syncing" : "Sync Now"}
+          </button>
+        }
+      >
+        Reading
+      </PageTitle>
+      <p className="-mt-3 mb-6 max-w-3xl text-sm text-gray-400">
+        Your Audiobookshelf listening progress, sent to Hardcover. Books you start become Currently Reading with your progress, and
+        books you finish become Read. It only moves forward: a book that's already Read on Hardcover is left alone.
+      </p>
+
+      {!data.enabled && (
+        <div className="mb-6 rounded-xl bg-gray-800 p-4 text-sm text-gray-300 ring-1 ring-gray-700">
+          Reading progress sync is off. Turn it on in{" "}
+          <Link to="/settings" className="text-indigo-400 hover:underline">
+            Settings
+          </Link>
+          .
+        </div>
+      )}
+
+      {data.enabled && !data.approved && (
+        <div className="mb-6 flex flex-col gap-4 rounded-xl bg-gradient-to-br from-indigo-900/60 to-purple-900/50 p-5 ring-1 ring-indigo-700 sm:flex-row sm:items-center">
+          <EyeIcon className="hidden h-10 w-10 flex-shrink-0 text-indigo-300 sm:block" />
+          <div className="flex-1">
+            <div className="font-semibold text-white">Preview: nothing has been sent to Hardcover yet</div>
+            <p className="mt-1 text-sm text-indigo-100/80">
+              {waiting
+                ? `${waiting} change${waiting === 1 ? " is" : "s are"} ready. Check them in the Waiting tab, then approve to send them. Hardcover shows status changes in your followers' feeds.`
+                : data.running
+                  ? "Looking at your listening history..."
+                  : "Nothing to send yet. Approve to start syncing as you listen."}
+            </p>
+          </div>
+          <div className="flex flex-shrink-0 gap-2">
+            {waiting > 0 && (
+              <button className="btn btn-default" onClick={() => setTab("waiting")}>
+                Review changes
+              </button>
+            )}
+            <button className="btn btn-primary" onClick={approve} disabled={approving || data.running}>
+              <ArrowUpIcon className="h-4 w-4" /> {waiting ? "Approve and send" : "Start syncing"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {c.total === 0 ? (
+        <Empty icon={<BookOpenIcon className="h-16 w-16" />} title={data.running ? "Looking for progress..." : "No listening progress yet"}>
+          Books you've started in Audiobookshelf show up here.
+        </Empty>
+      ) : (
+        <>
+          <div className="mb-8 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+            <Stat label="With progress" value={c.total} sub={`${c.listening} listening, ${c.finished} finished`} onClick={() => setTab("all")} />
+            <Stat label="In sync" value={c.synced + c.skipped} sub={`of ${c.matched} matched`} accent="text-green-400" onClick={() => setTab("synced")} />
+            <Stat
+              label="Waiting"
+              value={waiting}
+              sub={c.errors ? `${c.errors} couldn't be sent` : data.approved ? "sends on the next sync" : "waiting for approval"}
+              accent={waiting ? "text-indigo-400" : undefined}
+              onClick={() => setTab("waiting")}
+            />
+            <Stat
+              label="To review"
+              value={c.review}
+              sub={`${c.missing} not found on Hardcover`}
+              accent={c.review ? "text-yellow-400" : undefined}
+              onClick={() => setTab("review")}
+            />
+          </div>
+
+          <Tabs<Tab>
+            value={tab}
+            onChange={setTab}
+            tabs={[
+              { id: "all", label: "All", count: c.total },
+              { id: "synced", label: "In Sync", count: c.synced + c.skipped },
+              { id: "waiting", label: "Waiting", count: waiting },
+              { id: "review", label: "Review", count: c.review },
+              { id: "missing", label: "Not on Hardcover", count: c.missing },
+              { id: "ignored", label: "Not Synced", count: c.ignored },
+            ]}
+          />
+
+          {books.length === 0 ? (
+            <div className="py-16 text-center text-sm text-gray-500">Nothing here.</div>
+          ) : (
+            <ul className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]">
+              {books.map((b) => (
+                <li key={b.absItemId}>
+                  <ReadingCard book={b} onOpen={() => setOpenId(b.absItemId)} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+
+      {data.counts.errors > 0 && tab === "waiting" && (
+        <p className="mt-6 flex items-center gap-2 text-sm text-red-300">
+          <ExclamationTriangleIcon className="h-5 w-5" /> Some changes couldn't be sent. They'll be tried again on the next sync.
+        </p>
+      )}
+
+      <ReadingModal book={open} onClose={() => setOpenId(null)} onChanged={reload} />
+    </div>
+  );
+}

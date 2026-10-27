@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowTopRightOnSquareIcon, CheckIcon, EyeSlashIcon, MagnifyingGlassIcon, ArrowUturnLeftIcon, XMarkIcon } from "@heroicons/react/24/outline";
-import { api, duration, type AbsItem, type Book, type Candidate } from "../lib/api";
+import { api, duration, sentences, type AbsItem, type Book, type Candidate } from "../lib/api";
 import { useDebounced } from "../lib/hooks";
 import { Cover, Modal, ScoreBar, Spinner, StatusBadge } from "./ui";
 import { useToast } from "./toast";
@@ -183,7 +183,7 @@ export function BookModal({
               </a>
             )}
           </div>
-          {book.reasons.length > 0 && <p className="mt-3 text-sm text-gray-400">{book.reasons.join(". ")}.</p>}
+          {book.reasons.length > 0 && <p className="mt-3 text-sm text-gray-400">{sentences(book.reasons)}</p>}
         </div>
       </div>
 

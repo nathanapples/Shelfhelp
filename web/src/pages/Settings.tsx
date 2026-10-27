@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import ActivityLog from "./Activity";
 import { CheckCircleIcon, ExclamationTriangleIcon, LockClosedIcon } from "@heroicons/react/24/outline";
 import { api, type Library, type Settings, type Status } from "../lib/api";
-import { ErrorBlock, LoadingBlock, PageTitle, Spinner, Tabs } from "../components/ui";
+import { ErrorBlock, LoadingBlock, PageTitle, Spinner, Tabs, Toggle } from "../components/ui";
 import { useToast } from "../components/toast";
 
 type Tab = "general" | "hardcover" | "abs" | "activity" | "about";
@@ -194,7 +194,16 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
               ))}
             </div>
           </div>
-          {actions(["syncIntervalMinutes", "matchStrictness"])}
+          <div className="form-row">
+            <label>
+              Reading progress
+              <span className="label-tip">Send your Audiobookshelf listening progress to Hardcover. See the Reading page.</span>
+            </label>
+            <div className="form-input-area sm:pt-2">
+              <Toggle checked={s.readingEnabled} onChange={(v) => set("readingEnabled", v)} />
+            </div>
+          </div>
+          {actions(["syncIntervalMinutes", "matchStrictness", "readingEnabled"])}
         </Section>
       )}
 

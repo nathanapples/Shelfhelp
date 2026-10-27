@@ -13,6 +13,7 @@ import ReviewPage from "./pages/Review";
 import MissingPage from "./pages/Missing";
 import SearchPage from "./pages/Search";
 import SettingsPage from "./pages/Settings";
+import ReadingPage from "./pages/Reading";
 import LoginPage from "./pages/Login";
 
 function App() {
@@ -36,6 +37,7 @@ function App() {
         <Route path="/lists/:id" element={<ListDetailPage />} />
         <Route path="/review" element={<ReviewPage />} />
         <Route path="/missing" element={<MissingPage />} />
+        <Route path="/reading" element={<ReadingPage />} />
         <Route path="/search" element={<SearchPage />} />
         <Route path="/activity" element={<Navigate to="/settings?tab=activity" replace />} />
         <Route path="/settings" element={<SettingsPage status={status} onSaved={load} />} />

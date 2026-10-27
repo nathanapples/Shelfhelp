@@ -23,6 +23,20 @@ Each book on a list ends up as one of:
 
 Your decisions (approve, pick a different item, not mine, ignore) are remembered per book and library, so they apply to every list and survive future syncs.
 
+## Reading progress
+
+The Reading page sends your Audiobookshelf listening progress to Hardcover:
+
+- A book you've started becomes **Currently Reading** with your progress.
+- A book you've finished becomes **Read** with the finish date.
+- It only moves forward. A book that's already Read (or Did Not Finish) on Hardcover is left alone.
+
+The first sync is a preview: nothing is sent until you approve it, since Hardcover shows status changes in your followers' feeds. After that, confident matches sync on the schedule and uncertain ones wait for you.
+
+Matching is shared with collections. Audiobookshelf items are matched to Hardcover books by ASIN/ISBN, by your collections, and by a Hardcover search, using the same rules. A match you make in either place applies to both.
+
+Progress comes from the Audiobookshelf user whose API key Shelfhelp uses.
+
 ## Install
 
 Create a `docker-compose.yml`:

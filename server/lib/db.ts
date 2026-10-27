@@ -133,6 +133,44 @@ const migrations: string[] = [
     message TEXT NOT NULL
   );
   `,
+  `
+  -- Your decisions from the Reading side: this item is this Hardcover book, or skip it.
+  CREATE TABLE item_overrides (
+    abs_item_id TEXT PRIMARY KEY,
+    action      TEXT NOT NULL,
+    hc_book_id  INTEGER,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- Audiobookshelf listening progress and where it stands on Hardcover.
+  CREATE TABLE reading (
+    abs_item_id     TEXT PRIMARY KEY,
+    library_id      TEXT NOT NULL,
+    progress        REAL NOT NULL DEFAULT 0,
+    current_time    REAL,
+    duration        REAL,
+    is_finished     INTEGER NOT NULL DEFAULT 0,
+    started_at      INTEGER,
+    finished_at     INTEGER,
+    last_update     INTEGER,
+    match_status    TEXT NOT NULL DEFAULT 'missing',
+    match_source    TEXT,
+    hc_book_id      INTEGER,
+    hc_book         TEXT,
+    score           REAL,
+    reasons         TEXT NOT NULL DEFAULT '[]',
+    candidates      TEXT NOT NULL DEFAULT '[]',
+    searched_key    TEXT,
+    searched_at     TEXT,
+    hc_status       INTEGER,
+    hc_progress     REAL,
+    sync_status     TEXT NOT NULL DEFAULT 'none',
+    sync_action     TEXT,
+    synced_key      TEXT,
+    synced_at       TEXT,
+    seen_at         TEXT NOT NULL
+  );
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

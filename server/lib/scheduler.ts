@@ -1,5 +1,6 @@
 import { getSettings } from "./settings.js";
 import { syncAll } from "./sync.js";
+import { syncReading } from "./reading.js";
 
 let timer: NodeJS.Timeout | null = null;
 let currentMinutes = -1;
@@ -12,7 +13,11 @@ export function reschedule() {
   if (timer) clearInterval(timer);
   timer = null;
   if (minutes > 0) {
-    timer = setInterval(() => syncAll("scheduled").catch(() => {}), minutes * 60_000);
+    timer = setInterval(() => {
+      syncAll("scheduled")
+        .catch(() => {})
+        .finally(() => syncReading("scheduled").catch(() => {}));
+    }, minutes * 60_000);
     timer.unref();
   }
 }

@@ -110,9 +110,78 @@ const listBooks = (offset: number, limit: number) =>
 // Hardcover says which book each ASIN belongs to. GOLDENSON1 is the "wrong" ASIN in the library.
 const asinMap: Record<string, number> = { B08G9PRS1K: 101, B002UZMLXM: 102, B00I8QS6UU: 104, GOLDENSON1: 105 };
 
+// Your Hardcover library: Red Rising already Read, Project Hail Mary on Want to Read.
+interface MockRead { id: number; userBookId: number; editionId: number | null; startedAt: string | null; finishedAt: string | null; progress: number | null; progressSeconds: number | null; edition: unknown }
+interface MockEntry { id: number; bookId: number; statusId: number; editionId: number | null; reads: MockRead[] }
+const userBooks = new Map<number, MockEntry>();
+let nextId = 1;
+const edition = (bookId: number) => ({ id: 7000 + bookId, bookId, readingFormatId: 2, audioSeconds: 36000, pages: null, asin: Object.keys(asinMap).find((a) => asinMap[a] === bookId) ?? null, title: null });
+function newRead(e: MockEntry, finished: string | null, started: string | null) {
+  e.reads.unshift({ id: nextId++, userBookId: e.id, editionId: e.editionId, startedAt: started ?? "2026-10-01", finishedAt: finished, progress: finished ? 100 : 0, progressSeconds: null, edition: { id: e.editionId ?? 7000 + e.bookId, pages: null, audioSeconds: 36000, readingFormatId: 2 } });
+}
+function setStatus(e: MockEntry, status: number, date?: string, start?: string) {
+  const open = e.reads.find((r) => r.startedAt && !r.finishedAt);
+  if (status === 2 && !open) newRead(e, null, start ?? null);
+  if (status === 3) open ? ((open.finishedAt = date ?? "2026-10-27"), (open.progress = 100)) : newRead(e, date ?? "2026-10-27", start ?? null);
+  e.statusId = status;
+  console.log(`[hc] book ${e.bookId} -> status ${status}${date ? ` (${date})` : ""}`);
+}
+for (const [bookId, status] of [[104, 3], [101, 1]] as const) {
+  const e: MockEntry = { id: nextId++, bookId, statusId: 1, editionId: null, reads: [] };
+  userBooks.set(bookId, e);
+  if (status === 3) setStatus(e, 3, "2025-06-01");
+}
+const entryJson = (e: MockEntry) => ({ id: e.id, bookId: e.bookId, statusId: e.statusId, editionId: e.editionId, userId: 1, userBookReads: e.reads });
+const hit = (b: MockBook) => ({ document: { id: String(b.id), title: b.title, slug: b.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"), author_names: [b.author], image: { url: `${HC}/cover/${b.id}.svg` }, series_names: b.series ? [b.series[0]] : [], featured_series_position: b.series?.[1] ?? null, release_year: 2010 } });
+
 function hardcover(body: { query: string; variables?: Record<string, unknown> }) {
   const q = body.query;
   const v = body.variables ?? {};
+  if (q.includes("query GetLibrary") && !(v.statusIds as number[] | undefined)?.length) {
+    const all = [...userBooks.values()];
+    const offset = Number(v.offset ?? 0);
+    return { user_books: all.slice(offset, offset + Number(v.limit ?? 25)).map((e) => ({ ...entryJson(e), book: listBooks(books.findIndex((b) => b.id === e.bookId), 1)[0]?.book ?? null, edition: null })) };
+  }
+  if (q.includes("mutation AddUserBook")) {
+    const o = v.object as Record<string, unknown>;
+    const e: MockEntry = { id: nextId++, bookId: o.book_id as number, statusId: 1, editionId: (o.edition_id as number) ?? null, reads: [] };
+    userBooks.set(e.bookId, e);
+    setStatus(e, o.status_id as number, o.user_date as string, o.user_start_date as string);
+    return { insert_user_book: { id: e.id, error: null, userBook: entryJson(e) } };
+  }
+  if (q.includes("mutation UpdateUserBook(")) {
+    const e = [...userBooks.values()].find((x) => x.id === v.id)!;
+    const o = v.object as Record<string, unknown>;
+    if (o.edition_id) e.editionId = o.edition_id as number;
+    if (o.status_id) setStatus(e, o.status_id as number, o.user_date as string, o.user_start_date as string);
+    return { update_user_book: { id: e.id, error: null, userBook: entryJson(e) } };
+  }
+  if (q.includes("query GetUserBook(")) {
+    const e = [...userBooks.values()].find((x) => x.id === v.id);
+    return { user_books_by_pk: e ? { ...entryJson(e), book: null, edition: null } : null };
+  }
+  if (q.includes("mutation UpdateUserBookRead")) {
+    for (const e of userBooks.values()) {
+      const r = e.reads.find((x) => x.id === v.id);
+      if (!r) continue;
+      const read = v.read as Record<string, number>;
+      if (read.progress_seconds != null) {
+        r.progressSeconds = read.progress_seconds;
+        r.progress = Math.round((read.progress_seconds / 36000) * 1000) / 10;
+        console.log(`[hc] book ${e.bookId} progress ${r.progress}%`);
+      }
+      return { update_user_book_read: { id: r.id, error: null, userBookRead: r } };
+    }
+  }
+  if (q.includes("query GetEditionsForBook")) return { editions: [edition(Number(v.bookId))] };
+  if (q.includes("query GetBooks")) {
+    return { books: (v.ids as number[]).map((id) => listBooks(books.findIndex((b) => b.id === id), 1)[0]?.book).filter(Boolean) };
+  }
+  if (q.includes("query Search")) {
+    const words = String(v.query).toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+    const found = books.filter((b) => words.some((w) => b.title.toLowerCase().includes(w)));
+    return { search: { ids: found.map((b) => b.id), results: { hits: found.map(hit), found: found.length }, query: v.query, queryType: "book", page: 1, perPage: 8, error: null } };
+  }
   if (q.includes("query Me")) return { me: [{ id: 1, username: "nathan", name: "Nathan" }] };
   if (q.includes("query GetList")) {
     const offset = Number(v.offset ?? 0);
@@ -215,7 +284,27 @@ http
       if (req.headers.authorization !== "Bearer x") return send(401, { error: "Unauthorized" });
       const p = url.pathname;
       let m: RegExpMatchArray | null;
-      if (p === "/api/me") return send(200, { id: "u1", username: "root", type: "root", permissions: { update: true } });
+      if (p === "/api/me") {
+        const now = Date.now();
+        const prog = (id: string, progress: number, finished = false, daysAgo = 1) => ({
+          id: `mp_${id}`, libraryItemId: id, episodeId: null, duration: 36000, progress, currentTime: progress * 36000,
+          isFinished: finished, lastUpdate: now - daysAgo * 86400000, startedAt: now - (daysAgo + 10) * 86400000,
+          finishedAt: finished ? now - daysAgo * 86400000 : null,
+        });
+        return send(200, {
+          id: "u1", username: "root", type: "root", permissions: { update: true },
+          mediaProgress: [
+            prog("li_10", 0.43, false, 0),
+            prog("li_1", 1, true, 3),
+            prog("li_4", 1, true, 200),
+            prog("li_5", 0.2, false, 2),
+            prog("li_15", 0.6, false, 5),
+            prog("li_12", 1, true, 30),
+            prog("li_7", 0.1, false, 1),
+            { ...prog("pod_1", 0.5), episodeId: "ep_1" },
+          ],
+        });
+      }
       if (p === "/api/libraries") return send(200, { libraries: [{ id: "lib_audio", name: "Audiobooks", mediaType: "book" }, { id: "lib_pod", name: "Podcasts", mediaType: "podcast" }] });
       if ((m = p.match(/^\/api\/libraries\/([^/]+)\/items$/))) {
         const page = Number(url.searchParams.get("page") ?? 0);

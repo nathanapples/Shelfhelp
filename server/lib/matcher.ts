@@ -186,6 +186,30 @@ export function matchBook(
     return { hcBookId: book.id, status: "missing", absItemId: null, score: 0, reasons: ["nothing similar in the library"], candidates: [] };
   }
 
+  const { status, reasons } = judge(top, strictness, "in the library");
+  return {
+    hcBookId: book.id,
+    status,
+    absItemId: status === "missing" ? null : best.absItemId,
+    score: best.score,
+    reasons,
+    candidates: top,
+  };
+}
+
+/**
+ * Decides how sure a ranked candidate list is. Shared by both directions:
+ * Hardcover book to library item (collections) and library item to
+ * Hardcover book (reading progress).
+ */
+export function judge(
+  top: Pick<Candidate, "score" | "titleSim" | "authorSim" | "idVia" | "notes">[],
+  strictness: Strictness = "balanced",
+  where = "in the library",
+): { status: Status; reasons: string[] } {
+  const t = THRESHOLDS[strictness];
+  const best = top[0];
+  if (!best) return { status: "missing", reasons: [`nothing similar ${where}`] };
   const seriesConflict = best.notes.some((n) => n.startsWith("series number differs"));
   const authorOk = (min: number) => best.authorSim === null || best.authorSim >= min;
   const reasons: string[] = [];
@@ -199,29 +223,21 @@ export function matchBook(
     reasons.push("title and author match");
   } else if (best.idVia.length) {
     status = "review";
-    reasons.push("the library's ASIN/ISBN points here, but the title or author disagrees; the ID may be wrong");
+    reasons.push("the ASIN/ISBN points here, but the title or author disagrees; the ID may be wrong");
   } else if (best.score >= t.review) {
     status = "review";
     reasons.push("close, but not certain");
   } else {
     status = "missing";
-    reasons.push("no confident match in the library");
+    reasons.push(`no confident match ${where}`);
   }
 
-  // Two different items both look right: let a person pick.
+  // Two different candidates both look right: say so.
   const runnerUp = top[1];
   if (status === "matched" && runnerUp && runnerUp.score >= best.score - 2 && runnerUp.titleSim >= t.title && !runnerUp.idVia.length && !best.idVia.length) {
-    reasons.push("another copy in the library looks just as good; picked the closest");
+    reasons.push("another candidate looks just as good; picked the closest");
   }
-
-  return {
-    hcBookId: book.id,
-    status,
-    absItemId: status === "missing" ? null : best.absItemId,
-    score: best.score,
-    reasons: [...reasons, ...best.notes],
-    candidates: top,
-  };
+  return { status, reasons: [...reasons, ...best.notes] };
 }
 
 function viaLabel(v: string): string {
