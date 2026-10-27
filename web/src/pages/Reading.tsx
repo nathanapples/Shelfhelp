@@ -376,7 +376,9 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
               : book.syncStatus === "error"
                 ? book.syncAction
                 : book.syncStatus === "held"
-                  ? `${book.syncAction}. Not sent.`
+                  ? book.heldReason === "threshold"
+                    ? "Nothing is sent until you pass the minimum progress set in Reading settings."
+                    : "Nothing is sent. Turn on Add new books in Reading settings (the gear button) to add it, or put it on a shelf on Hardcover first."
                 : book.syncStatus === "skipped"
                   ? `${book.syncAction}. Shelfhelp never moves a book backward.`
                   : `Hardcover shows ${hcLine(book)}${book.syncedAt ? `, updated ${timeAgo(book.syncedAt)}` : ""}.`

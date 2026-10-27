@@ -297,6 +297,12 @@ http
         res.writeHead(code, { "Content-Type": "application/json" });
         res.end(obj === undefined ? "" : JSON.stringify(obj));
       };
+      // Test hook: rename an item, like editing it in Audiobookshelf.
+      if (req.method === "POST" && req.url?.startsWith("/test/rename/")) {
+        const it = items.find((x) => x.id === req.url!.split("/")[3]);
+        if (it) it.title = body.title;
+        return send(200, { ok: !!it });
+      }
       if (req.headers.authorization !== "Bearer x") return send(401, { error: "Unauthorized" });
       const p = url.pathname;
       let m: RegExpMatchArray | null;
