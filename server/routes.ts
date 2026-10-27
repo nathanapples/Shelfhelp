@@ -439,7 +439,8 @@ export async function routes(app: FastifyInstance) {
   app.get("/api/reading", async () => readingView());
 
   app.post("/api/reading/sync", async () => {
-    syncReading("manual").catch(() => {});
+    // Check Now always re-reads Audiobookshelf, so metadata you just fixed is used.
+    syncReading("manual", { force: true }).catch(() => {});
     return { started: true };
   });
 

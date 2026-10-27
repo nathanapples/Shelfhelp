@@ -84,7 +84,7 @@ export const readingRunning = () => running;
 const SEARCH_AGAIN_MS = 7 * 24 * 3600_000;
 
 /** Pull progress, match, then work out (and with auto-send, send) changes. */
-export async function syncReading(reason: string) {
+export async function syncReading(reason: string, { force = false } = {}) {
   const settings = getSettings();
   if (running || !settings.readingEnabled) return;
   if (!isConfigured().hardcover || !isConfigured().abs) return;
@@ -93,7 +93,7 @@ export async function syncReading(reason: string) {
     const progress = await new Abs().myProgress();
     const libraries = await new Abs().selectedLibraries();
     const allowed = new Set(libraries.map((l) => l.id));
-    for (const lib of libraries) await refreshLibrary(lib.id);
+    for (const lib of libraries) await refreshLibrary(lib.id, { force });
     const items = getItems([...new Set(progress.map((p) => p.libraryItemId))]);
     const now = new Date().toISOString();
 
