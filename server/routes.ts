@@ -10,7 +10,7 @@ import { getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } f
 import { decide, getList, hardcoverUrl, isRunning, pushCollection, rematch, runningLists, statusCounts, syncAll, syncList, type ListRow } from "./lib/sync.js";
 import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
-import { decideItem, history, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
+import { decideItem, history, myShelfStatus, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
 
 const COOKIE = "shelfhelp_session";
 const MASK = "••••••••";
@@ -170,7 +170,7 @@ export async function routes(app: FastifyInstance) {
     const before = getSettings().matchStrictness;
     const saved = saveSettings(patch);
     reschedule();
-    if (["readingMinProgress", "readingAddNew", "readingIncludeEbooks", "readingEnabled", "absLibraries"].some((k) => k in patch)) {
+    if (["readingMinProgress", "readingAddNew", "readingEnabled", "absLibraries"].some((k) => k in patch)) {
       syncReading("settings changed").catch(() => {});
     }
     if (patch.matchStrictness && patch.matchStrictness !== before) {
@@ -279,7 +279,8 @@ export async function routes(app: FastifyInstance) {
           .all(...ids) as { hc_book_id: number; abs_item_id: string }[])
           known.set(r.hc_book_id, r.abs_item_id);
       }
-      return hits.map((h) => ({ ...h, absItemId: known.get(h.id) ?? null }));
+      const shelves = myShelfStatus(ids);
+      return hits.map((h) => ({ ...h, absItemId: known.get(h.id) ?? null, mine: shelves.get(h.id) ?? null }));
     } catch (err) {
       return fail(reply, err);
     }

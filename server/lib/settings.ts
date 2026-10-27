@@ -22,8 +22,6 @@ export interface Settings {
   readingAddNew: boolean;
   /** Mark synced books as Owned on Hardcover. */
   readingMarkOwned: boolean;
-  /** Include ebook-only items (no audio files). */
-  readingIncludeEbooks: boolean;
   /** Audiobookshelf libraries Shelfhelp uses. Empty means every book library. */
   absLibraries: string[];
 }
@@ -38,9 +36,8 @@ const defaults: Settings = {
   readingApproved: false,
   readingAutoSend: false,
   readingMinProgress: 5,
-  readingAddNew: true,
+  readingAddNew: false,
   readingMarkOwned: false,
-  readingIncludeEbooks: false,
   absLibraries: [],
 };
 

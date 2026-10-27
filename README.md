@@ -30,15 +30,15 @@ The Reading page sends your Audiobookshelf listening progress to Hardcover:
 - A book you've started becomes **Currently Reading** with your progress.
 - A book you've finished becomes **Read** with the finish date.
 - It only moves forward. Read and Did Not Finish are left alone, and progress is never lowered.
-- Books under 5% listened (adjustable) and ebook-only items are left out.
+- Books under 5% listened (adjustable) are left out.
 
-Nothing is sent until you send it. Changes wait on the Reading page; **Review and send** shows the exact list with a checkbox for each. Every change that's sent is kept in **History**, where it can be undone: a book Shelfhelp added is removed, a status change is set back, and a progress update is reverted. If you'd rather not approve each batch, turn on **Send automatically** in Settings, Reading.
+Nothing is sent until you send it. Changes wait on the Reading page; **Review and send** shows the exact list with a checkbox for each. Every change that's sent is kept in **History**, where it can be undone: a book Shelfhelp added is removed, a status change is set back, and a progress update is reverted. If you'd rather not approve each batch, turn on **Send automatically** with the gear button on the Reading page.
 
-Other options there: only update books already on your Hardcover shelves, and mark synced books as Owned.
+Other options there: add books that aren't on your Hardcover shelves yet (off by default), mark synced books as Owned, and pick libraries.
 
 Matching is shared with collections. Audiobookshelf items are matched to Hardcover books by ASIN/ISBN, by your collections, and by a Hardcover search, using the same rules. A match you make in either place applies to both.
 
-Progress comes from the Audiobookshelf user whose API key Shelfhelp uses. Pick which libraries Shelfhelp uses in Settings, Audiobookshelf; podcast libraries are never used.
+Progress comes from the Audiobookshelf user whose API key Shelfhelp uses. Every book library is used unless you uncheck it; podcast libraries are never used.
 
 Some of these rules follow [ShelfBridge](https://github.com/rohit-purandare/ShelfBridge) and [audiobookshelf-hardcover-sync](https://github.com/drallgood/audiobookshelf-hardcover-sync).
 

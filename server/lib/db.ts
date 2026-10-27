@@ -192,6 +192,17 @@ const migrations: string[] = [
     undo_note     TEXT
   );
   `,
+  `
+  -- Your Hardcover shelves, refreshed on each reading sync, so the UI can show
+  -- what you already have on Hardcover next to any book.
+  CREATE TABLE hc_library (
+    book_id      INTEGER PRIMARY KEY,
+    entry_id     INTEGER NOT NULL,
+    status       INTEGER NOT NULL,
+    progress     REAL,
+    refreshed_at TEXT NOT NULL
+  );
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

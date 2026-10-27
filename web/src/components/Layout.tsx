@@ -16,8 +16,8 @@ import { useApi } from "../lib/hooks";
 import { useToast } from "./toast";
 
 const nav: { to: string; label: string; icon: React.ComponentType<{ className?: string }>; end?: boolean; count?: string }[] = [
-  { to: "/", label: "Collections", icon: RectangleStackIcon, end: true },
   { to: "/reading", label: "Reading", icon: BookOpenIcon },
+  { to: "/", label: "Collections", icon: RectangleStackIcon, end: true },
   { to: "/settings", label: "Settings", icon: CogIcon },
 ];
 

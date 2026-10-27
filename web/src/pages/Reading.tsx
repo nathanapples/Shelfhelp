@@ -1,3 +1,4 @@
+import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -7,6 +8,7 @@ import {
   ArrowUturnLeftIcon,
   BookOpenIcon,
   CheckIcon,
+  Cog6ToothIcon,
   ExclamationTriangleIcon,
   EyeIcon,
   EyeSlashIcon,
@@ -26,20 +28,36 @@ import {
   type ReadingData,
   type SearchHit,
   type HistoryEntry,
+  type Library,
+  type MyShelf,
+  type Settings,
 } from "../lib/api";
 import { useApi, useDebounced } from "../lib/hooks";
-import { Cover, Empty, ErrorBlock, LoadingBlock, Modal, PageTitle, ScoreBar, Spinner, Tabs } from "../components/ui";
+import { Cover, Empty, ErrorBlock, LoadingBlock, Modal, PageTitle, ScoreBar, Spinner, Tabs, Toggle } from "../components/ui";
 import { useToast } from "../components/toast";
 
-type Tab = "all" | "synced" | "waiting" | "review" | "missing" | "notsynced" | "history";
+type Tab = "all" | "waiting" | "synced" | "review" | "notfound" | "under" | "skipped" | "history";
+
+/** One line under the tabs saying what each one holds. */
+const TAB_HELP: Record<Tab, (min: number) => string> = {
+  all: () => "Every Audiobookshelf book you've started or finished.",
+  waiting: () => "Matched books with a change ready for Hardcover. Nothing is sent until you send it.",
+  synced: () => "Hardcover already matches your listening, or was left as is because the book is Read or Did Not Finish there.",
+  review: () => "Shelfhelp found a possible Hardcover book but isn't sure it's the right one. Open a book to confirm or pick another.",
+  notfound: () => "No matching book was found on Hardcover. Open one to search for it yourself.",
+  under: (min) => `Books you've listened to less than ${min}% of. They're picked up once you pass ${min}%.`,
+  skipped: () => "Books you chose not to sync, and books that aren't on your Hardcover shelves while adding new books is off.",
+  history: () => "Everything sent to Hardcover, newest first. Any change can be undone.",
+};
 
 /** One state per card, combining "is it matched?" and "is it in sync?". */
 function cardState(b: ReadingBook) {
-  if (b.matchStatus === "ignored") return { key: "notsynced", label: "Not synced (your choice)", dot: "bg-gray-600 ring-gray-500 text-gray-200", Icon: EyeSlashSolid };
-  if (b.matchStatus === "missing") return { key: "missing", label: "Not found on Hardcover", dot: "bg-red-600 ring-red-500 text-red-100", Icon: XSolid };
+  if (b.matchStatus === "ignored") return { key: "skipped", label: "Not synced (your choice)", dot: "bg-gray-600 ring-gray-500 text-gray-200", Icon: EyeSlashSolid };
+  if (b.matchStatus === "missing") return { key: "notfound", label: "Not found on Hardcover", dot: "bg-red-600 ring-red-500 text-red-100", Icon: XSolid };
   if (b.matchStatus === "review") return { key: "review", label: "Needs review", dot: "bg-yellow-500 ring-yellow-400 text-yellow-100", Icon: null };
   if (b.syncStatus === "pending") return { key: "waiting", label: "Waiting to send", dot: "bg-indigo-500 ring-indigo-400 text-indigo-100", Icon: ArrowUpSolid };
-  if (b.syncStatus === "held") return { key: "notsynced", label: b.syncAction ?? "Held back", dot: "bg-gray-600 ring-gray-500 text-gray-200", Icon: PauseSolid };
+  if (b.syncStatus === "held" && b.heldReason === "threshold") return { key: "under", label: b.syncAction ?? "Under the minimum", dot: "bg-gray-600 ring-gray-500 text-gray-200", Icon: PauseSolid };
+  if (b.syncStatus === "held") return { key: "skipped", label: b.syncAction ?? "Not synced", dot: "bg-gray-600 ring-gray-500 text-gray-200", Icon: PauseSolid };
   if (b.syncStatus === "error") return { key: "waiting", label: "Couldn't send", dot: "bg-red-600 ring-red-500 text-red-100", Icon: WarnSolid };
   return { key: "synced", label: b.syncStatus === "skipped" ? "Left as is on Hardcover" : "In sync", dot: "bg-green-400 ring-green-500 text-green-100", Icon: CheckSolid };
 }
@@ -124,14 +142,27 @@ function Stat({ label, value, sub, accent, onClick }: { label: string; value: nu
   );
 }
 
+function ShelfBadge({ mine }: { mine: MyShelf | null | undefined }) {
+  if (!mine) return <span className="badge badge-dark">Not on your shelves</span>;
+  const color = mine.status === 3 ? "badge-success" : mine.status === 2 ? "badge-default" : mine.status === 5 ? "badge-danger" : "badge-dark";
+  return (
+    <span className={`badge ${color}`}>
+      {mine.statusName}
+      {mine.status === 2 && mine.progress != null ? ` ${Math.round(mine.progress)}%` : ""}
+    </span>
+  );
+}
+
 function HcRow({
   book,
   candidate,
   current,
   busy,
   onUse,
+  mine,
 }: {
   book: HcBookRef;
+  mine?: MyShelf | null;
   candidate?: HcCandidate;
   current?: boolean;
   busy?: boolean;
@@ -145,6 +176,9 @@ function HcRow({
           <div className="min-w-0">
             <div className="truncate font-semibold text-white">{book.title}</div>
             <div className="truncate text-sm text-gray-300">{book.authors.join(", ") || "No author"}</div>
+            <div className="my-1">
+              <ShelfBadge mine={mine} />
+            </div>
             <div className="flex flex-wrap gap-x-3 text-xs text-gray-400">
               {book.seriesName && (
                 <span>
@@ -350,7 +384,7 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
           <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-gray-400">
             {book.matchStatus === "matched" ? "Matched on Hardcover" : "Best guess on Hardcover"}
           </h4>
-          <HcRow book={book.hcBook} candidate={current} current={book.matchStatus === "matched"} />
+          <HcRow book={book.hcBook} mine={book.mine} candidate={current} current={book.matchStatus === "matched"} />
         </div>
       )}
 
@@ -359,7 +393,7 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
           <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-gray-400">Other possibilities</h4>
           <div className="space-y-2">
             {others.map((c) => (
-              <HcRow key={c.id} book={c} candidate={c} busy={busy} onUse={() => decide("match", c)} />
+              <HcRow key={c.id} book={c} mine={c.mine} candidate={c} busy={busy} onUse={() => decide("match", c)} />
             ))}
           </div>
         </div>
@@ -379,6 +413,7 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
               <HcRow
                 key={h.id}
                 book={h}
+                mine={h.mine}
                 busy={busy}
                 current={h.id === book.hcBookId && book.matchStatus === "matched"}
                 onUse={h.id === book.hcBookId && book.matchStatus === "matched" ? undefined : () => decide("match", h)}
@@ -543,6 +578,134 @@ function HistoryList({ onUndone }: { onUndone: () => void }) {
   );
 }
 
+/** Reading settings, opened from the gear on this page. */
+function ReadingSettings({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [s, setS] = useState<Settings | null>(null);
+  const [libs, setLibs] = useState<(Library & { selected: boolean })[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api<Settings>("/settings").then(setS).catch((e) => toast(e.message, "error"));
+    api<(Library & { selected: boolean })[]>("/abs/libraries?all=1").then(setLibs).catch(() => setLibs([]));
+  }, [toast]);
+  const set = <K extends keyof Settings>(k: K, v: Settings[K]) => s && setS({ ...s, [k]: v });
+
+  const save = async () => {
+    if (!s) return;
+    setBusy(true);
+    try {
+      const chosen = libs?.filter((l) => l.selected).map((l) => l.id) ?? [];
+      await api("/settings", {
+        method: "PUT",
+        body: {
+          readingEnabled: s.readingEnabled,
+          readingAutoSend: s.readingAutoSend,
+          readingMinProgress: s.readingMinProgress,
+          readingAddNew: s.readingAddNew,
+          readingMarkOwned: s.readingMarkOwned,
+          // Every library checked is saved as "all", so new libraries are included too.
+          ...(libs ? { absLibraries: libs.every((l) => l.selected) ? [] : chosen } : {}),
+        },
+      });
+      toast("Reading settings saved");
+      onSaved();
+      onClose();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const row = (label: string, tip: string, control: React.ReactNode) => (
+    <div className="flex items-start justify-between gap-6 py-4">
+      <div>
+        <div className="text-sm font-medium text-white">{label}</div>
+        <div className="mt-0.5 text-xs text-gray-400">{tip}</div>
+      </div>
+      <div className="flex-shrink-0 pt-0.5">{control}</div>
+    </div>
+  );
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Reading Settings"
+      subtitle="Books never move backward: Read and Did Not Finish are left alone, and progress is never lowered."
+      footer={
+        <>
+          <button className="btn btn-default" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={save} disabled={busy || !s || (libs?.length ? libs.every((l) => !l.selected) : false)}>
+            Save Changes
+          </button>
+        </>
+      }
+    >
+      {!s ? (
+        <div className="flex justify-center py-10">
+          <Spinner />
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-700">
+          {row("Sync reading progress", "Turn the whole Reading feature on or off.", <Toggle checked={s.readingEnabled} onChange={(v) => set("readingEnabled", v)} />)}
+          {row(
+            "Send automatically",
+            "Off: changes wait here until you send them. On: they go out on each sync. Either way, everything sent can be undone from History.",
+            <Toggle checked={s.readingAutoSend} onChange={(v) => set("readingAutoSend", v)} />,
+          )}
+          {row(
+            "Minimum progress",
+            "Books with less than this listened aren't synced. Finished books always are.",
+            <div className="flex items-center gap-2">
+              <input
+                className="input w-20 text-right"
+                type="number"
+                min={0}
+                max={100}
+                value={s.readingMinProgress}
+                onChange={(e) => set("readingMinProgress", Number(e.target.value))}
+              />
+              <span className="text-gray-400">%</span>
+            </div>,
+          )}
+          {row(
+            "Add new books",
+            "Add books to Hardcover that aren't on any of your shelves yet. Off: only books already on your shelves are updated.",
+            <Toggle checked={s.readingAddNew} onChange={(v) => set("readingAddNew", v)} />,
+          )}
+          {row(
+            "Mark as owned",
+            "Also mark the audiobook edition as Owned on Hardcover when a book is synced.",
+            <Toggle checked={s.readingMarkOwned} onChange={(v) => set("readingMarkOwned", v)} />,
+          )}
+          {libs && libs.length > 0 && (
+            <div className="py-4">
+              <div className="text-sm font-medium text-white">Libraries</div>
+              <div className="mt-0.5 text-xs text-gray-400">Every library Shelfhelp finds is used unless you uncheck it. This also applies to collections.</div>
+              <div className="mt-3 space-y-2.5">
+                {libs.map((l) => (
+                  <label key={l.id} className="flex cursor-pointer items-center gap-3">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500"
+                      checked={l.selected}
+                      onChange={() => setLibs(libs.map((x) => (x.id === l.id ? { ...x, selected: !x.selected } : x)))}
+                    />
+                    <span className="text-sm text-white">{l.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 export default function ReadingPage() {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
@@ -552,6 +715,7 @@ export default function ReadingPage() {
   const { data, error, loading, reload } = useApi<ReadingData>("/reading", { poll });
   const [openId, setOpenId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => setPoll(data?.running ? 2000 : 30000), [data?.running]);
 
@@ -565,6 +729,7 @@ export default function ReadingPage() {
   if (loading) return <LoadingBlock />;
   if (error || !data) return <ErrorBlock message={error ?? "Couldn't load reading progress"} />;
   const c = data.counts;
+  const countOf = (key: string) => data.books.filter((b) => cardState(b).key === key).length;
   const waiting = c.pending + c.errors;
 
   const sync = async () => {
@@ -577,53 +742,34 @@ export default function ReadingPage() {
     <div>
       <PageTitle
         extra={
-          <button className="btn btn-default" onClick={sync} disabled={data.running}>
-            {data.running ? <Spinner className="h-5 w-5" /> : <ArrowPathIcon className="h-5 w-5" />} {data.running ? "Checking" : "Check Now"}
-          </button>
+          <>
+            <button className="btn btn-default" onClick={() => setSettingsOpen(true)} title="Reading settings">
+              <Cog6ToothIcon className="h-5 w-5" />
+            </button>
+            <button className="btn btn-default" onClick={sync} disabled={data.running}>
+              {data.running ? <Spinner className="h-5 w-5" /> : <ArrowPathIcon className="h-5 w-5" />} {data.running ? "Checking" : "Check Now"}
+            </button>
+            {pending.length > 0 && (
+              <button className="btn btn-primary" onClick={() => setSending(true)} disabled={data.running}>
+                <ArrowUpIcon className="h-5 w-5" /> Review and send ({pending.length})
+              </button>
+            )}
+          </>
         }
       >
         Reading
       </PageTitle>
       <p className="-mt-3 mb-6 max-w-3xl text-sm text-gray-400">
-        Your Audiobookshelf listening progress, sent to Hardcover. Books you start become Currently Reading with your progress, and
-        books you finish become Read. It only moves forward, and books under {data.minProgress}% listened are left out.
+        Your Audiobookshelf listening progress, sent to Hardcover.
+        {data.enabled && (data.autoSend ? " Changes are sent automatically." : " Nothing is sent until you send it.")}
       </p>
 
       {!data.enabled && (
         <div className="mb-6 rounded-xl bg-gray-800 p-4 text-sm text-gray-300 ring-1 ring-gray-700">
-          Reading progress is off. Turn it on in{" "}
-          <Link to="/settings?tab=reading" className="text-indigo-400 hover:underline">
-            Settings
-          </Link>
-          .
-        </div>
-      )}
-
-      {data.enabled && !data.autoSend && waiting > 0 && (
-        <div className="mb-6 flex flex-col gap-4 rounded-xl bg-gradient-to-br from-indigo-900/60 to-purple-900/50 p-5 ring-1 ring-indigo-700 sm:flex-row sm:items-center">
-          <EyeIcon className="hidden h-10 w-10 flex-shrink-0 text-indigo-300 sm:block" />
-          <div className="flex-1">
-            <div className="font-semibold text-white">
-              {waiting} change{waiting === 1 ? "" : "s"} ready for Hardcover
-            </div>
-            <p className="mt-1 text-sm text-indigo-100/80">Nothing is sent until you send it. You'll see the full list first.</p>
-          </div>
-          <div className="flex flex-shrink-0 gap-2">
-            <button className="btn btn-default" onClick={() => setTab("waiting")}>
-              Look through them
-            </button>
-            <button className="btn btn-primary" onClick={() => setSending(true)} disabled={data.running || !pending.length}>
-              <ArrowUpIcon className="h-4 w-4" /> Review and send
-            </button>
-          </div>
-        </div>
-      )}
-      {data.enabled && data.autoSend && (
-        <div className="mb-6 text-sm text-gray-400">
-          Changes are sent to Hardcover automatically.{" "}
-          <Link to="/settings?tab=reading" className="text-indigo-400 hover:underline">
-            Change this
-          </Link>
+          Reading progress is off.{" "}
+          <button className="text-indigo-400 hover:underline" onClick={() => setSettingsOpen(true)}>
+            Turn it on
+          </button>
         </div>
       )}
 
@@ -660,11 +806,13 @@ export default function ReadingPage() {
               { id: "waiting", label: "Waiting", count: waiting },
               { id: "synced", label: "In Sync", count: c.synced + c.skipped },
               { id: "review", label: "Review", count: c.review },
-              { id: "missing", label: "Not on Hardcover", count: c.missing },
-              { id: "notsynced", label: "Not Synced", count: c.ignored + c.held },
+              { id: "notfound", label: "Not Found", count: c.missing },
+              { id: "under", label: `Under ${data.minProgress}%`, count: countOf("under") },
+              { id: "skipped", label: "Skipped", count: countOf("skipped") },
               { id: "history", label: "History" },
             ]}
           />
+          <p className="-mt-3 mb-5 text-sm text-gray-400">{TAB_HELP[tab](data.minProgress)}</p>
 
           {tab === "history" ? (
             <HistoryList onUndone={reload} />
@@ -689,6 +837,7 @@ export default function ReadingPage() {
       )}
 
       <ReadingModal book={open} onClose={() => setOpenId(null)} onChanged={reload} />
+      {settingsOpen && <ReadingSettings onClose={() => setSettingsOpen(false)} onSaved={() => setTimeout(reload, 800)} />}
       {sending && <SendModal books={pending} onClose={() => setSending(false)} onSent={reload} />}
     </div>
   );

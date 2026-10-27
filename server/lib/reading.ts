@@ -331,12 +331,11 @@ export interface Plan {
 export interface Rules {
   minProgress: number;
   addNew: boolean;
-  includeEbooks: boolean;
 }
 
 function rules(): Rules {
   const s = getSettings();
-  return { minProgress: s.readingMinProgress, addNew: s.readingAddNew, includeEbooks: s.readingIncludeEbooks };
+  return { minProgress: s.readingMinProgress, addNew: s.readingAddNew };
 }
 
 function stateKey(r: ReadingRow) {
@@ -359,14 +358,12 @@ function percent(r: ReadingRow) {
 export function planFor(
   r: ReadingRow,
   entry: Entry | undefined,
-  rule: Rules = { minProgress: 5, addNew: true, includeEbooks: false },
-  ebookOnly = false,
+  rule: Rules = { minProgress: 5, addNew: true },
 ): Plan {
   const status = entry?.statusId ?? null;
   const pct = percent(r);
-  if (ebookOnly && !rule.includeEbooks) return { kind: "held", description: "Ebook only (ebooks are turned off in Settings)" };
   if (!r.is_finished && pct < rule.minProgress) return { kind: "held", description: `Under ${rule.minProgress}% listened` };
-  if (!entry && !rule.addNew) return { kind: "held", description: "Not on your Hardcover shelves (adding books is off in Settings)" };
+  if (!entry && !rule.addNew) return { kind: "held", description: "Not on your Hardcover shelves (adding new books is off)" };
 
   if (r.is_finished) {
     const when = day(r.finished_at) ?? day(r.last_update);
@@ -412,12 +409,22 @@ async function hardcoverLibrary(): Promise<Map<number, Entry>> {
     for (const e of page.items) out.set(e.bookId, e);
     if (page.items.length < page.limit) break;
   }
+  const now = new Date().toISOString();
+  tx(() => {
+    db.prepare("DELETE FROM hc_library").run();
+    const ins = db.prepare("INSERT INTO hc_library (book_id, entry_id, status, progress, refreshed_at) VALUES (?, ?, ?, ?, ?)");
+    for (const e of out.values()) ins.run(e.bookId, e.id, e.statusId, currentProgress(e), now);
+  });
   return out;
 }
 
-function ebookOnly(itemId: string) {
-  const r = db.prepare("SELECT num_audio FROM abs_items WHERE id = ?").get(itemId) as { num_audio: number | null } | undefined;
-  return r?.num_audio === 0;
+/** What's on your Hardcover shelves for these books, from the last sync. */
+export function myShelfStatus(bookIds: number[]): Map<number, { status: number; statusName: string; progress: number | null }> {
+  if (!bookIds.length) return new Map();
+  const rows = db
+    .prepare(`SELECT book_id, status, progress FROM hc_library WHERE book_id IN (${bookIds.map(() => "?").join(",")})`)
+    .all(...bookIds) as { book_id: number; status: number; progress: number | null }[];
+  return new Map(rows.map((r) => [r.book_id, { status: r.status, statusName: STATUS_NAMES[r.status] ?? "On a shelf", progress: r.progress }]));
 }
 
 /**
@@ -432,14 +439,14 @@ async function plan(autoSend: boolean): Promise<string> {
   const todo = matched.filter(
     (r) => r.synced_key !== stateKey(r) || ["pending", "error", "held", "none"].includes(r.sync_status),
   );
-  if (!todo.length) return `${matched.length} matched, nothing new`;
-
+  // Always refreshed, so the page shows your current Hardcover shelves.
   const library = await hardcoverLibrary();
+  if (!todo.length) return `${matched.length} matched, nothing new`;
   let pending = 0;
   let held = 0;
   for (const r of todo) {
     const entry = library.get(r.hc_book_id!);
-    const p = planFor(r, entry, rule, ebookOnly(r.abs_item_id));
+    const p = planFor(r, entry, rule);
     const hcStatus = entry?.statusId ?? null;
     const hcProgress = entry ? currentProgress(entry) : null;
     if (p.kind === "skip" || p.kind === "none") mark(r, p.kind === "skip" ? "skipped" : "synced", p.description, hcStatus, hcProgress, true);
@@ -475,7 +482,7 @@ export async function send(ids: string[] | null, library?: Map<number, Entry>) {
   let changed = 0;
   for (const r of waiting) {
     const entry = lib.get(r.hc_book_id!);
-    const p = planFor(r, entry, rule, ebookOnly(r.abs_item_id));
+    const p = planFor(r, entry, rule);
     if (p.description !== r.sync_action || p.kind === "skip" || p.kind === "none" || p.kind === "held") {
       mark(r, p.kind === "skip" ? "skipped" : p.kind === "none" ? "synced" : p.kind === "held" ? "held" : "pending", p.description, entry?.statusId ?? null, entry ? currentProgress(entry) : null, p.kind === "skip" || p.kind === "none");
       changed++;
@@ -683,6 +690,12 @@ export function rememberBook(itemId: string, book: HcBookView | null) {
 export function readingView() {
   const all = rows().filter((r) => r.progress > 0 || r.is_finished);
   const items = getItems(all.map((r) => r.abs_item_id));
+  const ids = new Set<number>();
+  for (const r of all) {
+    if (r.hc_book_id) ids.add(r.hc_book_id);
+    for (const c of json<HcCandidate[]>(r.candidates, [])) ids.add(c.id);
+  }
+  const shelves = myShelfStatus([...ids]);
   const books = all
     .map((r) => {
       const item = items.get(r.abs_item_id);
@@ -709,7 +722,9 @@ export function readingView() {
         hcBook: json<HcBookView | null>(r.hc_book, null),
         score: r.score,
         reasons: json<string[]>(r.reasons, []),
-        candidates: json<HcCandidate[]>(r.candidates, []),
+        candidates: json<HcCandidate[]>(r.candidates, []).map((c) => ({ ...c, mine: shelves.get(c.id) ?? null })),
+        mine: r.hc_book_id ? (shelves.get(r.hc_book_id) ?? null) : null,
+        heldReason: r.sync_status === "held" ? (r.sync_action?.startsWith("Under ") ? "threshold" : "shelves") : null,
         hcStatus: r.hc_status,
         hcStatusName: r.hc_status ? STATUS_NAMES[r.hc_status] : null,
         hcProgress: r.hc_progress,

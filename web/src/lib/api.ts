@@ -115,7 +115,6 @@ export interface Settings {
   readingMinProgress: number;
   readingAddNew: boolean;
   readingMarkOwned: boolean;
-  readingIncludeEbooks: boolean;
   absLibraries: string[];
   lockedByEnv: string[];
 }
@@ -139,6 +138,7 @@ export interface SearchHit {
   seriesPosition: number | null;
   hasAudiobook: boolean | null;
   absItemId: string | null;
+  mine?: { status: number; statusName: string; progress: number | null } | null;
 }
 
 export interface Activity {
@@ -205,7 +205,14 @@ export interface HcBookRef {
   releaseYear: number | null;
 }
 
+export interface MyShelf {
+  status: number;
+  statusName: string;
+  progress: number | null;
+}
+
 export interface HcCandidate extends HcBookRef {
+  mine?: MyShelf | null;
   score: number;
   titleSim: number;
   authorSim: number | null;
@@ -237,6 +244,8 @@ export interface ReadingBook {
   score: number | null;
   reasons: string[];
   candidates: HcCandidate[];
+  mine: MyShelf | null;
+  heldReason: "threshold" | "shelves" | null;
   hcStatus: number | null;
   hcStatusName: string | null;
   hcProgress: number | null;
