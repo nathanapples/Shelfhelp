@@ -158,7 +158,7 @@ async function matchAll() {
     }
 
     // Keep an earlier automatic result while the item's metadata is unchanged.
-    const key = `${item.title}|${item.authors.join(",")}|${item.asin ?? ""}|${item.isbn ?? ""}|${strictness}`;
+    const key = `${item.title}|${item.authors.join(",")}|${item.asin ?? ""}|${item.isbn ?? ""}|${strictness}|rules2`;
     const fresh = row.searched_key === key && row.searched_at && Date.now() - Date.parse(row.searched_at) < SEARCH_AGAIN_MS;
     if (fresh && row.match_source === "auto") continue;
 

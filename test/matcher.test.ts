@@ -65,14 +65,31 @@ test("a different book in the same series is not matched", () => {
   assert.notEqual(r.status, "matched");
 });
 
-test("same series, next number, is not matched", () => {
+test("same title with different series numbering still matches", () => {
+  // e.g. Foundation is #3 by publication, #13 in chronological order.
   const r = matchBook(
     book(5, "The Well of Ascension", ["Brandon Sanderson"], { seriesName: "Mistborn", seriesPosition: 3 }),
     index,
     new Map(),
   );
-  // Title is exact but series number disagrees: a person should look.
-  assert.notEqual(r.status, "matched");
+  assert.equal(r.status, "matched");
+});
+
+test("an ISBN match is trusted even when series numbers differ", () => {
+  const idx = new LibraryIndex([
+    item("f1", "Second Foundation", "Isaac Asimov", { series: parseAbsSeries("Foundation #13"), asin: "B003IF384Y" }),
+  ]);
+  const links = new Map([[20, new Map([["f1", ["isbn"]]])]]);
+  const r = matchBook(book(20, "Second Foundation", ["Isaac Asimov"], { seriesName: "Foundation", seriesPosition: 3 }), idx, links);
+  assert.equal(r.status, "matched");
+  assert.ok(r.score >= 90, `score ${r.score}`);
+});
+
+test("an ID match with a so-so title is trusted", () => {
+  const idx = new LibraryIndex([item("g1", "Leviathan Wakes: The Expanse, Book 1 (Unabridged)", "Corey, James S. A.")]);
+  const links = new Map([[21, new Map([["g1", ["asin"]]])]]);
+  const r = matchBook(book(21, "Leviathan Wakes", ["Daniel Abraham", "Ty Franck"]), idx, links);
+  assert.equal(r.status, "matched");
 });
 
 test("series prefix and Last, First author", () => {

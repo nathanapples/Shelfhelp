@@ -126,7 +126,10 @@ export function scoreCandidate(
   }
   if (authorSim === null) notes.push("no author to compare");
 
-  // Same series but a different number is almost always the wrong book.
+  // Same series but a different number usually means a different book. Not when
+  // the titles are the same, though: series get numbered differently (Foundation
+  // is #3 by publication and #13 in Asimov's chronological order).
+  const exactTitle = titleSim >= 0.95;
   if (book.seriesName && book.seriesPosition != null && item.series.length) {
     const target = cleanTitle(book.seriesName);
     for (const s of item.series) {
@@ -136,6 +139,8 @@ export function scoreCandidate(
       if (seq === book.seriesPosition) {
         score += 5;
         notes.push(`same series position (#${seq})`);
+      } else if (exactTitle) {
+        notes.push(`numbered differently in the series (#${seq} vs #${book.seriesPosition})`);
       } else {
         score -= 25;
         notes.push(`series number differs (#${seq} vs #${book.seriesPosition})`);
@@ -202,6 +207,12 @@ export function matchBook(
  * Hardcover book to library item (collections) and library item to
  * Hardcover book (reading progress).
  */
+/**
+ * An ASIN/ISBN match is trusted unless the titles have almost nothing in
+ * common (e.g. a Golden Son ASIN on a Morning Star file).
+ */
+export const ID_TITLE_FLOOR = 0.35;
+
 export function judge(
   top: Pick<Candidate, "score" | "titleSim" | "authorSim" | "idVia" | "notes">[],
   strictness: Strictness = "balanced",
@@ -215,15 +226,16 @@ export function judge(
   const reasons: string[] = [];
   let status: Status;
 
-  if (best.idVia.length && best.titleSim >= t.idTitle && authorOk(t.idAuthor) && !seriesConflict) {
+  if (best.idVia.length && best.titleSim >= ID_TITLE_FLOOR) {
+    // An ASIN or ISBN match is trusted.
     status = "matched";
-    reasons.push("ID match confirmed by title and author");
+    reasons.push(best.titleSim >= t.idTitle && authorOk(t.idAuthor) ? "ASIN/ISBN match, and the title and author agree" : "ASIN/ISBN match");
   } else if (best.titleSim >= t.title && best.authorSim !== null && best.authorSim >= t.author && !seriesConflict) {
     status = "matched";
     reasons.push("title and author match");
   } else if (best.idVia.length) {
     status = "review";
-    reasons.push("the ASIN/ISBN points here, but the title or author disagrees; the ID may be wrong");
+    reasons.push("the ASIN/ISBN points here, but the titles are completely different, so the ID is probably wrong");
   } else if (best.score >= t.review) {
     status = "review";
     reasons.push("close, but not certain");
