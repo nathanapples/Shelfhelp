@@ -16,7 +16,7 @@ import { useApi } from "../lib/hooks";
 import { useToast } from "./toast";
 
 const nav = [
-  { to: "/", label: "Lists", icon: RectangleStackIcon, end: true },
+  { to: "/", label: "Collections", icon: RectangleStackIcon, end: true },
   { to: "/review", label: "Review", icon: ClipboardDocumentCheckIcon, count: "review" as const },
   { to: "/missing", label: "Not in Library", icon: ExclamationCircleIcon, count: "missing" as const },
   { to: "/settings", label: "Settings", icon: CogIcon },

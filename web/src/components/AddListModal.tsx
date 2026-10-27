@@ -111,8 +111,8 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
     <Modal
       open={open}
       onClose={onClose}
-      title={picked ? `Sync "${picked.name}"` : "Add a Hardcover list"}
-      subtitle={picked ? `${picked.booksCount} books` : "Pick a shelf or list, or paste a link to anyone's public list."}
+      title={picked ? `Sync "${picked.name}"` : "New Collection"}
+      subtitle={picked ? `${picked.booksCount} books` : "Pick a Hardcover shelf or list, or paste a link to anyone's public list."}
       footer={
         picked ? (
           <>

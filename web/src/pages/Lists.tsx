@@ -165,7 +165,7 @@ export default function ListsPage({ status }: { status: Status }) {
   if (!configured) {
     return (
       <Empty icon={<Cog6ToothIcon className="h-16 w-16" />} title="Welcome to Shelfhelp">
-        <p>Connect Hardcover and Audiobookshelf to start syncing your lists into collections.</p>
+        <p>Connect Hardcover and Audiobookshelf to start turning your Hardcover lists into collections.</p>
         <Link to="/settings" className="btn btn-primary mt-6">
           Open Settings
         </Link>
@@ -185,19 +185,23 @@ export default function ListsPage({ status }: { status: Status }) {
       <PageTitle
         extra={
           <button className="btn btn-primary" onClick={() => setAdding(true)}>
-            <PlusIcon className="h-5 w-5" /> Add List
+            <PlusIcon className="h-5 w-5" /> Add Collection
           </button>
         }
       >
-        Lists
+        Collections
       </PageTitle>
+      <p className="-mt-3 mb-6 max-w-3xl text-sm text-gray-400">
+        Add a Hardcover list or shelf and Shelfhelp automatically makes a matching collection in Audiobookshelf with the books you
+        own, then keeps it up to date as the list changes.
+      </p>
       {loading && <LoadingBlock />}
       {error && <ErrorBlock message={error} />}
       {lists?.length === 0 && (
-        <Empty icon={<RectangleStackIcon className="h-16 w-16" />} title="No lists yet">
+        <Empty icon={<RectangleStackIcon className="h-16 w-16" />} title="No collections yet">
           <p>Add a Hardcover list or shelf and Shelfhelp will keep an Audiobookshelf collection in step with it.</p>
           <button className="btn btn-primary mt-6" onClick={() => setAdding(true)}>
-            <PlusIcon className="h-5 w-5" /> Add your first list
+            <PlusIcon className="h-5 w-5" /> Add your first collection
           </button>
         </Empty>
       )}
@@ -205,7 +209,7 @@ export default function ListsPage({ status }: { status: Status }) {
       {lists && lists.length > 0 && (
         <>
           <div className="mb-8 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-            <Stat label="Lists synced" value={lists.length} sub={lastSync ? `last sync ${timeAgo(lastSync)}` : "not synced yet"} />
+            <Stat label="Collections" value={lists.length} sub={lastSync ? `last sync ${timeAgo(lastSync)}` : "not synced yet"} />
             <Stat
               label="In library"
               value={`${pct(totals?.matched ?? 0, unique)}%`}
