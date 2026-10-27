@@ -230,7 +230,7 @@ http
       }
       if (p === "/api/collections" && req.method === "POST") {
         if (!body.books?.length) return send(400, "Invalid collection data. No books");
-        const id = `col_${collections.size + 1}`;
+        const id = `col_${Math.random().toString(36).slice(2, 10)}`;
         collections.set(id, { id, libraryId: body.libraryId, name: body.name, description: body.description, books: [...body.books] });
         console.log(`[abs] create ${body.name}: ${body.books.join(",")}`);
         return send(200, collJson(collections.get(id)!));

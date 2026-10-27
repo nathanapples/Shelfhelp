@@ -1,10 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
+import ActivityLog from "./Activity";
 import { CheckCircleIcon, ExclamationTriangleIcon, LockClosedIcon } from "@heroicons/react/24/outline";
 import { api, type Library, type Settings, type Status } from "../lib/api";
 import { ErrorBlock, LoadingBlock, PageTitle, Spinner, Tabs } from "../components/ui";
 import { useToast } from "../components/toast";
 
-type Tab = "general" | "hardcover" | "abs" | "about";
+type Tab = "general" | "hardcover" | "abs" | "activity" | "about";
+const TABS: Tab[] = ["general", "hardcover", "abs", "activity", "about"];
 
 function Section({ title, description, children }: { title: string; description: ReactNode; children: ReactNode }) {
   return (
@@ -40,7 +43,11 @@ function TestResult({ result }: { result: { ok: boolean; message: ReactNode } | 
 
 export default function SettingsPage({ status, onSaved }: { status: Status; onSaved: () => void }) {
   const toast = useToast();
-  const [tab, setTab] = useState<Tab>(!status.configured.hardcover ? "hardcover" : !status.configured.abs ? "abs" : "general");
+  const [params, setParams] = useSearchParams();
+  const asked = params.get("tab") as Tab | null;
+  const tab: Tab =
+    asked && TABS.includes(asked) ? asked : !status.configured.hardcover ? "hardcover" : !status.configured.abs ? "abs" : "general";
+  const setTab = (t: Tab) => setParams({ tab: t }, { replace: true });
   const [s, setS] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -131,6 +138,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
           { id: "general", label: "General" },
           { id: "hardcover", label: status.configured.hardcover ? "Hardcover" : "Hardcover ●" },
           { id: "abs", label: status.configured.abs ? "Audiobookshelf" : "Audiobookshelf ●" },
+          { id: "activity", label: "Activity" },
           { id: "about", label: "About" },
         ]}
       />
@@ -262,6 +270,14 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
           </div>
           <TestResult result={test} />
           {actions(["absUrl", "absToken"], testAbs)}
+        </Section>
+      )}
+
+      {tab === "activity" && (
+        <Section title="Activity" description="Syncs, changes and errors, newest first.">
+          <div className="mt-6 max-w-6xl">
+            <ActivityLog />
+          </div>
         </Section>
       )}
 

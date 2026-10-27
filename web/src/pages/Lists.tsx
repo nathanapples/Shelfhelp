@@ -1,71 +1,164 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { PlusIcon, RectangleStackIcon, Cog6ToothIcon } from "@heroicons/react/24/outline";
-import { timeAgo, type List, type ListDetail, type Status } from "../lib/api";
+import {
+  ArrowPathIcon,
+  BookmarkIcon,
+  Cog6ToothIcon,
+  ExclamationTriangleIcon,
+  PauseCircleIcon,
+  PlusIcon,
+  RectangleStackIcon,
+} from "@heroicons/react/24/outline";
+import { api, timeAgo, type BookStatus, type List, type Status } from "../lib/api";
 import { useApi } from "../lib/hooks";
-import { BookCard } from "../components/BookCard";
-import { Slider } from "../components/Slider";
 import { AddListModal } from "../components/AddListModal";
-import { Empty, ErrorBlock, LoadingBlock, PageTitle, Spinner } from "../components/ui";
+import { Cover, Empty, ErrorBlock, LoadingBlock, PageTitle, Spinner } from "../components/ui";
+import { useToast } from "../components/toast";
 
-function Counts({ list }: { list: List }) {
-  return (
-    <div className="hidden flex-wrap items-center gap-1.5 md:flex">
-      <span className="badge badge-success">{list.counts.matched} in library</span>
-      {list.counts.review > 0 && <span className="badge badge-warning">{list.counts.review} to review</span>}
-      {list.counts.missing > 0 && <span className="badge badge-dark">{list.counts.missing} missing</span>}
-      {list.syncing ? (
-        <span className="flex items-center gap-1 text-xs text-gray-400">
-          <Spinner className="h-3.5 w-3.5" /> syncing
-        </span>
-      ) : list.lastStatus === "error" ? (
-        <span className="badge badge-danger" title={list.lastError ?? ""}>
-          sync failed
-        </span>
-      ) : (
-        <span className="text-xs text-gray-500">synced {timeAgo(list.lastSyncedAt)}</span>
-      )}
-    </div>
-  );
+const SEGMENTS: { key: BookStatus; label: string; bar: string; text: string }[] = [
+  { key: "matched", label: "In library", bar: "bg-green-500", text: "text-green-400" },
+  { key: "review", label: "To review", bar: "bg-yellow-500", text: "text-yellow-400" },
+  { key: "missing", label: "Not in library", bar: "bg-red-500", text: "text-red-400" },
+  { key: "ignored", label: "Ignored", bar: "bg-gray-500", text: "text-gray-400" },
+];
+
+function pct(n: number, total: number) {
+  return total ? Math.round((n / total) * 100) : 0;
 }
 
-function ListRow({ list }: { list: List }) {
+/** One summary tile across the top of the page. */
+function Stat({ label, value, sub, to, accent }: { label: string; value: string | number; sub?: string; to?: string; accent?: string }) {
+  const body = (
+    <div className="card h-full p-4 transition hover:ring-gray-500 sm:p-5">
+      <div className="text-xs font-semibold uppercase tracking-wider text-gray-400">{label}</div>
+      <div className={`mt-1 text-3xl font-bold tabular-nums ${accent ?? "text-white"}`}>{value}</div>
+      {sub && <div className="mt-0.5 text-xs text-gray-500">{sub}</div>}
+    </div>
+  );
+  return to ? <Link to={to}>{body}</Link> : body;
+}
+
+function ListCard({ list, onSynced }: { list: List; onSynced: () => void }) {
   const navigate = useNavigate();
-  const { data } = useApi<ListDetail>(`/lists/${list.id}`, { poll: list.syncing ? 3000 : false });
-  const books = data?.books ?? [];
+  const toast = useToast();
+  const { counts } = list;
+  const inLibrary = pct(counts.matched, counts.total);
+  const isShelf = list.sourceType === "hardcover_status";
+
+  const sync = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await api(`/lists/${list.id}/sync`, { method: "POST" });
+      toast(`Syncing "${list.name}"`, "info");
+      setTimeout(onSynced, 400);
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  };
+
   return (
-    <Slider title={list.name} to={`/lists/${list.id}`} extra={<Counts list={list} />}>
-      {!data &&
-        Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="w-36 flex-shrink-0 sm:w-40 md:w-44">
-            <div className="animate-pulse rounded-xl bg-gray-800 ring-1 ring-gray-700" style={{ paddingBottom: "150%" }} />
+    <div
+      role="link"
+      tabIndex={0}
+      onClick={() => navigate(`/lists/${list.id}`)}
+      onKeyDown={(e) => e.key === "Enter" && navigate(`/lists/${list.id}`)}
+      className="card group relative flex cursor-pointer flex-col overflow-hidden transition duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:ring-gray-500"
+    >
+      {/* Header with a blurred cover behind it, like a Seerr request card */}
+      <div className="relative flex items-center gap-4 p-4 sm:p-5">
+        {list.covers[0] && (
+          <div className="pointer-events-none absolute inset-0">
+            <img src={list.covers[0]} alt="" className="h-full w-full scale-110 object-cover opacity-25 blur-md" />
+            <div className="row-backdrop absolute inset-0" />
           </div>
-        ))}
-      {data && books.length === 0 && (
-        <div className="py-10 text-sm text-gray-500">{list.syncing ? "Fetching the list..." : "This list is empty."}</div>
-      )}
-      {books.slice(0, 20).map((b) => (
-        <BookCard key={b.hcBookId} book={b} onClick={() => navigate(`/lists/${list.id}?book=${b.hcBookId}`)} />
-      ))}
-      {books.length > 20 && (
-        <Link
-          to={`/lists/${list.id}`}
-          className="flex w-36 flex-shrink-0 items-center justify-center rounded-xl bg-gray-800 text-center text-sm font-semibold text-gray-300 ring-1 ring-gray-700 hover:text-white hover:ring-gray-500 sm:w-40 md:w-44"
-        >
-          See all {books.length}
-        </Link>
-      )}
-    </Slider>
+        )}
+        <div className="relative flex h-20 w-[4.5rem] flex-shrink-0">
+          {[2, 1, 0].map((i) => (
+            <div
+              key={i}
+              className="absolute bottom-0 left-0 h-20 w-14 origin-bottom-left"
+              style={{ transform: `translateX(${i * 7}px) rotate(${i * 4}deg)` }}
+            >
+              <Cover src={list.covers[i]} alt="" className="h-full w-full rounded shadow-lg ring-1 ring-gray-700" />
+            </div>
+          ))}
+        </div>
+        <div className="relative min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400">
+            {isShelf ? <BookmarkIcon className="h-3.5 w-3.5 text-purple-400" /> : <RectangleStackIcon className="h-3.5 w-3.5 text-indigo-400" />}
+            {isShelf ? "Shelf" : "List"}
+          </div>
+          <h2 className="truncate text-xl font-bold text-white group-hover:underline">{list.name}</h2>
+          <div className="truncate text-sm text-gray-400">Collection "{list.collectionName}"</div>
+        </div>
+        <div className="relative hidden text-right sm:block">
+          <div className="text-3xl font-bold tabular-nums text-white">{inLibrary}%</div>
+          <div className="text-xs text-gray-400">in library</div>
+        </div>
+      </div>
+
+      {/* Match breakdown */}
+      <div className="border-t border-gray-700 px-4 pb-4 pt-4 sm:px-5">
+        <div className="flex h-2.5 overflow-hidden rounded-full bg-gray-700">
+          {SEGMENTS.map((s) =>
+            counts[s.key] ? <div key={s.key} className={s.bar} style={{ width: `${pct(counts[s.key], counts.total)}%` }} /> : null,
+          )}
+        </div>
+        <div className="mt-3 grid grid-cols-4 gap-2">
+          {SEGMENTS.map((s) => (
+            <Link
+              key={s.key}
+              to={`/lists/${list.id}?filter=${s.key}`}
+              onClick={(e) => e.stopPropagation()}
+              className="rounded-md px-1 py-1 transition hover:bg-gray-700/60"
+            >
+              <div className={`text-lg font-bold tabular-nums ${counts[s.key] ? s.text : "text-gray-600"}`}>{counts[s.key]}</div>
+              <div className="text-[11px] leading-tight text-gray-400">{s.label}</div>
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="mt-auto flex items-center justify-between gap-3 border-t border-gray-700 bg-gray-800/60 px-4 py-2.5 sm:px-5">
+        <div className="flex min-w-0 items-center gap-2 text-xs text-gray-400">
+          {list.syncing ? (
+            <>
+              <Spinner className="h-4 w-4" /> Syncing now
+            </>
+          ) : list.lastStatus === "error" ? (
+            <span className="flex min-w-0 items-center gap-1 text-red-400" title={list.lastError ?? ""}>
+              <ExclamationTriangleIcon className="h-4 w-4 flex-shrink-0" />
+              <span className="truncate">Sync failed {timeAgo(list.lastSyncedAt)}</span>
+            </span>
+          ) : !list.enabled ? (
+            <span className="flex items-center gap-1">
+              <PauseCircleIcon className="h-4 w-4" /> Paused
+            </span>
+          ) : (
+            <span>
+              {counts.total} books · synced {timeAgo(list.lastSyncedAt)}
+            </span>
+          )}
+        </div>
+        <button className="btn btn-sm btn-default" onClick={sync} disabled={list.syncing}>
+          <ArrowPathIcon className="h-4 w-4" /> Sync
+        </button>
+      </div>
+    </div>
   );
 }
 
 export default function ListsPage({ status }: { status: Status }) {
   const [adding, setAdding] = useState(false);
-  const anySyncing = (l: List[] | null) => !!l?.some((x) => x.syncing);
   const [poll, setPoll] = useState<number | false>(false);
   const { data: lists, error, loading, reload } = useApi<List[]>("/lists", { poll });
+  const { data: totals, reload: reloadTotals } = useApi<Record<string, number>>("/counts");
 
-  useEffect(() => setPoll(anySyncing(lists) ? 3000 : 20000), [lists]);
+  useEffect(() => {
+    setPoll(lists?.some((x) => x.syncing) ? 3000 : 20000);
+    reloadTotals();
+  }, [lists, reloadTotals]);
 
   const configured = status.configured.hardcover && status.configured.abs;
 
@@ -79,6 +172,13 @@ export default function ListsPage({ status }: { status: Status }) {
       </Empty>
     );
   }
+
+  const unique = totals ? (totals.matched ?? 0) + (totals.review ?? 0) + (totals.missing ?? 0) + (totals.ignored ?? 0) : 0;
+  const lastSync = lists
+    ?.map((l) => l.lastSyncedAt)
+    .filter((x): x is string => !!x)
+    .sort()
+    .pop();
 
   return (
     <div>
@@ -95,13 +195,34 @@ export default function ListsPage({ status }: { status: Status }) {
       {error && <ErrorBlock message={error} />}
       {lists?.length === 0 && (
         <Empty icon={<RectangleStackIcon className="h-16 w-16" />} title="No lists yet">
-          <p>Add a Hardcover list and Shelfhelper will keep an Audiobookshelf collection in step with it.</p>
+          <p>Add a Hardcover list or shelf and Shelfhelper will keep an Audiobookshelf collection in step with it.</p>
           <button className="btn btn-primary mt-6" onClick={() => setAdding(true)}>
             <PlusIcon className="h-5 w-5" /> Add your first list
           </button>
         </Empty>
       )}
-      {lists?.map((l) => <ListRow key={l.id} list={l} />)}
+
+      {lists && lists.length > 0 && (
+        <>
+          <div className="mb-8 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+            <Stat label="Lists synced" value={lists.length} sub={lastSync ? `last sync ${timeAgo(lastSync)}` : "not synced yet"} />
+            <Stat
+              label="In library"
+              value={`${pct(totals?.matched ?? 0, unique)}%`}
+              sub={`${totals?.matched ?? 0} of ${unique} books`}
+              accent="text-green-400"
+            />
+            <Stat label="To review" value={totals?.review ?? 0} sub="waiting for you" to="/review" accent={totals?.review ? "text-yellow-400" : undefined} />
+            <Stat label="Not in library" value={totals?.missing ?? 0} sub="on a list, not owned" to="/missing" accent={totals?.missing ? "text-red-400" : undefined} />
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-2 2xl:grid-cols-3">
+            {lists.map((l) => (
+              <ListCard key={l.id} list={l} onSynced={reload} />
+            ))}
+          </div>
+        </>
+      )}
+
       <AddListModal
         open={adding}
         onClose={() => {

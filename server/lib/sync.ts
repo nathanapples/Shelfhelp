@@ -154,6 +154,17 @@ export async function pushCollection(listId: number): Promise<string> {
   const tail = `${counts.matched} in collection, ${counts.review} to review, ${counts.missing} not in library`;
 
   let collection = list.abs_collection_id ? await abs.collection(list.abs_collection_id) : null;
+  // Never adopt a collection that's in another library or belongs to another synced list.
+  if (collection) {
+    const shared = db
+      .prepare("SELECT id FROM lists WHERE abs_collection_id = ? AND id < ?")
+      .get(collection.id, listId) as { id: number } | undefined;
+    if (collection.libraryId !== list.abs_library_id || shared) {
+      log("warn", `Collection ${collection.id} isn't this list's; making a new one`, listId);
+      db.prepare("UPDATE lists SET abs_collection_id = NULL WHERE id = ?").run(listId);
+      collection = null;
+    }
+  }
   if (!collection) {
     if (!unique.length) return `${tail} (collection not created yet: nothing matched)`;
     collection = await abs.createCollection(list.abs_library_id, list.collection_name, collectionDescription(list), unique);

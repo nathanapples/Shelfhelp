@@ -131,7 +131,10 @@ export default function ListDetailPage() {
   const { id } = useParams();
   const [params, setParams] = useSearchParams();
   const toast = useToast();
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<Filter>(() => {
+    const f = params.get("filter");
+    return f === "matched" || f === "review" || f === "missing" || f === "ignored" ? f : "all";
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [poll, setPoll] = useState<number | false>(false);
   const { data: list, error, loading, reload } = useApi<ListDetail>(`/lists/${id}`, { poll });

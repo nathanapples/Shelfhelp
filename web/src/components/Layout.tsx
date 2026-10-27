@@ -5,7 +5,6 @@ import {
   ArrowRightOnRectangleIcon,
   Bars3Icon,
   ClipboardDocumentCheckIcon,
-  ClockIcon,
   CogIcon,
   ExclamationCircleIcon,
   MagnifyingGlassIcon,
@@ -20,7 +19,6 @@ const nav = [
   { to: "/", label: "Lists", icon: RectangleStackIcon, end: true },
   { to: "/review", label: "Review", icon: ClipboardDocumentCheckIcon, count: "review" as const },
   { to: "/missing", label: "Not in Library", icon: ExclamationCircleIcon, count: "missing" as const },
-  { to: "/activity", label: "Activity", icon: ClockIcon },
   { to: "/settings", label: "Settings", icon: CogIcon },
 ];
 

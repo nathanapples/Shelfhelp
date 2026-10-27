@@ -2,13 +2,13 @@ import { Link } from "react-router-dom";
 import { CheckCircleIcon, ExclamationTriangleIcon, InformationCircleIcon } from "@heroicons/react/24/outline";
 import { timeAgo, type Activity } from "../lib/api";
 import { useApi } from "../lib/hooks";
-import { Empty, ErrorBlock, LoadingBlock, PageTitle } from "../components/ui";
+import { Empty, ErrorBlock, LoadingBlock } from "../components/ui";
 
-export default function ActivityPage() {
+/** The sync log, shown on the Settings page. */
+export default function ActivityLog() {
   const { data, error, loading } = useApi<Activity[]>("/activity", { poll: 5000 });
   return (
     <div>
-      <PageTitle>Activity</PageTitle>
       {loading && <LoadingBlock />}
       {error && <ErrorBlock message={error} />}
       {data?.length === 0 && <Empty title="Nothing yet">Syncs and changes will show up here.</Empty>}
