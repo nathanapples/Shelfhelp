@@ -776,16 +776,18 @@ export async function routes(app: FastifyInstance) {
 
   app.post<{ Params: { id: string }; Body: { body: string } }>("/api/issues/:id/comments", async (req, reply) => {
     try {
-      return addComment(Number(req.params.id), req.viewer.user.id, req.body?.body);
+      return addComment(Number(req.params.id), req.viewer.user.id, req.body?.body, isAdmin(req));
     } catch (err) {
       return fail(reply, err);
     }
   });
 
-  app.put<{ Params: { id: string }; Body: { status: "open" | "resolved" } }>("/api/issues/:id", async (req, reply) => {
-    if (!isAdmin(req)) return reply.code(403).send({ error: "Only an admin can resolve or reopen issues." });
+  // Admins resolve; anyone can reopen. Either can carry a comment.
+  app.put<{ Params: { id: string }; Body: { status: "open" | "resolved"; comment?: string } }>("/api/issues/:id", async (req, reply) => {
+    const status = req.body?.status === "resolved" ? "resolved" : "open";
+    if (status === "resolved" && !isAdmin(req)) return reply.code(403).send({ error: "Only an admin can resolve issues." });
     try {
-      return setIssueStatus(Number(req.params.id), req.viewer.user.id, req.body?.status === "resolved" ? "resolved" : "open");
+      return setIssueStatus(Number(req.params.id), req.viewer.user.id, status, req.body?.comment ?? "");
     } catch (err) {
       return fail(reply, err);
     }

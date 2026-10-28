@@ -119,7 +119,11 @@ export function IssueThread({ id, admin, onClose, onChanged }: { id: number; adm
       return next;
     });
   const setStatus = (status: "open" | "resolved") =>
-    act(() => api<IssueDetail>(`/issues/${id}`, { method: "PUT", body: { status } }), status === "resolved" ? "Issue resolved" : "Issue reopened");
+    act(async () => {
+      const next = await api<IssueDetail>(`/issues/${id}`, { method: "PUT", body: { status, comment: reply } });
+      setReply("");
+      return next;
+    }, status === "resolved" ? "Issue resolved" : "Issue reopened");
   const remove = () =>
     act(async () => {
       await api(`/issues/${id}`, { method: "DELETE" });
@@ -135,20 +139,9 @@ export function IssueThread({ id, admin, onClose, onChanged }: { id: number; adm
       backdrop={issue?.coverUrl}
       footer={
         admin && issue ? (
-          <>
-            <button className="btn btn-ghost mr-auto text-red-300" onClick={remove} disabled={busy} title="Delete this issue">
-              <TrashIcon className="h-4 w-4" /> Delete
-            </button>
-            {issue.status === "open" ? (
-              <button className="btn btn-success" onClick={() => setStatus("resolved")} disabled={busy}>
-                <CheckCircleIcon className="h-4 w-4" /> Resolve
-              </button>
-            ) : (
-              <button className="btn btn-default" onClick={() => setStatus("open")} disabled={busy}>
-                Reopen
-              </button>
-            )}
-          </>
+          <button className="btn btn-ghost mr-auto text-red-300" onClick={remove} disabled={busy} title="Delete this issue">
+            <TrashIcon className="h-4 w-4" /> Delete
+          </button>
         ) : undefined
       }
     >
@@ -195,16 +188,44 @@ export function IssueThread({ id, admin, onClose, onChanged }: { id: number; adm
           </ol>
 
           <div className="mt-4">
-            <textarea
-              className="input min-h-[5rem]"
-              placeholder={issue.status === "open" ? "Add a comment" : "Add a comment (this issue is resolved)"}
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-            />
-            <div className="mt-2 flex justify-end">
-              <button className="btn btn-primary" onClick={comment} disabled={busy || !reply.trim()}>
-                {busy && <Spinner className="h-4 w-4 text-white" />} Comment
-              </button>
+            {issue.status === "open" || admin ? (
+              <textarea
+                className="input min-h-[5rem]"
+                placeholder={issue.status === "open" ? "Add a comment" : "Add a comment, or say why you're reopening it"}
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+              />
+            ) : (
+              <>
+                <p className="mb-2 text-sm text-gray-400">This issue is resolved. If it isn't fixed, reopen it and say what's still wrong.</p>
+                <textarea className="input min-h-[5rem]" placeholder="What's still wrong? (optional)" value={reply} onChange={(e) => setReply(e.target.value)} />
+              </>
+            )}
+            <div className="mt-2 flex flex-wrap justify-end gap-2">
+              {issue.status === "open" ? (
+                <>
+                  <button className="btn btn-default" onClick={comment} disabled={busy || !reply.trim()}>
+                    Comment
+                  </button>
+                  {admin && (
+                    <button className="btn btn-success" onClick={() => setStatus("resolved")} disabled={busy}>
+                      {busy && <Spinner className="h-4 w-4 text-white" />}
+                      <CheckCircleIcon className="h-4 w-4" /> {reply.trim() ? "Comment and resolve" : "Resolve"}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  {admin && (
+                    <button className="btn btn-default" onClick={comment} disabled={busy || !reply.trim()}>
+                      Comment
+                    </button>
+                  )}
+                  <button className="btn btn-primary" onClick={() => setStatus("open")} disabled={busy}>
+                    {busy && <Spinner className="h-4 w-4 text-white" />} {reply.trim() ? "Reopen with comment" : "Reopen"}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </>

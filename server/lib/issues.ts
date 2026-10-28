@@ -143,8 +143,9 @@ export async function createIssue(userId: number, hcBookId: number, kind: string
   return issueDetail(id);
 }
 
-export function addComment(id: number, userId: number, body: string) {
-  get(id);
+export function addComment(id: number, userId: number, body: string, admin = false) {
+  const issue = get(id);
+  if (issue.status !== "open" && !admin) throw new Error("This issue is resolved. Reopen it to add a comment.");
   const text = clean(body);
   if (!text) throw new Error("Write something first.");
   db.prepare("INSERT INTO issue_comments (issue_id, user_id, body) VALUES (?, ?, ?)").run(id, userId, text);
@@ -152,16 +153,26 @@ export function addComment(id: number, userId: number, body: string) {
   return issueDetail(id);
 }
 
-/** Admins only (checked by the route). */
-export function setIssueStatus(id: number, userId: number, status: IssueStatus) {
+/**
+ * Resolving is for admins (checked by the route); anyone can reopen. A
+ * comment can go with either: it's posted first when resolving, after when
+ * reopening, so the thread reads in order.
+ */
+export function setIssueStatus(id: number, userId: number, status: IssueStatus, comment = "") {
   const r = get(id);
-  if (r.status === status) return issueDetail(id);
+  const text = clean(comment);
+  if (r.status === status) {
+    if (text) return addComment(id, userId, text, true);
+    return issueDetail(id);
+  }
+  if (text && status === "resolved") db.prepare("INSERT INTO issue_comments (issue_id, user_id, body) VALUES (?, ?, ?)").run(id, userId, text);
   if (status === "resolved") {
     db.prepare("UPDATE issues SET status = 'resolved', resolved_by = ?, resolved_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(userId, id);
   } else {
     db.prepare("UPDATE issues SET status = 'open', resolved_by = NULL, resolved_at = NULL, updated_at = datetime('now') WHERE id = ?").run(id);
   }
   db.prepare("INSERT INTO issue_comments (issue_id, user_id, body, event) VALUES (?, ?, '', ?)").run(id, userId, status === "resolved" ? "resolved" : "reopened");
+  if (text && status === "open") db.prepare("INSERT INTO issue_comments (issue_id, user_id, body) VALUES (?, ?, ?)").run(id, userId, text);
   log("info", `${name(userId)} ${status === "resolved" ? "resolved" : "reopened"} the issue with "${r.title}"`);
   return issueDetail(id);
 }

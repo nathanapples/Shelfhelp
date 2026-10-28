@@ -173,3 +173,19 @@ test("issues: report, comment, resolve, reopen", async () => {
   assert.equal(issueCounts().open >= 1, true);
   assert.throws(() => addComment(id, 9, "   "));
 });
+
+test("issues: only open issues take comments from readers; anyone reopens", async () => {
+  const { db } = await import("../server/lib/db.ts");
+  const { addComment, issueDetail, setIssueStatus } = await import("../server/lib/issues.ts");
+  const r = db.prepare("INSERT INTO issues (hc_book_id, title, kind, created_by) VALUES (111, 'Hyperion', 'other', 9)").run();
+  const id = Number(r.lastInsertRowid);
+  setIssueStatus(id, 1, "resolved", "Fixed the file");
+  const t = issueDetail(id).thread;
+  assert.deepEqual(t.slice(-2).map((c) => c.event ?? c.body), ["Fixed the file", "resolved"]);
+  assert.throws(() => addComment(id, 9, "still broken"), /Reopen/);
+  addComment(id, 1, "admin note", true);
+  setIssueStatus(id, 9, "open", "Still skips at 2h");
+  const after = issueDetail(id);
+  assert.equal(after.status, "open");
+  assert.deepEqual(after.thread.slice(-2).map((c) => c.event ?? c.body), ["reopened", "Still skips at 2h"]);
+});

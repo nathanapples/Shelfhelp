@@ -2,6 +2,10 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.6.1 (2026-10-28)
+
+- Issues: readers can comment only while an issue is open, and anyone can reopen a resolved issue (with a comment if they like). Admins can comment any time and resolve with a comment in one step.
+
 ## 0.6.0 (2026-10-28)
 
 - Issues: anyone can report a problem with a book from its popup (audio, missing chapters, wrong book, details, other) and comment on any issue. Admins can resolve, reopen and delete. New Issues page with open, resolved and all views; open issues show on the book too.

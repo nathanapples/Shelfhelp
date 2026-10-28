@@ -53,7 +53,7 @@ Customize sets which rows you see and in what order. Admins can save their rows 
 
 ## Issues
 
-Anyone can report a problem with a book from its popup, choosing a kind (audio, missing chapters, wrong book, details or cover, something else) and saying what's wrong. Everyone can see and comment on issues on the Issues page; admins resolve, reopen and delete them.
+Anyone can report a problem with a book from its popup, choosing a kind (audio, missing chapters, wrong book, details or cover, something else) and saying what's wrong. Everyone can see issues on the Issues page and comment while they're open. Admins resolve them (with a comment if they like) and can delete them; anyone can reopen a resolved issue if it isn't fixed.
 
 ## Library
 
