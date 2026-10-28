@@ -360,6 +360,8 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
                 "requestsEnabled",
                 "requestFormat",
                 "requestSearchNow",
+                "requestTagAbs",
+                "requestTagFormat",
                 "chaptarrAudiobookRoot",
                 "chaptarrEbookRoot",
                 "chaptarrAudiobookQuality",

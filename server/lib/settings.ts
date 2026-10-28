@@ -30,6 +30,10 @@ export interface Settings {
   requestFormat: RequestFormat;
   /** Search for the book as soon as it's added. */
   requestSearchNow: boolean;
+  /** Tag requested books in Audiobookshelf with who asked for them. */
+  requestTagAbs: boolean;
+  /** The tag. {user} is the requester's Audiobookshelf username. */
+  requestTagFormat: string;
   /** Root folder path per format. Empty uses Chaptarr's default for that format. */
   chaptarrAudiobookRoot: string;
   chaptarrEbookRoot: string;
@@ -76,6 +80,8 @@ const defaults: Settings = {
   requestsEnabled: false,
   requestFormat: "audiobook",
   requestSearchNow: true,
+  requestTagAbs: true,
+  requestTagFormat: "Requested by {user}",
   chaptarrAudiobookRoot: "",
   chaptarrEbookRoot: "",
   chaptarrAudiobookQuality: 0,

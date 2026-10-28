@@ -13,7 +13,7 @@ import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
 import { ROWS, discoverRow, type RowId } from "./lib/discover.js";
 import { applyDecision, linkLibrary, linkView, similarInLibrary } from "./lib/linking.js";
-import { canSeeRequest, forgetRequest, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
+import { canSeeRequest, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
 import { cloudflareProblem, cloudflareUser, endSession, createSession, oidcCallback, oidcDiscovery, oidcRedirectUri, oidcStart, passwordMatches, viewer, type Viewer } from "./lib/auth.js";
 import { OWNER_ID, absUsers, allUsers, asReader, getUser, readerById, readers, resolveOwner, updateUser, userForAbs, userView, type Reader } from "./lib/users.js";
 import { decideItem, history, myShelfStatus, readingUsers, readingRunning, rematchItem, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
@@ -683,6 +683,11 @@ export async function routes(app: FastifyInstance) {
     return { requests: listRequests(scope), counts: requestCounts(scope), all: isAdmin(req) };
   };
 
+  app.get("/api/requests/sources", async (req, reply) => {
+    if (!isAdmin(req)) return reply.code(403).send({ error: "Only an admin can do that." });
+    return requestSources();
+  });
+
   app.get("/api/requests", async (req) => {
     refreshRequests().catch(() => {});
     return myRequests(req);
@@ -726,18 +731,18 @@ export async function routes(app: FastifyInstance) {
   });
 
   app.post<{
-    Body: { sourceType?: "hardcover_list" | "hardcover_status"; hcListId: number; hcOwner?: string | null; absLibraryId: string; collectionName?: string; removeMissing?: boolean; keepOrder?: boolean };
+    Body: { sourceType?: "hardcover_list" | "hardcover_status" | "requests"; hcListId: number; hcOwner?: string | null; absLibraryId: string; collectionName?: string; removeMissing?: boolean; keepOrder?: boolean };
   }>("/api/lists", async (req, reply) => {
     try {
       const b = req.body;
-      const sourceType = b.sourceType === "hardcover_status" ? "hardcover_status" : "hardcover_list";
+      const sourceType = b.sourceType === "hardcover_status" || b.sourceType === "requests" ? b.sourceType : "hardcover_list";
       const existing = db
         .prepare("SELECT id FROM lists WHERE source_type = ? AND hc_list_id = ? AND abs_library_id = ?")
         .get(sourceType, b.hcListId, b.absLibraryId) as
         | { id: number }
         | undefined;
       if (existing) return reply.code(409).send({ error: "That list is already synced to this library.", id: existing.id });
-      const { info } = await fetchSource(sourceType, b.hcListId);
+      const { info } = sourceType === "requests" ? requestSource(b.hcListId) : await fetchSource(sourceType, b.hcListId);
       const res = db
         .prepare(
           `INSERT INTO lists (source_type, hc_list_id, hc_slug, hc_owner, name, description, abs_library_id, collection_name, remove_missing, keep_order)

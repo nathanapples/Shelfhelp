@@ -1,6 +1,7 @@
 import { Abs } from "./abs.js";
 import { db, json, tx } from "./db.js";
 import { fetchSource, type ListBook } from "./hardcover.js";
+import { requestSource } from "./requests.js";
 import { idLinks, libraryIndex, refreshLibrary } from "./library.js";
 import { matchBook, type Candidate } from "./matcher.js";
 import { getSettings, isConfigured } from "./settings.js";
@@ -61,8 +62,8 @@ export async function syncList(listId: number, { forceLibrary = false } = {}) {
   const job = `list:${listId}`;
   startJob(job, list.name);
   try {
-    step(job, "Getting the list from Hardcover");
-    const { info, books } = await fetchSource(list.source_type, list.hc_list_id);
+    step(job, list.source_type === "requests" ? "Getting requests" : "Getting the list from Hardcover");
+    const { info, books } = list.source_type === "requests" ? requestSource(list.hc_list_id) : await fetchSource(list.source_type, list.hc_list_id);
     await refreshLibrary(list.abs_library_id, { force: forceLibrary, job });
     step(job, `Matching ${books.length} books`);
     rematch(list, books);
@@ -209,6 +210,7 @@ export function hardcoverUrl(list: Pick<ListRow, "source_type" | "hc_owner" | "h
 }
 
 function collectionDescription(list: ListRow) {
+  if (list.source_type === "requests") return "Requested in Shelfhelp.";
   const url = hardcoverUrl(list);
   const link = url ? ` ${url}` : "";
   return `Synced from Hardcover by Shelfhelp.${link}`;

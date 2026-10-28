@@ -288,6 +288,26 @@ export function ChaptarrSettings({
           <Toggle checked={s.requestSearchNow} onChange={(v) => set("requestSearchNow", v)} />
         </div>
       </div>
+      <div className="form-row">
+        <label>
+          Tag in Audiobookshelf
+          <span className="label-tip">
+            When a requested book shows up in Audiobookshelf, add a tag saying who asked for it, like Seerr does in Sonarr and Radarr. {"{user}"} is
+            their Audiobookshelf username.
+          </span>
+        </label>
+        <div className="form-input-area space-y-2 sm:pt-2">
+          <Toggle checked={s.requestTagAbs} onChange={(v) => set("requestTagAbs", v)} />
+          {s.requestTagAbs && (
+            <>
+              <input className="input max-w-xs" value={s.requestTagFormat} onChange={(e) => set("requestTagFormat", e.target.value)} placeholder="Requested by {user}" />
+              <p className="text-xs text-gray-400">
+                Looks like: <span className="badge badge-dark">{(s.requestTagFormat || "Requested by {user}").replace(/\{user\}/g, "nathan")}</span>
+              </p>
+            </>
+          )}
+        </div>
+      </div>
       {optionsError && (
         <div className="form-row">
           <label>Folders and profiles</label>

@@ -105,3 +105,20 @@ test("an ASIN link counts as owned unless the linker rejected it", async () => {
   db.prepare("UPDATE library_links SET status = 'matched' WHERE abs_item_id = 'wrong'").run();
   assert.equal(inLibrary([6]).get(6), "wrong");
 });
+
+test("requester tags and request collections", async () => {
+  const { db } = await import("../server/lib/db.ts");
+  const { requesterTag, requestSource } = await import("../server/lib/requests.ts");
+  assert.equal(requesterTag("sage", "Requested by {user}"), "Requested by sage");
+  assert.equal(requesterTag("sage", "{user}"), "sage");
+  db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (7, 'sage', 'user')").run();
+  const now = new Date().toISOString();
+  db.prepare(
+    "INSERT INTO requests (id, hc_book_id, format, title, authors, status, requested_at, updated_at) VALUES (901, 55, 'audiobook', 'Dune', '[\"Frank Herbert\"]', 'requested', ?, ?)",
+  ).run(now, now);
+  db.prepare("INSERT INTO request_users (request_id, user_id) VALUES (901, 7)").run();
+  const mine = requestSource(7);
+  assert.equal(mine.info.name, "Sage's requests");
+  assert.deepEqual(mine.books.map((b) => b.id), [55]);
+  assert.ok(requestSource(0).books.some((b) => b.id === 55));
+});

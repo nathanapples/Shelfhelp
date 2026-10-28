@@ -5,6 +5,7 @@ import {
   BookmarkIcon,
   Cog6ToothIcon,
   ExclamationTriangleIcon,
+  InboxArrowDownIcon,
   PauseCircleIcon,
   PlusIcon,
   RectangleStackIcon,
@@ -32,6 +33,7 @@ function ListCard({ list, onSynced }: { list: List; onSynced: () => void }) {
   const { counts } = list;
   const inLibrary = pct(counts.matched, counts.total);
   const isShelf = list.sourceType === "hardcover_status";
+  const isRequests = list.sourceType === "requests";
 
   const sync = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -73,8 +75,14 @@ function ListCard({ list, onSynced }: { list: List; onSynced: () => void }) {
         </div>
         <div className="relative min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400">
-            {isShelf ? <BookmarkIcon className="h-3.5 w-3.5 text-purple-400" /> : <RectangleStackIcon className="h-3.5 w-3.5 text-indigo-400" />}
-            {isShelf ? "Shelf" : "List"}
+            {isRequests ? (
+              <InboxArrowDownIcon className="h-3.5 w-3.5 text-indigo-400" />
+            ) : isShelf ? (
+              <BookmarkIcon className="h-3.5 w-3.5 text-purple-400" />
+            ) : (
+              <RectangleStackIcon className="h-3.5 w-3.5 text-indigo-400" />
+            )}
+            {isRequests ? "Requests" : isShelf ? "Shelf" : "List"}
           </div>
           <h2 className="truncate text-xl font-bold text-white group-hover:underline">{list.name}</h2>
           <div className="truncate text-sm text-gray-400">Collection "{list.collectionName}"</div>

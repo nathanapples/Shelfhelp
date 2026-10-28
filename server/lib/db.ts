@@ -351,6 +351,11 @@ const migrations: string[] = [
   );
   INSERT INTO request_users (request_id, user_id) SELECT id, 1 FROM requests;
   `,
+  `
+  -- When the requester's tag was added to the book in Audiobookshelf.
+  ALTER TABLE request_users ADD COLUMN tagged_at TEXT;
+  ALTER TABLE request_users ADD COLUMN tag TEXT;
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

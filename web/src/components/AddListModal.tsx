@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { BookmarkIcon, CheckCircleIcon, LinkIcon } from "@heroicons/react/24/outline";
+import { BookmarkIcon, CheckCircleIcon, InboxArrowDownIcon, LinkIcon } from "@heroicons/react/24/outline";
 import { api, type HcList, type Library, type List } from "../lib/api";
 import { Cover, Modal, Spinner, Toggle } from "./ui";
 import { useToast } from "./toast";
@@ -25,6 +25,7 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
   const navigate = useNavigate();
   const [lists, setLists] = useState<HcList[] | null>(null);
   const [shelves, setShelves] = useState<HcList[] | null>(null);
+  const [requestLists, setRequestLists] = useState<HcList[] | null>(null);
   const [libraries, setLibraries] = useState<Library[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [url, setUrl] = useState("");
@@ -43,6 +44,7 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
     setLoadError(null);
     api<HcList[]>("/hardcover/lists").then(setLists).catch((e) => setLoadError(e.message));
     api<HcList[]>("/hardcover/shelves").then(setShelves).catch(() => setShelves([]));
+    api<HcList[]>("/requests/sources").then(setRequestLists).catch(() => setRequestLists([]));
     api<Library[]>("/abs/libraries")
       .then((l) => {
         setLibraries(l);
@@ -99,6 +101,7 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 truncate font-semibold text-white">
           {l.sourceType === "hardcover_status" && <BookmarkIcon className="h-4 w-4 flex-shrink-0 text-purple-400" />}
+          {l.sourceType === "requests" && <InboxArrowDownIcon className="h-4 w-4 flex-shrink-0 text-indigo-400" />}
           {l.name}
         </div>
         <div className="text-xs text-gray-400">{sub}</div>
@@ -112,7 +115,7 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
       open={open}
       onClose={onClose}
       title={picked ? `Sync "${picked.name}"` : "New Collection"}
-      subtitle={picked ? `${picked.booksCount} books` : "Pick a Hardcover shelf or list, or paste a link to anyone's public list."}
+      subtitle={picked ? `${picked.booksCount} books` : "Pick a Hardcover shelf or list, someone's requests, or paste a link to anyone's public list."}
       footer={
         picked ? (
           <>
@@ -153,6 +156,15 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
             </div>
           )}
           <div className="space-y-2">{shelves?.map((l) => row(l, `${l.booksCount} books`))}</div>
+
+          {requestLists && requestLists.length > 1 && (
+            <>
+              <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Requests</h4>
+              <div className="space-y-2">
+                {requestLists.map((l) => row(l, `${l.booksCount} requested · books join as they arrive in Audiobookshelf`))}
+              </div>
+            </>
+          )}
 
           <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Your lists</h4>
           {!lists && !loadError && (

@@ -403,6 +403,15 @@ http
         return send(200, { results: items.slice(page * limit, page * limit + limit).map(itemJson), total: items.length });
       }
       if ((m = p.match(/^\/api\/libraries\/([^/]+)\/collections$/))) return send(200, { results: [...collections.values()].map(collJson) });
+      if ((m = p.match(/^\/api\/items\/([^/]+)(\/media)?$/))) {
+        const it = items.find((x) => x.id === m![1]) as ((typeof items)[number] & { tags?: string[] }) | undefined;
+        if (!it) return send(404, "Not found");
+        if (req.method === "PATCH" && m[2]) {
+          it.tags = body.tags;
+          console.log(`[abs] tags ${it.id}: ${JSON.stringify(it.tags)}`);
+        }
+        return send(200, { id: it.id, media: { tags: it.tags ?? ["Sci-Fi"] } });
+      }
       if ((m = p.match(/^\/api\/items\/([^/]+)\/cover$/))) {
         const i = items.find((x) => x.id === m![1]);
         res.writeHead(200, { "Content-Type": "image/svg+xml" });

@@ -8,7 +8,7 @@ export interface Counts {
   total: number;
 }
 
-export type SourceType = "hardcover_list" | "hardcover_status";
+export type SourceType = "hardcover_list" | "hardcover_status" | "requests";
 
 export interface List {
   id: number;
@@ -129,6 +129,8 @@ export interface Settings {
   requestsEnabled: boolean;
   requestFormat: RequestFormat;
   requestSearchNow: boolean;
+  requestTagAbs: boolean;
+  requestTagFormat: string;
   chaptarrAudiobookRoot: string;
   chaptarrEbookRoot: string;
   chaptarrAudiobookQuality: number;
