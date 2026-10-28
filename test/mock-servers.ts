@@ -83,6 +83,7 @@ const items = [
   { id: "li_16", title: "Dark Matter", authorName: "Blake Crouch" },
 ];
 
+const seriesId = (name: string) => 3000 + [...new Set(books.filter((b) => b.series).map((b) => b.series![0]))].indexOf(name);
 const listBooks = (offset: number, limit: number) =>
   books.slice(offset, offset + limit).map((b, i) => ({
     id: 9000 + b.id,
@@ -105,7 +106,7 @@ const listBooks = (offset: number, limit: number) =>
       usersCount: 1000,
       cachedImage: { url: `${HC}/cover/${b.id}.svg` },
       cachedContributors: [{ author: { name: b.author }, contribution: null }],
-      cachedFeaturedSeries: b.series ? { series: { name: b.series[0] }, position: b.series[1] } : {},
+      cachedFeaturedSeries: b.series ? { series: { id: seriesId(b.series[0]), name: b.series[0] }, position: b.series[1] } : {},
     },
   }));
 
@@ -197,7 +198,7 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
   }
   if (q.includes("query GetEditionsForBook")) return { editions: [edition(Number(v.bookId))] };
   if (q.includes("query BookEditions")) return { editions: mockEditions(Number(v.bookId)) };
-  if (q.includes("query DiscoverTopRated") || q.includes("query DiscoverAudio") || q.includes("query DiscoverAuthors")) {
+  if (q.includes("query DiscoverTopRated") || q.includes("query DiscoverAudio") || q.includes("query DiscoverAuthors") || q.includes("query DiscoverRecent") || q.includes("query DiscoverUpcoming")) {
     let picked = books.map((_, i) => listBooks(i, 1)[0].book);
     if (q.includes("DiscoverTopRated")) picked = picked.sort((a, b) => b.rating - a.rating).slice(0, 8);
     if (q.includes("DiscoverAudio")) picked = picked.filter((b, i) => i % 2 === 0).slice(0, 8);
@@ -231,6 +232,16 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
         })
         .filter(Boolean),
     };
+  }
+  if (q.includes("query GetPrompts")) {
+    return { prompts: [{ id: 41, slug: "best-books-to-go-in-blind", question: "Best books to go in blind?", description: "The less you know the better.", featured: true, answersCount: 12, booksCount: 5, usersCount: 9, userId: 3, createdAt: "2026-06-01" }] };
+  }
+  if (q.includes("query GetPromptBooks")) {
+    return { prompt_books_summary: [111, 108, 113, 117, 112].map((id, i) => ({ answersCount: 9 - i, book: listBooks(books.findIndex((b) => b.id === id), 1)[0].book })) };
+  }
+  if (q.includes("query GetSeriesBooks")) {
+    const inSeries = books.filter((b) => b.series && seriesId(b.series[0]) === Number(v.seriesId));
+    return { book_series: inSeries.map((b) => ({ position: b.series![1], details: null, compilation: false, featured: true, book: listBooks(books.indexOf(b), 1)[0].book })) };
   }
   if (q.includes("query Search") && v.fields === "genres") {
     const want = String(v.query).toLowerCase();

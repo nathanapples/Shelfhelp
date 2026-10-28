@@ -119,10 +119,11 @@ export function Layout({ children, status }: { children: ReactNode; status: Stat
   const sidebarFooter = (
     <div className="space-y-3 px-4 pb-5">
       {status.user && (
+        <div className="flex items-center gap-1">
         <NavLink
           to="/account"
           onClick={() => setOpen(false)}
-          className="flex items-center gap-3 rounded-md px-2 py-2 text-sm text-gray-300 transition hover:bg-gray-700"
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-2 text-sm text-gray-300 transition hover:bg-gray-700"
         >
           <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold uppercase text-white">
             {status.user.name.slice(0, 1)}
@@ -132,6 +133,17 @@ export function Layout({ children, status }: { children: ReactNode; status: Stat
             <span className="block text-xs text-gray-500">{status.user.role === "admin" ? "Admin" : "Reader"} · My account</span>
           </span>
         </NavLink>
+        {authRequired && (
+          <button
+            onClick={signOut}
+            className="flex-shrink-0 rounded-md p-2 text-gray-400 transition hover:bg-gray-700 hover:text-white"
+            title="Sign out"
+            aria-label="Sign out"
+          >
+            <ArrowRightOnRectangleIcon className="h-5 w-5" />
+          </button>
+        )}
+        </div>
       )}
       <a href="https://github.com/nathanapples/shelfhelp" target="_blank" rel="noreferrer" className="block px-2 text-xs text-gray-500 hover:text-gray-300">
         Shelfhelp v{version}
@@ -210,11 +222,6 @@ export function Layout({ children, status }: { children: ReactNode; status: Stat
                 {jobs && jobs.running.length > 1 ? ` +${jobs.running.length - 1} more` : ""}
               </span>
             </div>
-          )}
-          {authRequired && (
-            <button onClick={signOut} className="rounded-full p-2 text-gray-400 hover:bg-gray-700 hover:text-white" title="Sign out">
-              <ArrowRightOnRectangleIcon className="h-6 w-6" />
-            </button>
           )}
         </header>
         <main className="relative flex-1 px-4 pb-16 sm:px-6 lg:px-8" style={{ paddingBottom: "max(4rem, env(safe-area-inset-bottom))" }}>

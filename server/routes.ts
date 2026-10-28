@@ -11,7 +11,7 @@ import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
-import { BUILTINS, PAGE, defaultRows, discoverRow, genreRows, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
+import { BUILTINS, PAGE, defaultRows, loadFeaturedPrompt, discoverRow, genreRows, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
 import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
 import { ISSUE_KINDS, addComment, createIssue, deleteIssue, issueCounts, issueDetail, listIssues, setIssueStatus } from "./lib/issues.js";
 import { canSeeRequest, editionLabel, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
@@ -545,6 +545,8 @@ export async function routes(app: FastifyInstance) {
 
   // Discover: your rows (or the defaults), and each row's books.
   app.get("/api/discover", async (req) => {
+    // Titles the featured prompt row with its question.
+    await loadFeaturedPrompt().catch(() => null);
     const { rows, custom } = rowsFor(req.viewer.user.id);
     const chaptarr = isConfigured().chaptarr;
     return {

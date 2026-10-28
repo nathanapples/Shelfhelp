@@ -2,6 +2,16 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.10.0 (2026-10-28)
+
+- Discover follows Hardcover's own Discover page. New default order: Top picks for you, Trending on Hardcover, Pick up where you left off, From your Want to Read, Recent releases, Upcoming releases, Recently added, New from authors you listen to, the featured prompt, Top Fantasy, Top Science Fiction, Highest rated new books, Your recent requests. If you've saved your own rows, use "Use the defaults" in Customize to get this order, or add the new rows yourself.
+- New rows: Pick up where you left off (the next unread book in series you've read lately, from your Hardcover shelves) and Hardcover's featured prompt (titled with its question, most picked books first).
+- Trending on Hardcover now covers the last three months, like Hardcover. Recent releases are the most popular books from the last three months, and Upcoming releases are the most anticipated books of the next year.
+- "Recommended for you" is now "Top picks for you".
+- Sign out sits next to your profile in the sidebar instead of next to the search bar.
+- Genre chips are no longer cut off at the top, and Customize sits on the same line as them.
+- Tighter spacing between Discover rows and between books.
+
 ## 0.9.0 (2026-10-28)
 
 - Discover: posters are about a third smaller, so more fit on screen.

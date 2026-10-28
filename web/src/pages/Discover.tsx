@@ -30,9 +30,9 @@ export function afterRequest<T extends { book: SearchHit; replace?: (b: SearchHi
 
 /** Genre chips that open the genre's page. */
 export function GenreStrip({ genres }: { genres: DiscoverRowInfo[] }) {
-  if (!genres.length) return null;
+  if (!genres.length) return <div className="flex-1" />;
   return (
-    <div className="hide-scrollbar -mx-4 mb-6 mt-4 flex gap-2 overflow-x-auto px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+    <div className="hide-scrollbar flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1">
       <span className="flex flex-shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500">
         <TagIcon className="h-4 w-4" /> Genres
       </span>
@@ -67,15 +67,15 @@ function Shelf({
   const replace = (b: SearchHit) => setData((d) => d?.map((x) => (x.id === b.id && x.absItemId === b.absItemId ? { ...x, ...b } : x)) ?? d);
 
   return (
-    <section className="mb-8">
-      <div className="mb-3 flex items-end justify-between gap-3">
+    <section className="mb-4">
+      <div className="mb-1 flex items-end justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="truncate text-xl font-bold text-white sm:text-2xl">
+          <h2 className="truncate text-lg font-bold text-white sm:text-xl">
             <Link to={row.key === "requests" ? "/requests" : `/discover/${row.key}`} className="hover:text-indigo-300">
               {row.title} ›
             </Link>
           </h2>
-          <p className="truncate text-sm text-gray-400">{row.subtitle}</p>
+          <p className="truncate text-xs text-gray-400 sm:text-sm">{row.subtitle}</p>
         </div>
         <div className="flex flex-shrink-0 items-center gap-1">
           <Link to={row.key === "requests" ? "/requests" : `/discover/${row.key}`} className="mr-1 whitespace-nowrap text-sm font-medium text-indigo-400 hover:text-indigo-300">
@@ -95,7 +95,7 @@ function Shelf({
         </div>
       )}
       {error && <p className="rounded-lg bg-red-900/20 p-3 text-sm text-red-300 ring-1 ring-red-900">{error}</p>}
-      <div ref={scroller} className="hide-scrollbar -mx-4 flex snap-x scroll-px-4 gap-2.5 overflow-x-auto px-4 pb-4 pt-2 sm:-mx-6 sm:scroll-px-6 sm:gap-3 sm:px-6 lg:-mx-8 lg:scroll-px-8 lg:px-8">
+      <div ref={scroller} className="hide-scrollbar -mx-4 flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 pb-2 pt-1.5 sm:-mx-6 sm:scroll-px-6 sm:gap-2.5 sm:px-6 lg:-mx-8 lg:scroll-px-8 lg:px-8">
         {data?.map((b, i) => (
           <div key={`${b.id}-${b.absItemId ?? i}`} className="snap-start">
             {row.key === "added" && !b.id ? (
@@ -146,12 +146,12 @@ export default function DiscoverPage({ status }: { status: Status }) {
 
   return (
     <div className="pt-2">
-      <div className="-mb-2 flex justify-end">
-        <button className="btn btn-sm btn-ghost" onClick={() => setCustomizing(true)} disabled={!config}>
-          <AdjustmentsHorizontalIcon className="h-4 w-4" /> Customize
+      <div className="mb-4 flex items-center gap-2">
+        <GenreStrip genres={config?.genres ?? []} />
+        <button className="btn btn-sm btn-ghost flex-shrink-0" onClick={() => setCustomizing(true)} disabled={!config} title="Customize Discover">
+          <AdjustmentsHorizontalIcon className="h-4 w-4" /> <span className="hidden sm:inline">Customize</span>
         </button>
       </div>
-      <GenreStrip genres={config?.genres ?? []} />
       {shown.map((r) => (
         <Shelf key={r.key} row={r} status={status} version={r.key === "requests" ? version : 0} onOpen={(book, replace) => setOpen({ book, replace })} />
       ))}

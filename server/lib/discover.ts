@@ -23,21 +23,25 @@ export type BuiltinId =
   | "added"
   | "soon"
   | "requests"
-  | "foryou";
+  | "foryou"
+  | "continue"
+  | "prompt";
 
 export const BUILTINS: Record<BuiltinId, { title: string; subtitle: string }> = {
-  trending: { title: "Trending this month", subtitle: "What Hardcover readers are picking up" },
+  trending: { title: "Trending on Hardcover", subtitle: "Read the most in the last three months" },
   week: { title: "Trending this week", subtitle: "Hardcover's hottest books right now" },
   year: { title: "Popular this year", subtitle: "Trending on Hardcover over the past year" },
   want: { title: "From your Want to Read", subtitle: "On your Hardcover shelf, not in Audiobookshelf yet" },
-  new: { title: "New releases", subtitle: "Out in the last month, most popular first" },
+  new: { title: "Recent releases", subtitle: "Popular books released in the last three months" },
   toprated: { title: "Highest rated new books", subtitle: "Released in the last year, best rated on Hardcover" },
   authors: { title: "New from authors you listen to", subtitle: "Recent and upcoming books by authors in your library" },
   audio: { title: "Popular audiobooks", subtitle: "Most-read books with an audiobook, from the last two years" },
   added: { title: "Recently added", subtitle: "Newest in Audiobookshelf" },
-  soon: { title: "Coming soon", subtitle: "Releasing in the next two months" },
+  soon: { title: "Upcoming releases", subtitle: "The most anticipated books releasing soon" },
   requests: { title: "Your recent requests", subtitle: "What you've asked for" },
-  foryou: { title: "Recommended for you", subtitle: "From your vibes on Hardcover, not in Audiobookshelf yet" },
+  foryou: { title: "Top picks for you", subtitle: "From your vibes on Hardcover, not in Audiobookshelf yet" },
+  continue: { title: "Pick up where you left off", subtitle: "The next unread book in series you've been reading" },
+  prompt: { title: "Featured prompt", subtitle: "Hardcover's featured prompt, most picked books first" },
 };
 
 /** Genres to browse. Hardcover's genre tags are matched ignoring case, spaces and dashes. */
@@ -68,11 +72,12 @@ export type RowConfig =
 const genreRow = (slug: string): RowConfig => ({ key: `genre-${slug}`, kind: "genre", genre: slug });
 
 const builtin = (id: BuiltinId): RowConfig => ({ key: id, kind: "builtin", id });
+/** Modeled on Hardcover's own Discover page: picks for you, trending, series to continue, then new and upcoming. */
 export const STARTER_ROWS: RowConfig[] = [
-  ...(["trending", "foryou", "want", "new", "added", "authors"] as BuiltinId[]).map(builtin),
+  ...(["foryou", "trending", "continue", "want", "new", "soon", "added", "authors", "prompt"] as BuiltinId[]).map(builtin),
   genreRow("fantasy"),
   genreRow("science-fiction"),
-  ...(["toprated", "soon", "requests"] as BuiltinId[]).map(builtin),
+  ...(["toprated", "requests"] as BuiltinId[]).map(builtin),
 ];
 
 function valid(rows: unknown): RowConfig[] | null {
@@ -114,6 +119,9 @@ export function resetRows(userId: number) {
 }
 
 export function rowInfo(r: RowConfig) {
+  if (r.kind === "builtin" && r.id === "prompt" && featured.prompt) {
+    return { ...r, title: featured.prompt.question, subtitle: "Hardcover's featured prompt, most picked books first" };
+  }
   if (r.kind === "builtin") return { ...r, ...BUILTINS[r.id] };
   if (r.kind === "genre") return { ...r, title: `Top ${genreBySlug.get(r.genre)!.name}`, subtitle: `The most-read ${genreBySlug.get(r.genre)!.name.toLowerCase()} books on Hardcover` };
   return { ...r, subtitle: r.owner ? `A Hardcover list by @${r.owner}` : "A Hardcover list" };
@@ -212,6 +220,56 @@ function fromList(b: ListBook): HcSummary {
   };
 }
 
+/** Hardcover's featured prompt, remembered so the row can be titled with its question. */
+const featured: { prompt: { id: number; question: string } | null; at: number } = { prompt: null, at: 0 };
+
+export async function loadFeaturedPrompt() {
+  if (featured.prompt && Date.now() - featured.at < TTL) return featured.prompt;
+  const page = await hardcover().prompts.list({ featured: true, limit: 1 });
+  const p = page.items[0];
+  featured.prompt = p ? { id: p.id, question: p.question ?? "Featured prompt" } : null;
+  featured.at = Date.now();
+  return featured.prompt;
+}
+
+/**
+ * The next unread book in series you've read lately, like Hardcover's "Pick up
+ * where you left off". Uses your Hardcover shelves as last read by Reading.
+ */
+async function continueSeries(userId: number, limit: number): Promise<HcSummary[]> {
+  const shelf = db.prepare("SELECT book_id, status FROM hc_library WHERE user_id = ? ORDER BY entry_id DESC").all(userId) as { book_id: number; status: number }[];
+  if (!shelf.length) return [];
+  // Read, reading and did-not-finish books aren't suggested.
+  const done = new Set(shelf.filter((r) => [2, 3, 5].includes(r.status)).map((r) => r.book_id));
+  const recent = shelf.filter((r) => r.status === 3 || r.status === 2).slice(0, 60).map((r) => r.book_id);
+  if (!recent.length) return [];
+  const hc = hardcover();
+  const books = await hc.books.getMany(recent);
+  const order = new Map(recent.map((id, i) => [id, i]));
+  const series = new Map<number, { at: number; maxPos: number }>();
+  for (const b of books as unknown as { id: number; cachedFeaturedSeries?: { series?: { id?: number }; position?: number | string | null } | null }[]) {
+    const fs = b.cachedFeaturedSeries;
+    const id = fs?.series?.id;
+    const pos = Number(fs?.position);
+    if (!id || !Number.isFinite(pos)) continue;
+    const cur = series.get(id);
+    const at = order.get(b.id) ?? 999;
+    series.set(id, { at: Math.min(cur?.at ?? at, at), maxPos: Math.max(cur?.maxPos ?? pos, pos) });
+  }
+  const picks = [...series.entries()].sort((a, b) => a[1].at - b[1].at).slice(0, Math.min(limit, 24));
+  const out = await Promise.all(
+    picks.map(async ([id, { maxPos }]) => {
+      const entries = (await hc.series.books(id, { limit: 50 }).catch(() => null))?.items ?? [];
+      const next = entries.find((e) => {
+        const pos = Number(e.position);
+        return e.book && Number.isInteger(pos) && pos > maxPos && !e.compilation && !done.has(e.book.id);
+      });
+      return next?.book ? summarizeBook(next.book) : null;
+    }),
+  );
+  return out.filter((b): b is HcSummary => !!b);
+}
+
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 /** The most-read books Hardcover tags with a genre. Search can only match words, so hits are checked for the exact genre. */
@@ -283,20 +341,27 @@ export async function discoverRow(key: string, userId: number, limit = ROW) {
     return annotate(await cached(`${key}:${L}`, () => genreBooks(g.name, L)), userId);
   }
   switch (key as BuiltinId) {
+    case "continue":
+      return annotate(await cached(`continue:${userId}:${L}`, () => continueSeries(userId, L)), userId);
+    case "prompt": {
+      const p = await loadFeaturedPrompt();
+      if (!p) return [];
+      return annotate(await cached(`prompt:${p.id}:${L}`, async () => (await hc().prompts.books(p.id, { limit: L })).items.map((x) => summarizeBook(x.book))), userId);
+    }
     case "foryou":
       return annotate(await cached(`foryou:${userId}:${L}`, () => vibeBooks(userId, L)), userId)
         .filter((b) => !b.absItemId)
         .slice(0, L);
     case "trending":
-      return annotate(await cached(`${key}:${L}`, async () => (await hc().books.trending({ duration: "month", limit: L })).items.map(summarizeBook)), userId);
+      return annotate(await cached(`${key}:${L}`, async () => (await hc().books.trending({ duration: "three_month", limit: L })).items.map(summarizeBook)), userId);
     case "week":
       return annotate(await cached(`${key}:${L}`, async () => (await hc().books.trending({ duration: "week", limit: L })).items.map(summarizeBook)), userId);
     case "year":
       return annotate(await cached(`${key}:${L}`, async () => (await hc().books.trending({ duration: "one_year", limit: L })).items.map(summarizeBook)), userId);
     case "new":
-      return annotate(await cached(`${key}:${L}`, async () => (await hc().books.released({ from: daysFromNow(-30), to: daysFromNow(0), limit: L })).items.map(summarizeBook)), userId);
+      return annotate(await cached(`${key}:${L}`, async () => query("DiscoverRecent", "release_date: { _gte: $from, _lte: $to }", "[{ users_count: desc_nulls_last }]", { from: daysFromNow(-90), to: daysFromNow(0) }, L)), userId);
     case "soon":
-      return annotate(await cached(`${key}:${L}`, async () => (await hc().books.released({ from: daysFromNow(1), to: daysFromNow(60), limit: L })).items.map(summarizeBook)), userId);
+      return annotate(await cached(`${key}:${L}`, async () => query("DiscoverUpcoming", "release_date: { _gt: $from, _lte: $to }", "[{ users_count: desc_nulls_last }]", { from: daysFromNow(0), to: daysFromNow(365) }, L)), userId);
     case "toprated":
       return annotate(
         await cached(`${key}:${L}`, () =>
