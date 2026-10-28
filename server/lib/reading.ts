@@ -926,3 +926,70 @@ export function readingView() {
     books,
   };
 }
+
+/** Which group a book falls in on the Reading page. Mirrors the cards there. */
+export function readingState(b: { matchStatus: string; hcStatus: number | null; syncStatus: string; heldReason: string | null }) {
+  if (b.matchStatus === "ignored") return "skipped";
+  if (b.matchStatus === "missing") return "notfound";
+  if (b.matchStatus === "review") return "review";
+  if (b.hcStatus === 5) return "dnf";
+  if (b.syncStatus === "pending" || b.syncStatus === "error") return "waiting";
+  if (b.syncStatus === "held") return b.heldReason === "threshold" ? "under" : "skipped";
+  return "synced";
+}
+
+let who: { at: number; abs: string | null; hardcover: string | null; image: string | null } | null = null;
+
+/** Names for a user card. Cached, since they rarely change. */
+async function identity() {
+  if (who && Date.now() - who.at < 10 * 60_000) return who;
+  const [abs, hc] = await Promise.all([
+    new Abs().me().then((m) => m.username).catch(() => null),
+    hardcover()
+      .me.get()
+      .then((m) => m as { username?: string; cachedImage?: { url?: string } | null; image?: { url?: string } | null })
+      .catch(() => null),
+  ]);
+  who = { at: Date.now(), abs, hardcover: hc?.username ?? null, image: hc?.cachedImage?.url ?? hc?.image?.url ?? null };
+  return who;
+}
+
+/**
+ * One summary per user for the Reading overview. Today that's just the
+ * Audiobookshelf user whose key Shelfhelp uses; with sign-in, admins will see
+ * everyone and each user only themselves.
+ */
+export async function readingUsers() {
+  const view = readingView();
+  const groups: Record<string, number> = { synced: 0, waiting: 0, review: 0, notfound: 0, skipped: 0, under: 0, dnf: 0 };
+  for (const b of view.books) groups[readingState(b)]++;
+  const errors = view.books.filter((b) => b.matchStatus === "matched" && b.syncStatus === "error").length;
+  const counted = view.books.filter((b) => !["under", "dnf"].includes(readingState(b)));
+  const listening = view.books.filter((b) => !b.isFinished && readingState(b) !== "under");
+  const id = await identity();
+  return [
+    {
+      id: "me",
+      name: id.abs ?? "You",
+      absUser: id.abs,
+      hardcoverUser: id.hardcover,
+      image: id.image,
+      role: "admin" as const,
+      you: true,
+      enabled: view.enabled,
+      autoSend: view.autoSend,
+      minProgress: view.minProgress,
+      running: view.running,
+      counts: {
+        ...groups,
+        errors,
+        issues: groups.review + groups.notfound + groups.skipped,
+        total: counted.length,
+        listening: counted.filter((b) => !b.isFinished).length,
+        finished: counted.filter((b) => b.isFinished).length,
+      },
+      nowListening: listening.slice(0, 1).map((b) => ({ title: b.title, progress: b.progress, coverUrl: b.coverUrl }))[0] ?? null,
+      covers: view.books.slice(0, 3).map((b) => b.coverUrl),
+    },
+  ];
+}

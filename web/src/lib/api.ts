@@ -429,3 +429,23 @@ export interface LinkPage {
   counts: LinkCounts;
   rows: LinkRow[];
 }
+
+export interface ReadingUser {
+  id: string;
+  name: string;
+  absUser: string | null;
+  hardcoverUser: string | null;
+  image: string | null;
+  role: "admin" | "user";
+  you: boolean;
+  enabled: boolean;
+  autoSend: boolean;
+  minProgress: number;
+  running: boolean;
+  counts: Record<
+    "synced" | "waiting" | "review" | "notfound" | "skipped" | "under" | "dnf" | "errors" | "issues" | "total" | "listening" | "finished",
+    number
+  >;
+  nowListening: { title: string; progress: number; coverUrl: string } | null;
+  covers: string[];
+}

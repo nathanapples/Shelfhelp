@@ -26,18 +26,6 @@ function pct(n: number, total: number) {
   return total ? Math.round((n / total) * 100) : 0;
 }
 
-/** One summary tile across the top of the page. */
-function Stat({ label, value, sub, to, accent }: { label: string; value: string | number; sub?: string; to?: string; accent?: string }) {
-  const body = (
-    <div className="card h-full p-4 transition hover:ring-gray-500 sm:p-5">
-      <div className="text-xs font-semibold uppercase tracking-wider text-gray-400">{label}</div>
-      <div className={`mt-1 text-3xl font-bold tabular-nums ${accent ?? "text-white"}`}>{value}</div>
-      {sub && <div className="mt-0.5 text-xs text-gray-500">{sub}</div>}
-    </div>
-  );
-  return to ? <Link to={to}>{body}</Link> : body;
-}
-
 function ListCard({ list, onSynced }: { list: List; onSynced: () => void }) {
   const navigate = useNavigate();
   const toast = useToast();
@@ -154,12 +142,9 @@ export default function ListsPage({ status }: { status: Status }) {
   const [adding, setAdding] = useState(false);
   const [poll, setPoll] = useState<number | false>(false);
   const { data: lists, error, loading, reload } = useApi<List[]>("/lists", { poll });
-  const { data: totals, reload: reloadTotals } = useApi<Record<string, number>>("/counts");
-
   useEffect(() => {
     setPoll(lists?.some((x) => x.syncing) ? 3000 : 20000);
-    reloadTotals();
-  }, [lists, reloadTotals]);
+  }, [lists]);
 
   const configured = status.configured.hardcover && status.configured.abs;
   const syncAll = async () => {
@@ -182,13 +167,6 @@ export default function ListsPage({ status }: { status: Status }) {
       </Empty>
     );
   }
-
-  const unique = totals ? (totals.matched ?? 0) + (totals.review ?? 0) + (totals.missing ?? 0) + (totals.ignored ?? 0) : 0;
-  const lastSync = lists
-    ?.map((l) => l.lastSyncedAt)
-    .filter((x): x is string => !!x)
-    .sort()
-    .pop();
 
   return (
     <div>
@@ -224,24 +202,11 @@ export default function ListsPage({ status }: { status: Status }) {
       )}
 
       {lists && lists.length > 0 && (
-        <>
-          <div className="mb-8 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-            <Stat label="Collections" value={lists.length} sub={lastSync ? `last sync ${timeAgo(lastSync)}` : "not synced yet"} />
-            <Stat
-              label="In library"
-              value={`${pct(totals?.matched ?? 0, unique)}%`}
-              sub={`${totals?.matched ?? 0} of ${unique} books`}
-              accent="text-green-400"
-            />
-            <Stat label="To review" value={totals?.review ?? 0} sub="waiting for you" to="/review" accent={totals?.review ? "text-yellow-400" : undefined} />
-            <Stat label="Not in library" value={totals?.missing ?? 0} sub="on a list, not owned" to="/missing" accent={totals?.missing ? "text-red-400" : undefined} />
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-2 2xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-2 2xl:grid-cols-3">
             {lists.map((l) => (
               <ListCard key={l.id} list={l} onSynced={reload} />
             ))}
-          </div>
-        </>
+        </div>
       )}
 
       <AddListModal

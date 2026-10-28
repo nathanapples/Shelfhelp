@@ -15,7 +15,7 @@ import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
 import { ROWS, discoverRow, type RowId } from "./lib/discover.js";
 import { applyDecision, linkLibrary, linkView, similarInLibrary } from "./lib/linking.js";
 import { forgetRequest, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
-import { decideItem, history, myShelfStatus, readingRunning, rematchItem, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
+import { decideItem, history, myShelfStatus, readingUsers, readingRunning, rematchItem, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
 
 const COOKIE = "shelfhelp_session";
 const MASK = "••••••••";
@@ -663,6 +663,7 @@ export async function routes(app: FastifyInstance) {
 
   // Reading progress
   app.get("/api/reading", async () => readingView());
+  app.get("/api/reading/users", async () => ({ users: await readingUsers() }));
 
   app.post("/api/reading/sync", async (_req, reply) => {
     // Check Now always re-reads Audiobookshelf, so metadata you just fixed is used.

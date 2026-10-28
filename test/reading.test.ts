@@ -107,3 +107,15 @@ test("prefers the copy on your shelves when Hardcover lists a book twice", () =>
   // A different book on your shelves isn't a substitute.
   assert.equal(preferShelved([{ id: 1, titleSim: 1, authorSim: 1 }, { id: 3, titleSim: 0.5, authorSim: 1 }], new Set([3])), null);
 });
+
+test("reading groups match the cards", async () => {
+  const { readingState } = await import("../server/lib/reading.ts");
+  const b = (o: Record<string, unknown>) => ({ matchStatus: "matched", hcStatus: 2, syncStatus: "synced", heldReason: null, ...o }) as never;
+  assert.equal(readingState(b({})), "synced");
+  assert.equal(readingState(b({ syncStatus: "pending" })), "waiting");
+  assert.equal(readingState(b({ syncStatus: "error" })), "waiting");
+  assert.equal(readingState(b({ hcStatus: 5, syncStatus: "pending" })), "dnf");
+  assert.equal(readingState(b({ syncStatus: "held", heldReason: "threshold" })), "under");
+  assert.equal(readingState(b({ matchStatus: "review" })), "review");
+  assert.equal(readingState(b({ matchStatus: "missing" })), "notfound");
+});

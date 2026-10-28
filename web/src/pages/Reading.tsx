@@ -1,8 +1,9 @@
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowPathIcon,
+  ChevronLeftIcon,
   ArrowTopRightOnSquareIcon,
   ArrowUpIcon,
   ArrowUturnLeftIcon,
@@ -26,6 +27,7 @@ import {
   type HcCandidate,
   type ReadingBook,
   type ReadingData,
+  type ReadingUser,
   type SearchHit,
   type HistoryEntry,
   type Library,
@@ -807,6 +809,9 @@ export default function ReadingPage() {
   };
   const [poll, setPoll] = useState<number | false>(false);
   const { data, error, loading, reload } = useApi<ReadingData>("/reading", { poll });
+  const { data: users } = useApi<{ users: ReadingUser[] }>("/reading/users");
+  const { userId } = useParams();
+  const readerName = users?.users.find((u) => u.id === userId)?.name ?? "Your reading";
   const [openId, setOpenId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -878,7 +883,10 @@ export default function ReadingPage() {
           </>
         }
       >
-        Reading
+        <Link to="/reading" className="mb-1 flex items-center gap-1 text-sm font-medium text-gray-400 hover:text-white">
+          <ChevronLeftIcon className="h-4 w-4" /> Reading
+        </Link>
+        {readerName}
       </PageTitle>
       <p className="-mt-3 mb-6 max-w-3xl text-sm text-gray-400">
         Your Audiobookshelf listening progress, sent to Hardcover.

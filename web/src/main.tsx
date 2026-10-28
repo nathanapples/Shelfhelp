@@ -14,6 +14,7 @@ import MissingPage from "./pages/Missing";
 import SearchPage from "./pages/Search";
 import SettingsPage from "./pages/Settings";
 import ReadingPage from "./pages/Reading";
+import ReadingUsersPage from "./pages/ReadingUsers";
 import LoginPage from "./pages/Login";
 import RequestsPage from "./pages/Requests";
 import DiscoverPage from "./pages/Discover";
@@ -42,7 +43,8 @@ function App() {
         <Route path="/lists/:id" element={<ListDetailPage />} />
         <Route path="/review" element={<ReviewPage />} />
         <Route path="/missing" element={<MissingPage />} />
-        <Route path="/reading" element={<ReadingPage />} />
+        <Route path="/reading" element={<ReadingUsersPage />} />
+        <Route path="/reading/:userId" element={<ReadingPage />} />
         <Route path="/search" element={<SearchPage status={status} />} />
         <Route path="/requests" element={<RequestsPage status={status} />} />
         <Route path="/activity" element={<Navigate to="/settings?tab=activity" replace />} />
