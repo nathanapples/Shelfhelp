@@ -2,13 +2,14 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import ActivityLog from "./Activity";
 import { ChaptarrSettings, testMessage } from "./ChaptarrSettings";
+import { UsersSettings } from "./UsersSettings";
 import { CheckCircleIcon, ExclamationTriangleIcon, LockClosedIcon } from "@heroicons/react/24/outline";
 import { api, type Library, type Settings, type Status } from "../lib/api";
 import { ErrorBlock, LoadingBlock, PageTitle, Spinner, Tabs, Toggle } from "../components/ui";
 import { useToast } from "../components/toast";
 
-type Tab = "general" | "hardcover" | "abs" | "chaptarr" | "activity" | "about";
-const TABS: Tab[] = ["general", "hardcover", "abs", "chaptarr", "activity", "about"];
+type Tab = "general" | "users" | "hardcover" | "abs" | "chaptarr" | "activity" | "about";
+const TABS: Tab[] = ["general", "users", "hardcover", "abs", "chaptarr", "activity", "about"];
 
 function Section({ title, description, children }: { title: string; description: ReactNode; children: ReactNode }) {
   return (
@@ -159,6 +160,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
         onChange={setTab}
         tabs={[
           { id: "general", label: "General" },
+          { id: "users", label: "Users" },
           { id: "hardcover", label: status.configured.hardcover ? "Hardcover" : "Hardcover ●" },
           { id: "abs", label: status.configured.abs ? "Audiobookshelf" : "Audiobookshelf ●" },
           { id: "chaptarr", label: "Chaptarr" },
@@ -324,6 +326,21 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
         </Section>
       )}
 
+      {tab === "users" && (
+        <Section title="Users and sign-in" description="Who can use Shelfhelp and how they sign in.">
+          <UsersSettings
+            s={s}
+            set={set}
+            locked={locked}
+            status={status}
+            testResult={<TestResult result={test} />}
+            setTest={setTest}
+            save={save}
+            saving={saving}
+          />
+        </Section>
+      )}
+
       {tab === "chaptarr" && (
         <Section
           title="Chaptarr"
@@ -370,7 +387,6 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
             {[
               ["Version", status.version],
               ["Source", <a key="s" className="text-indigo-400 hover:underline" href="https://github.com/nathanapples/shelfhelp" target="_blank" rel="noreferrer">github.com/nathanapples/shelfhelp</a>],
-              ["Coming later", "Requests and reading sync for other Audiobookshelf users"],
             ].map(([k, v]) => (
               <div key={String(k)} className="grid grid-cols-3 gap-4 px-5 py-3 text-sm">
                 <dt className="font-medium text-gray-400">{k}</dt>

@@ -102,6 +102,21 @@ export class Abs {
     return this.request<{ id: string; username: string; type: string; permissions?: Record<string, boolean> }>("GET", "/api/me");
   }
 
+  /** Every Audiobookshelf user. Needs an admin API key. */
+  async users() {
+    const data = await this.request<{ users: { id: string; username: string; email?: string | null; type: string; isActive?: boolean; hasOpenIDLink?: boolean }[] }>(
+      "GET",
+      "/api/users",
+    );
+    return data.users.map((u) => ({ id: u.id, username: u.username, email: u.email ?? null, type: u.type, isActive: u.isActive !== false, hasOpenIDLink: !!u.hasOpenIDLink }));
+  }
+
+  /** Another user's listening progress (books only). Needs an admin API key. */
+  async userProgress(absUserId: string): Promise<AbsProgress[]> {
+    const u = await this.request<{ mediaProgress?: AbsProgress[] }>("GET", `/api/users/${encodeURIComponent(absUserId)}`);
+    return (u.mediaProgress ?? []).filter((p) => p.libraryItemId && !p.episodeId);
+  }
+
   /** Listening progress for the API key's user (books only, not podcast episodes). */
   async myProgress(): Promise<AbsProgress[]> {
     const me = await this.request<{ mediaProgress?: AbsProgress[] }>("GET", "/api/me");

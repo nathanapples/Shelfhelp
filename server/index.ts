@@ -8,10 +8,11 @@ import { routes } from "./routes.js";
 import { reschedule } from "./lib/scheduler.js";
 import { startRequestWatcher } from "./lib/requests.js";
 import { linkLibrary } from "./lib/linking.js";
+import { resolveOwner } from "./lib/users.js";
 import { syncAll } from "./lib/sync.js";
 import { backfillHistory, syncReading } from "./lib/reading.js";
 
-const app = Fastify({ logger: false, bodyLimit: 1_000_000 });
+const app = Fastify({ logger: false, bodyLimit: 1_000_000, trustProxy: true });
 
 await app.register(fastifyCookie, { secret: sessionSecret() });
 await app.register(routes);
@@ -29,6 +30,7 @@ await app.listen({ port: config.port, host: config.host });
 console.log(`Shelfhelp ${config.version} listening on http://${config.host}:${config.port} (config in ${config.configDir})`);
 
 backfillHistory();
+resolveOwner().catch(() => {});
 reschedule();
 startRequestWatcher();
 // A first sync shortly after start, so lists catch up after a restart.

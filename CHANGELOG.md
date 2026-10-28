@@ -2,6 +2,16 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.3.0 (2026-10-28)
+
+- Users. Sign in with Pocket ID (or any OpenID Connect provider) or through Cloudflare Access, or keep no sign-in. People are matched to their Audiobookshelf accounts by email, then username. Audiobookshelf admins are admins here.
+- Readers see Discover, their own requests, their own reading and My account. Admins see everything.
+- Reading sync is per person: each reader's Audiobookshelf progress goes to their own Hardcover account, with their own options and history. Your existing reading data stays yours.
+- Admins can add a reader (an Audiobookshelf user plus their Hardcover token) from the Reading page, and manage roles under Settings, Users.
+- Requests show who asked; each person sees the ones they asked for.
+- `APP_PASSWORD` is an emergency admin sign-in when Pocket ID or Cloudflare is on. `AUTH_MODE=none` turns sign-in off from the container.
+- Signing in again is needed once after upgrading.
+
 ## 0.2.0 (2026-10-28)
 
 - Discover is the new home page: trending, new releases, coming soon, popular this year, your Want to Read books you don't own yet, recently added, recent requests.

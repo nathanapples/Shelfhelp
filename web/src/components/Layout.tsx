@@ -14,18 +14,18 @@ import {
   RectangleStackIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { api } from "../lib/api";
+import { api, isAdmin, type Status } from "../lib/api";
 import { jobStarted, useApi, useJobs } from "../lib/hooks";
 import { Spinner } from "./ui";
 import { useToast } from "./toast";
 
-const nav: { to: string; label: string; icon: React.ComponentType<{ className?: string }>; end?: boolean; count?: string }[] = [
+const nav: { to: string; label: string; icon: React.ComponentType<{ className?: string }>; end?: boolean; count?: string; admin?: boolean }[] = [
   { to: "/", label: "Discover", icon: SparklesIcon, end: true },
   { to: "/requests", label: "Requests", icon: InboxArrowDownIcon, count: "requests" },
   { to: "/reading", label: "Reading", icon: BookOpenIcon },
-  { to: "/collections", label: "Collections", icon: RectangleStackIcon },
-  { to: "/library", label: "Library", icon: BuildingLibraryIcon },
-  { to: "/settings", label: "Settings", icon: CogIcon },
+  { to: "/collections", label: "Collections", icon: RectangleStackIcon, admin: true },
+  { to: "/library", label: "Library", icon: BuildingLibraryIcon, admin: true },
+  { to: "/settings", label: "Settings", icon: CogIcon, admin: true },
 ];
 
 export function Logo({ className = "" }: { className?: string }) {
@@ -39,10 +39,20 @@ export function Logo({ className = "" }: { className?: string }) {
   );
 }
 
-function NavItems({ counts, onNavigate, showRequests }: { counts: Record<string, number> | null; onNavigate?: () => void; showRequests: boolean }) {
+function NavItems({
+  counts,
+  onNavigate,
+  showRequests,
+  admin,
+}: {
+  counts: Record<string, number> | null;
+  onNavigate?: () => void;
+  showRequests: boolean;
+  admin: boolean;
+}) {
   return (
     <nav className="mt-8 flex-1 space-y-2 px-4">
-      {nav.filter((n) => showRequests || n.to !== "/requests").map((n) => {
+      {nav.filter((n) => (showRequests || n.to !== "/requests") && (admin || !n.admin)).map((n) => {
         const count = n.count ? (counts?.[n.count] ?? 0) : 0;
         return (
           <NavLink
@@ -70,17 +80,11 @@ function NavItems({ counts, onNavigate, showRequests }: { counts: Record<string,
   );
 }
 
-export function Layout({
-  children,
-  version,
-  authRequired,
-  showRequests,
-}: {
-  children: ReactNode;
-  version: string;
-  authRequired: boolean;
-  showRequests: boolean;
-}) {
+export function Layout({ children, status }: { children: ReactNode; status: Status }) {
+  const version = status.version;
+  const authRequired = status.authRequired;
+  const showRequests = status.configured.chaptarr;
+  const admin = isAdmin(status);
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const { data: counts, reload } = useApi<Record<string, number>>("/counts", { poll: 15000 });
@@ -106,13 +110,28 @@ export function Layout({
 
 
   const signOut = async () => {
-    await api("/auth/logout", { method: "POST" }).catch(() => {});
-    window.location.href = "/";
+    const r = await api<{ redirect?: string | null }>("/auth/logout", { method: "POST" }).catch(() => null);
+    window.location.href = r?.redirect || "/";
   };
 
   const sidebarFooter = (
-    <div className="px-6 pb-6 text-xs text-gray-500">
-      <a href="https://github.com/nathanapples/shelfhelp" target="_blank" rel="noreferrer" className="hover:text-gray-300">
+    <div className="space-y-3 px-4 pb-5">
+      {status.user && (
+        <NavLink
+          to="/account"
+          onClick={() => setOpen(false)}
+          className="flex items-center gap-3 rounded-md px-2 py-2 text-sm text-gray-300 transition hover:bg-gray-700"
+        >
+          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold uppercase text-white">
+            {status.user.name.slice(0, 1)}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium text-white">{status.user.name}</span>
+            <span className="block text-xs text-gray-500">{status.user.role === "admin" ? "Admin" : "Reader"} · My account</span>
+          </span>
+        </NavLink>
+      )}
+      <a href="https://github.com/nathanapples/shelfhelp" target="_blank" rel="noreferrer" className="block px-2 text-xs text-gray-500 hover:text-gray-300">
         Shelfhelp v{version}
       </a>
     </div>
@@ -137,7 +156,7 @@ export function Layout({
               <XMarkIcon className="h-6 w-6" />
             </button>
           </div>
-          <NavItems counts={counts} onNavigate={() => setOpen(false)} showRequests={showRequests} />
+          <NavItems counts={counts} onNavigate={() => setOpen(false)} showRequests={showRequests} admin={admin} />
           {sidebarFooter}
         </div>
       </div>
@@ -147,7 +166,7 @@ export function Layout({
         <div className="px-6">
           <Logo />
         </div>
-        <NavItems counts={counts} showRequests={showRequests} />
+        <NavItems counts={counts} showRequests={showRequests} admin={admin} />
         {sidebarFooter}
       </aside>
 

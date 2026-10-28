@@ -57,7 +57,7 @@ export function requestView(r: RequestRow) {
     hcUrl: r.slug ? `https://hardcover.app/books/${r.slug}` : null,
     coverUrl: r.cover_url,
     releaseYear: r.release_year,
-    requestedBy: r.requested_by,
+    requestedBy: requesters(r.id),
     status: r.status,
     message: r.message,
     chaptarrBookId: r.chaptarr_book_id,
@@ -69,8 +69,30 @@ export function requestView(r: RequestRow) {
   };
 }
 
-export function listRequests() {
-  return (db.prepare("SELECT * FROM requests ORDER BY requested_at DESC").all() as unknown as RequestRow[]).map(requestView);
+/** Names of everyone who asked for a request. */
+function requesters(requestId: number): string[] {
+  const rows = db
+    .prepare(
+      `SELECT COALESCE(u.display_name, u.username, u.email, 'Someone') AS name FROM request_users ru
+       JOIN users u ON u.id = ru.user_id WHERE ru.request_id = ? ORDER BY ru.created_at`,
+    )
+    .all(requestId) as { name: string }[];
+  return rows.map((r) => r.name);
+}
+
+/** Requests someone asked for, or every request when userId is left out (admins). */
+export function listRequests(userId?: number) {
+  const rows =
+    userId === undefined
+      ? (db.prepare("SELECT * FROM requests ORDER BY requested_at DESC").all() as unknown as RequestRow[])
+      : (db
+          .prepare("SELECT r.* FROM requests r JOIN request_users ru ON ru.request_id = r.id WHERE ru.user_id = ? ORDER BY r.requested_at DESC")
+          .all(userId) as unknown as RequestRow[]);
+  return rows.map(requestView);
+}
+
+export function canSeeRequest(id: number, userId: number) {
+  return !!db.prepare("SELECT 1 FROM request_users WHERE request_id = ? AND user_id = ?").get(id, userId);
 }
 
 /** Request statuses for some Hardcover books, keyed by book then format. */
@@ -225,7 +247,8 @@ export interface RequestOutcome {
 }
 
 /** Sends one book to Chaptarr in one or both formats. */
-export async function requestBook(hcBookId: number, format: RequestFormat, by = "admin"): Promise<RequestOutcome[]> {
+export async function requestBook(hcBookId: number, format: RequestFormat, userId: number): Promise<RequestOutcome[]> {
+  const by = String(userId);
   const s = getSettings();
   if (!s.requestsEnabled) throw new Error("Requests are turned off. Turn them on in Settings, Chaptarr.");
   const c = new Chaptarr(undefined, undefined, s);
@@ -241,6 +264,7 @@ export async function requestBook(hcBookId: number, format: RequestFormat, by = 
       const message = (err as Error).message;
       row = save(hcBook, f, { status: "failed", message }, by);
     }
+    db.prepare("INSERT OR IGNORE INTO request_users (request_id, user_id) VALUES (?, ?)").run(row.id, userId);
     const label = `${hcBook.title} (${formatLabel(f).toLowerCase()})`;
     log(row.status === "failed" ? "warn" : "info", row.status === "failed" ? `Request for ${label} failed: ${row.message}` : `Requested ${label}: ${row.message}`);
     out.push({ format: f, status: row.status, message: row.message ?? "", request: requestView(row) });
@@ -308,15 +332,25 @@ async function requestOne(
   throw new ChaptarrError(errorText(data, status), status, data);
 }
 
-/** Forgets a request in Shelfhelp. Chaptarr keeps the book. */
-export function forgetRequest(id: number) {
-  db.prepare("DELETE FROM requests WHERE id = ?").run(id);
+/**
+ * Forgets a request in Shelfhelp (Chaptarr keeps the book). An admin removes
+ * it for everyone; anyone else just stops following it.
+ */
+export function forgetRequest(id: number, userId: number, admin: boolean) {
+  if (admin) {
+    db.prepare("DELETE FROM request_users WHERE request_id = ?").run(id);
+    db.prepare("DELETE FROM requests WHERE id = ?").run(id);
+    return;
+  }
+  db.prepare("DELETE FROM request_users WHERE request_id = ? AND user_id = ?").run(id, userId);
+  const left = db.prepare("SELECT COUNT(*) AS n FROM request_users WHERE request_id = ?").get(id) as { n: number };
+  if (!left.n) db.prepare("DELETE FROM requests WHERE id = ?").run(id);
 }
 
-export async function retryRequest(id: number) {
+export async function retryRequest(id: number, userId: number) {
   const r = db.prepare("SELECT * FROM requests WHERE id = ?").get(id) as unknown as RequestRow | undefined;
   if (!r) throw new Error("That request is gone.");
-  return requestBook(r.hc_book_id, r.format, r.requested_by);
+  return requestBook(r.hc_book_id, r.format, userId);
 }
 
 let refreshing: Promise<void> | null = null;
@@ -446,7 +480,13 @@ export function startRequestWatcher(everyMs = 5 * 60_000) {
   timer.unref();
 }
 
-export function requestCounts() {
-  const rows = db.prepare("SELECT status, COUNT(*) AS n FROM requests GROUP BY status").all() as { status: RequestStatus; n: number }[];
+export function requestCounts(userId?: number) {
+  const rows = (
+    userId === undefined
+      ? db.prepare("SELECT status, COUNT(*) AS n FROM requests GROUP BY status").all()
+      : db
+          .prepare("SELECT r.status, COUNT(*) AS n FROM requests r JOIN request_users ru ON ru.request_id = r.id WHERE ru.user_id = ? GROUP BY r.status")
+          .all(userId)
+  ) as { status: RequestStatus; n: number }[];
   return Object.fromEntries(rows.map((r) => [r.status, r.n])) as Partial<Record<RequestStatus, number>>;
 }

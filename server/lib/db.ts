@@ -252,6 +252,105 @@ const migrations: string[] = [
   );
   CREATE INDEX library_links_book ON library_links(hc_book_id);
   `,
+  `
+  -- People. User 1 is the owner: the Audiobookshelf API key's user and the
+  -- Hardcover token in Settings. Everything synced before users existed is theirs.
+  CREATE TABLE users (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    abs_user_id          TEXT UNIQUE,
+    username             TEXT,
+    email                TEXT,
+    display_name         TEXT,
+    role                 TEXT NOT NULL DEFAULT 'user',
+    oidc_sub             TEXT UNIQUE,
+    hardcover_token      TEXT,
+    reading_enabled      INTEGER NOT NULL DEFAULT 1,
+    reading_auto_send    INTEGER NOT NULL DEFAULT 0,
+    reading_min_progress REAL NOT NULL DEFAULT 5,
+    reading_mark_owned   INTEGER NOT NULL DEFAULT 0,
+    created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    last_login_at        TEXT
+  );
+  INSERT INTO users (id, role, display_name, reading_enabled, reading_auto_send, reading_min_progress, reading_mark_owned) VALUES (
+    1, 'admin', NULL,
+    COALESCE((SELECT CASE value WHEN 'false' THEN 0 ELSE 1 END FROM settings WHERE key = 'readingEnabled'), 1),
+    COALESCE((SELECT CASE value WHEN 'true' THEN 1 ELSE 0 END FROM settings WHERE key = 'readingAutoSend'), 0),
+    COALESCE((SELECT CAST(value AS REAL) FROM settings WHERE key = 'readingMinProgress'), 5),
+    COALESCE((SELECT CASE value WHEN 'true' THEN 1 ELSE 0 END FROM settings WHERE key = 'readingMarkOwned'), 0)
+  );
+
+  CREATE TABLE sessions (
+    id         TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL,
+    via        TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL
+  );
+
+  -- Reading rows, shelves and history belong to a user.
+  ALTER TABLE reading RENAME TO reading_old;
+  CREATE TABLE reading (
+    user_id         INTEGER NOT NULL DEFAULT 1,
+    abs_item_id     TEXT NOT NULL,
+    library_id      TEXT NOT NULL,
+    progress        REAL NOT NULL DEFAULT 0,
+    current_time    REAL,
+    duration        REAL,
+    is_finished     INTEGER NOT NULL DEFAULT 0,
+    started_at      INTEGER,
+    finished_at     INTEGER,
+    last_update     INTEGER,
+    match_status    TEXT NOT NULL DEFAULT 'missing',
+    match_source    TEXT,
+    hc_book_id      INTEGER,
+    hc_book         TEXT,
+    score           REAL,
+    reasons         TEXT NOT NULL DEFAULT '[]',
+    candidates      TEXT NOT NULL DEFAULT '[]',
+    searched_key    TEXT,
+    searched_at     TEXT,
+    hc_status       INTEGER,
+    hc_progress     REAL,
+    sync_status     TEXT NOT NULL DEFAULT 'none',
+    sync_action     TEXT,
+    synced_key      TEXT,
+    synced_at       TEXT,
+    seen_at         TEXT NOT NULL,
+    PRIMARY KEY (user_id, abs_item_id)
+  );
+  INSERT INTO reading (user_id, abs_item_id, library_id, progress, current_time, duration, is_finished, started_at, finished_at, last_update,
+    match_status, match_source, hc_book_id, hc_book, score, reasons, candidates, searched_key, searched_at, hc_status, hc_progress,
+    sync_status, sync_action, synced_key, synced_at, seen_at)
+  SELECT 1, abs_item_id, library_id, progress, current_time, duration, is_finished, started_at, finished_at, last_update,
+    match_status, match_source, hc_book_id, hc_book, score, reasons, candidates, searched_key, searched_at, hc_status, hc_progress,
+    sync_status, sync_action, synced_key, synced_at, seen_at FROM reading_old;
+  DROP TABLE reading_old;
+
+  ALTER TABLE hc_library RENAME TO hc_library_old;
+  CREATE TABLE hc_library (
+    user_id      INTEGER NOT NULL DEFAULT 1,
+    book_id      INTEGER NOT NULL,
+    entry_id     INTEGER NOT NULL,
+    status       INTEGER NOT NULL,
+    progress     REAL,
+    refreshed_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, book_id)
+  );
+  INSERT INTO hc_library (user_id, book_id, entry_id, status, progress, refreshed_at)
+    SELECT 1, book_id, entry_id, status, progress, refreshed_at FROM hc_library_old;
+  DROP TABLE hc_library_old;
+
+  ALTER TABLE reading_history ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1;
+
+  -- Everyone who asked for a request, so each person sees their own.
+  CREATE TABLE request_users (
+    request_id INTEGER NOT NULL,
+    user_id    INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (request_id, user_id)
+  );
+  INSERT INTO request_users (request_id, user_id) SELECT id, 1 FROM requests;
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

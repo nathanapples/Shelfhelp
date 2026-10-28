@@ -1,5 +1,4 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { timingSafeEqual, createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { Abs, AbsError } from "./lib/abs.js";
 import { db, json } from "./lib/db.js";
@@ -14,26 +13,55 @@ import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
 import { ROWS, discoverRow, type RowId } from "./lib/discover.js";
 import { applyDecision, linkLibrary, linkView, similarInLibrary } from "./lib/linking.js";
-import { forgetRequest, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
+import { canSeeRequest, forgetRequest, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
+import { cloudflareProblem, cloudflareUser, endSession, createSession, oidcCallback, oidcDiscovery, oidcRedirectUri, oidcStart, passwordMatches, viewer, type Viewer } from "./lib/auth.js";
+import { OWNER_ID, absUsers, allUsers, asReader, getUser, readerById, readers, resolveOwner, updateUser, userForAbs, userView, type Reader } from "./lib/users.js";
 import { decideItem, history, myShelfStatus, readingUsers, readingRunning, rematchItem, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
 
-const COOKIE = "shelfhelp_session";
 const MASK = "••••••••";
 
-function sessionValue() {
-  return createHash("sha256").update(`shelfhelp:${config.appPassword}`).digest("hex");
+declare module "fastify" {
+  interface FastifyRequest {
+    viewer: Viewer;
+  }
 }
 
-function authed(req: FastifyRequest): boolean {
-  if (!config.appPassword) return true;
-  const raw = req.cookies[COOKIE];
-  if (!raw) return false;
-  const un = req.unsignCookie(raw);
-  if (!un.valid || !un.value) return false;
-  const a = Buffer.from(un.value);
-  const b = Buffer.from(sessionValue());
-  return a.length === b.length && timingSafeEqual(a, b);
+/** What someone who isn't an admin may use. Everything else is admin-only. */
+const USER_ROUTES: [string, RegExp][] = [
+  ["GET", /^\/api\/discover(\/[^/]+)?$/],
+  ["GET", /^\/api\/hardcover\/(search|book)$/],
+  ["GET", /^\/api\/abs\/cover\/[^/]+$/],
+  ["GET", /^\/api\/library\/similar$/],
+  ["GET", /^\/api\/(jobs|counts)$/],
+  ["*", /^\/api\/requests(\/.*)?$/],
+  ["*", /^\/api\/reading(\/.*)?$/],
+  ["*", /^\/api\/me(\/.*)?$/],
+];
+
+function userAllowed(method: string, path: string) {
+  return USER_ROUTES.some(([m, re]) => (m === "*" || m === method) && re.test(path));
 }
+
+class HttpError extends Error {
+  constructor(
+    public code: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** The reader a Reading request is about: ?user=<id>, or yourself. Only admins can look at someone else. */
+function targetReader(req: FastifyRequest): Reader {
+  const asked = Number((req.query as { user?: string } | undefined)?.user);
+  const id = asked || req.viewer.user.id;
+  if (id !== req.viewer.user.id && req.viewer.user.role !== "admin") throw new HttpError(403, "You can only see your own reading.");
+  const r = readerById(id);
+  if (!r) throw new HttpError(404, "No such reader.");
+  return r;
+}
+
+const isAdmin = (req: FastifyRequest) => req.viewer.user.role === "admin";
 
 function listView(l: ListRow) {
   return {
@@ -120,38 +148,182 @@ function booksWithItems(rows: Record<string, unknown>[]) {
 
 function fail(reply: FastifyReply, err: unknown, code = 400) {
   const message = (err as Error)?.message ?? String(err);
+  if (err instanceof HttpError) return reply.code(err.code).send({ error: message });
   return reply.code(err instanceof AbsError && err.status === 401 ? 401 : code).send({ error: message });
 }
 
 export async function routes(app: FastifyInstance) {
   app.addHook("onRequest", async (req, reply) => {
     if (!req.url.startsWith("/api/")) return;
-    if (req.url.startsWith("/api/auth/") || req.url === "/api/status") return;
-    if (!authed(req)) return reply.code(401).send({ error: "Sign in required" });
+    const path = req.url.split("?")[0];
+    if (path.startsWith("/api/auth/") || path === "/api/status") return;
+    const v = await viewer(req);
+    if (!v) return reply.code(401).send({ error: "Sign in required" });
+    req.viewer = v;
+    if (v.user.role !== "admin" && !userAllowed(req.method, path)) return reply.code(403).send({ error: "Only an admin can do that." });
   });
 
-  app.get("/api/status", async (req) => ({
-    version: config.version,
-    authRequired: !!config.appPassword,
-    signedIn: authed(req),
-    configured: isConfigured(),
-    requestsEnabled: getSettings().requestsEnabled && isConfigured().chaptarr,
-    requestFormat: getSettings().requestFormat,
-  }));
+  app.get("/api/status", async (req) => {
+    const s = getSettings();
+    const v = await viewer(req).catch(() => null);
+    return {
+      version: config.version,
+      authMode: s.authMode,
+      authRequired: s.authMode !== "none" || !!config.appPassword,
+      passwordLogin: !!config.appPassword,
+      oidcLabel: s.oidcLabel || "Pocket ID",
+      signedIn: !!v,
+      signinProblem: !v && s.authMode === "cloudflare" ? cloudflareProblem() : null,
+      user: v ? { ...userView(v.user), via: v.via } : null,
+      configured: isConfigured(),
+      requestsEnabled: s.requestsEnabled && isConfigured().chaptarr,
+      requestFormat: s.requestFormat,
+    };
+  });
 
+  // Emergency / shared password: signs in as the owner.
   app.post<{ Body: { password?: string } }>("/api/auth/login", async (req, reply) => {
-    const given = Buffer.from(req.body?.password ?? "");
-    const want = Buffer.from(config.appPassword);
-    if (!config.appPassword || (given.length === want.length && timingSafeEqual(given, want))) {
-      reply.setCookie(COOKIE, sessionValue(), { signed: true, httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 30 });
-      return { ok: true };
-    }
-    return reply.code(401).send({ error: "Wrong password" });
+    if (!config.appPassword) return reply.code(400).send({ error: "No password is set. Set APP_PASSWORD to use one." });
+    if (!passwordMatches(req.body?.password ?? "")) return reply.code(401).send({ error: "Wrong password" });
+    await resolveOwner();
+    createSession(req, reply, OWNER_ID, "password");
+    return { ok: true };
   });
 
-  app.post("/api/auth/logout", async (_req, reply) => {
-    reply.clearCookie(COOKIE, { path: "/" });
+  app.post("/api/auth/logout", async (req, reply) => {
+    endSession(req, reply);
+    const s = getSettings();
+    // Behind Cloudflare Access, signing out of Shelfhelp alone does nothing; send them to Cloudflare's logout.
+    return { ok: true, redirect: s.authMode === "cloudflare" && s.cfTeamDomain ? `https://${s.cfTeamDomain}/cdn-cgi/access/logout` : null };
+  });
+
+  app.get<{ Querystring: { back?: string } }>("/api/auth/oidc/start", async (req, reply) => {
+    if (getSettings().authMode !== "oidc") return reply.redirect("/");
+    try {
+      return await oidcStart(req, reply, req.query.back ?? "/");
+    } catch (err) {
+      return reply.redirect(`/?signin_error=${encodeURIComponent((err as Error).message)}`);
+    }
+  });
+
+  app.get<{ Querystring: Record<string, string> }>("/api/auth/oidc/callback", async (req, reply) => oidcCallback(req, reply));
+
+  // Your account
+  app.get("/api/me", async (req) => {
+    const u = req.viewer.user;
+    let hardcoverUser: string | null = null;
+    const r = readerById(u.id)!;
+    if (r.hardcoverToken) hardcoverUser = (await testHardcover(r.hardcoverToken).catch(() => null))?.username ?? null;
+    return { ...userView(u), via: req.viewer.via, hardcoverUser };
+  });
+
+  app.put<{ Body: { hardcoverToken?: string | null } }>("/api/me", async (req, reply) => {
+    try {
+      const u = req.viewer.user;
+      const token = req.body?.hardcoverToken;
+      if (token === undefined || token === MASK) return { ok: true };
+      if (token) {
+        const who = await testHardcover(token);
+        // The owner's token is the one in Settings.
+        if (u.id === OWNER_ID) saveSettings({ hardcoverToken: token });
+        else updateUser(u.id, { hardcover_token: token });
+        syncReading("Hardcover connected", { userId: u.id }).catch(() => {});
+        return { ok: true, hardcoverUser: who.username };
+      }
+      if (u.id !== OWNER_ID) updateUser(u.id, { hardcover_token: null });
+      return { ok: true, hardcoverUser: null };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  // Users (admin)
+  app.get("/api/users", async (_req, reply) => {
+    try {
+      await resolveOwner();
+      const linked = new Map(allUsers().map((u) => [u.abs_user_id, u]));
+      const abs = await absUsers(true).catch(() => []);
+      return {
+        users: allUsers().map(userView),
+        absUsers: abs.map((a) => ({ ...a, shelfhelpId: linked.get(a.id)?.id ?? null })),
+      };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  /** Adds an Audiobookshelf user as a Shelfhelp user (a reader), optionally with their Hardcover token. */
+  app.post<{ Body: { absUserId: string; hardcoverToken?: string } }>("/api/users", async (req, reply) => {
+    try {
+      const a = (await absUsers(true)).find((x) => x.id === req.body.absUserId);
+      if (!a) return reply.code(404).send({ error: "That Audiobookshelf user wasn't found." });
+      const u = await userForAbs(a);
+      if (req.body.hardcoverToken) {
+        await testHardcover(req.body.hardcoverToken);
+        if (u.id === OWNER_ID) saveSettings({ hardcoverToken: req.body.hardcoverToken });
+        else updateUser(u.id, { hardcover_token: req.body.hardcoverToken });
+        syncReading("reader added", { userId: u.id }).catch(() => {});
+      }
+      return userView(getUser(u.id)!);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.put<{ Params: { id: string }; Body: { role?: "admin" | "user"; hardcoverToken?: string | null; readingEnabled?: boolean } }>(
+    "/api/users/:id",
+    async (req, reply) => {
+      try {
+        const id = Number(req.params.id);
+        const u = getUser(id);
+        if (!u) return reply.code(404).send({ error: "No such user." });
+        const b = req.body ?? {};
+        if (b.role && id !== OWNER_ID) updateUser(id, { role: b.role === "admin" ? "admin" : "user" });
+        if (b.readingEnabled !== undefined) updateUser(id, { reading_enabled: b.readingEnabled ? 1 : 0 });
+        if (b.hardcoverToken !== undefined && b.hardcoverToken !== MASK) {
+          if (b.hardcoverToken) await testHardcover(b.hardcoverToken);
+          if (id === OWNER_ID) {
+            if (b.hardcoverToken) saveSettings({ hardcoverToken: b.hardcoverToken });
+          } else updateUser(id, { hardcover_token: b.hardcoverToken || null });
+          if (b.hardcoverToken) syncReading("Hardcover connected", { userId: id }).catch(() => {});
+        }
+        return userView(getUser(id)!);
+      } catch (err) {
+        return fail(reply, err);
+      }
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>("/api/users/:id", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (id === OWNER_ID) return reply.code(400).send({ error: "The owner can't be removed." });
+    if (id === req.viewer.user.id) return reply.code(400).send({ error: "You can't remove yourself." });
+    db.prepare("DELETE FROM sessions WHERE user_id = ?").run(id);
+    db.prepare("DELETE FROM reading WHERE user_id = ?").run(id);
+    db.prepare("DELETE FROM hc_library WHERE user_id = ?").run(id);
+    db.prepare("DELETE FROM request_users WHERE user_id = ?").run(id);
+    db.prepare("DELETE FROM users WHERE id = ?").run(id);
     return { ok: true };
+  });
+
+  app.post<{ Body: { issuer?: string; clientId?: string; internalUrl?: string } }>("/api/settings/test/oidc", async (req, reply) => {
+    try {
+      const s = getSettings();
+      const issuer = (req.body?.issuer || s.oidcIssuer).replace(/\/+$/, "");
+      const internal = (req.body?.internalUrl ?? s.oidcInternalUrl).replace(/\/+$/, "");
+      const base = internal || issuer;
+      const res = await fetch(`${base}/.well-known/openid-configuration`, { signal: AbortSignal.timeout(15_000) }).catch((err: Error) => {
+        throw new Error(`Couldn't reach ${base}: ${(err as Error & { cause?: { code?: string } }).cause?.code ?? err.message}`);
+      });
+      if (!res.ok) throw new Error(`${base} answered ${res.status}. Is the issuer URL right?`);
+      const d = (await res.json()) as { issuer?: string };
+      if (d.issuer && d.issuer.replace(/\/+$/, "") !== issuer) {
+        throw new Error(`The provider calls itself ${d.issuer}, not ${issuer}. Use that as the issuer URL.`);
+      }
+      return { issuer: d.issuer ?? issuer, redirectUri: oidcRedirectUri(req) };
+    } catch (err) {
+      return fail(reply, err);
+    }
   });
 
   // Settings
@@ -162,12 +334,29 @@ export async function routes(app: FastifyInstance) {
       hardcoverToken: s.hardcoverToken ? MASK : "",
       absToken: s.absToken ? MASK : "",
       chaptarrApiKey: s.chaptarrApiKey ? MASK : "",
+      oidcClientSecret: s.oidcClientSecret ? MASK : "",
       lockedByEnv: lockedByEnv(),
     };
   });
 
-  app.put<{ Body: Partial<Settings> }>("/api/settings", async (req) => {
+  app.put<{ Body: Partial<Settings> }>("/api/settings", async (req, reply) => {
     const patch = { ...req.body };
+    if (patch.oidcClientSecret === MASK) delete patch.oidcClientSecret;
+    // Switching sign-in modes must not lock you out.
+    if (patch.authMode && patch.authMode !== getSettings().authMode) {
+      const next = { ...getSettings(), ...patch };
+      if (next.authMode === "oidc" && (!next.oidcIssuer || !next.oidcClientId)) {
+        return reply.code(400).send({ error: "Add the Pocket ID issuer URL and client ID before turning it on." });
+      }
+      if (next.authMode === "cloudflare") {
+        if (!next.cfTeamDomain || !next.cfAudience) return reply.code(400).send({ error: "Add the Cloudflare team domain and AUD tag first." });
+        if (!req.headers["cf-access-jwt-assertion"]) {
+          return reply.code(400).send({
+            error: "This page didn't come through Cloudflare Access, so turning it on would lock you out. Open Shelfhelp through its Cloudflare address and try again.",
+          });
+        }
+      }
+    }
     if (patch.hardcoverToken === MASK) delete patch.hardcoverToken;
     if (patch.absToken === MASK) delete patch.absToken;
     if (patch.chaptarrApiKey === MASK) delete patch.chaptarrApiKey;
@@ -181,9 +370,22 @@ export async function routes(app: FastifyInstance) {
     if (patch.absLibraries !== undefined && !Array.isArray(patch.absLibraries)) delete patch.absLibraries;
     delete patch.readingApproved;
     const before = getSettings().matchStrictness;
+    const modeBefore = getSettings().authMode;
     const saved = saveSettings(patch);
+    // Turning on Cloudflare Access: you must still be an admin afterwards, or it's undone.
+    if (saved.authMode === "cloudflare" && modeBefore !== "cloudflare") {
+      const cf = await cloudflareUser(req).catch(() => null);
+      if (!cf || cf.role !== "admin") {
+        saveSettings({ authMode: modeBefore });
+        return reply.code(400).send({
+          error: cf
+            ? "Cloudflare signed you in as someone who isn't an admin here, so it wasn't turned on."
+            : `Cloudflare's sign-in didn't check out: ${cloudflareProblem() ?? "unknown problem"}. It wasn't turned on.`,
+        });
+      }
+    }
     reschedule();
-    if (["readingMinProgress", "readingEnabled", "absLibraries"].some((k) => k in patch)) {
+    if (["absLibraries"].some((k) => k in patch)) {
       syncReading("settings changed").catch(() => {});
     }
     if (patch.matchStrictness && patch.matchStrictness !== before) {
@@ -194,6 +396,7 @@ export async function routes(app: FastifyInstance) {
       hardcoverToken: saved.hardcoverToken ? MASK : "",
       absToken: saved.absToken ? MASK : "",
       chaptarrApiKey: saved.chaptarrApiKey ? MASK : "",
+      oidcClientSecret: saved.oidcClientSecret ? MASK : "",
     };
   });
 
@@ -289,7 +492,7 @@ export async function routes(app: FastifyInstance) {
       const ids = hits.map((h) => h.id);
       const known = inLibrary(ids);
       const requests = requestsFor(ids);
-      const shelves = myShelfStatus(ids);
+      const shelves = myShelfStatus(ids, req.viewer.user.id);
       return hits.map((h) => ({ ...h, absItemId: known.get(h.id) ?? null, mine: shelves.get(h.id) ?? null, requests: requests.get(h.id) ?? {} }));
     } catch (err) {
       return fail(reply, err);
@@ -306,7 +509,7 @@ export async function routes(app: FastifyInstance) {
       return {
         ...book,
         absItemId: inLibrary([book.id]).get(book.id) ?? null,
-        mine: myShelfStatus([book.id]).get(book.id) ?? null,
+        mine: myShelfStatus([book.id], req.viewer.user.id).get(book.id) ?? null,
         requests: requestsFor([book.id]).get(book.id) ?? {},
       };
     } catch (err) {
@@ -319,7 +522,7 @@ export async function routes(app: FastifyInstance) {
   app.get<{ Params: { row: string } }>("/api/discover/:row", async (req, reply) => {
     try {
       if (!ROWS.some((r) => r.id === req.params.row)) return reply.code(404).send({ error: "No such row" });
-      return await discoverRow(req.params.row as RowId);
+      return await discoverRow(req.params.row as RowId, req.viewer.user.id);
     } catch (err) {
       return fail(reply, err);
     }
@@ -475,14 +678,19 @@ export async function routes(app: FastifyInstance) {
   });
 
   // Requests
-  app.get("/api/requests", async () => {
+  const myRequests = (req: FastifyRequest) => {
+    const scope = isAdmin(req) ? undefined : req.viewer.user.id;
+    return { requests: listRequests(scope), counts: requestCounts(scope), all: isAdmin(req) };
+  };
+
+  app.get("/api/requests", async (req) => {
     refreshRequests().catch(() => {});
-    return { requests: listRequests(), counts: requestCounts() };
+    return myRequests(req);
   });
 
-  app.post("/api/requests/refresh", async () => {
+  app.post("/api/requests/refresh", async (req) => {
     await refreshRequests(0);
-    return { requests: listRequests(), counts: requestCounts() };
+    return myRequests(req);
   });
 
   app.post<{ Body: { hcBookId: number; format?: "audiobook" | "ebook" | "both" } }>("/api/requests", async (req, reply) => {
@@ -490,7 +698,7 @@ export async function routes(app: FastifyInstance) {
       const id = Number(req.body?.hcBookId);
       if (!id) return reply.code(400).send({ error: "Which book?" });
       const format = req.body.format && ["audiobook", "ebook", "both"].includes(req.body.format) ? req.body.format : getSettings().requestFormat;
-      return { outcomes: await requestBook(id, format) };
+      return { outcomes: await requestBook(id, format, req.viewer.user.id) };
     } catch (err) {
       return fail(reply, err);
     }
@@ -498,14 +706,16 @@ export async function routes(app: FastifyInstance) {
 
   app.post<{ Params: { id: string } }>("/api/requests/:id/retry", async (req, reply) => {
     try {
-      return { outcomes: await retryRequest(Number(req.params.id)) };
+      const id = Number(req.params.id);
+      if (!isAdmin(req) && !canSeeRequest(id, req.viewer.user.id)) return reply.code(404).send({ error: "That request is gone." });
+      return { outcomes: await retryRequest(id, req.viewer.user.id) };
     } catch (err) {
       return fail(reply, err);
     }
   });
 
   app.delete<{ Params: { id: string } }>("/api/requests/:id", async (req) => {
-    forgetRequest(Number(req.params.id));
+    forgetRequest(Number(req.params.id), req.viewer.user.id, isAdmin(req));
     return { ok: true };
   });
 
@@ -625,14 +835,14 @@ export async function routes(app: FastifyInstance) {
   app.get("/api/missing", async () => crossList("missing"));
   app.get("/api/ignored", async () => crossList("ignored"));
 
-  app.get("/api/counts", async () => {
+  app.get("/api/counts", async (req) => {
     const r = db
       .prepare(
         `SELECT b.status, COUNT(DISTINCT b.hc_book_id || ':' || l.abs_library_id) AS n
          FROM list_books b JOIN lists l ON l.id = b.list_id GROUP BY b.status`,
       )
       .all() as { status: string; n: number }[];
-    const c = requestCounts();
+    const c = requestCounts(isAdmin(req) ? undefined : req.viewer.user.id);
     const openRequests = (c.pending ?? 0) + (c.requested ?? 0) + (c.downloading ?? 0) + (c.downloaded ?? 0);
     return { ...Object.fromEntries(r.map((x) => [x.status, x.n])), requests: openRequests };
   });
@@ -661,23 +871,69 @@ export async function routes(app: FastifyInstance) {
 
   app.get("/api/activity", async () => recentActivity());
 
-  // Reading progress
-  app.get("/api/reading", async () => readingView());
-  app.get("/api/reading/users", async () => ({ users: await readingUsers() }));
+  // Reading progress. Every route works on ?user=<id> (admins) or yourself.
+  app.get("/api/reading", async (req, reply) => {
+    try {
+      const r = targetReader(req);
+      return asReader(r, () => ({ ...readingView(), reader: { id: r.id, name: r.name, hasHardcover: !!r.hardcoverToken, isOwner: r.isOwner } }));
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
 
-  app.post("/api/reading/sync", async (_req, reply) => {
-    // Check Now always re-reads Audiobookshelf, so metadata you just fixed is used.
-    const settings = getSettings();
-    if (!settings.readingEnabled) return reply.code(409).send({ error: "Reading progress is turned off. Turn it on with the gear button." });
-    if (readingRunning()) return { started: false, running: true };
-    syncReading("manual", { force: true }).catch(() => {});
-    return { started: true };
+  app.get("/api/reading/users", async (req) => {
+    const me = req.viewer.user;
+    const visible = isAdmin(req) ? readers() : [readerById(me.id)!];
+    // Admins always see their own card, even before connecting Hardcover.
+    if (isAdmin(req) && !visible.some((r) => r.id === me.id)) visible.unshift(readerById(me.id)!);
+    return { users: await readingUsers(visible, me.id) };
+  });
+
+  app.get("/api/reading/settings", async (req, reply) => {
+    try {
+      const r = targetReader(req);
+      return { enabled: r.enabled, autoSend: r.autoSend, minProgress: r.minProgress, markOwned: r.markOwned };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.put<{ Body: { enabled?: boolean; autoSend?: boolean; minProgress?: number; markOwned?: boolean } }>("/api/reading/settings", async (req, reply) => {
+    try {
+      const r = targetReader(req);
+      const b = req.body ?? {};
+      const patch: Record<string, number> = {};
+      if (b.enabled !== undefined) patch.reading_enabled = b.enabled ? 1 : 0;
+      if (b.autoSend !== undefined) patch.reading_auto_send = b.autoSend ? 1 : 0;
+      if (b.markOwned !== undefined) patch.reading_mark_owned = b.markOwned ? 1 : 0;
+      if (b.minProgress !== undefined) patch.reading_min_progress = Math.min(100, Math.max(0, Number(b.minProgress) || 0));
+      updateUser(r.id, patch);
+      syncReading("settings changed", { userId: r.id }).catch(() => {});
+      return { ok: true };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.post("/api/reading/sync", async (req, reply) => {
+    try {
+      const r = targetReader(req);
+      if (!r.enabled) return reply.code(409).send({ error: "Reading progress is turned off. Turn it on with the gear button." });
+      if (!r.hardcoverToken) return reply.code(409).send({ error: "Connect a Hardcover account first, under My account." });
+      if (readingRunning(r.id)) return { started: false, running: true };
+      // Check Now always re-reads Audiobookshelf, so metadata you just fixed is used.
+      syncReading("manual", { force: true, userId: r.id }).catch(() => {});
+      return { started: true };
+    } catch (err) {
+      return fail(reply, err);
+    }
   });
 
   // Sends exactly the changes you picked (or every waiting one). Nothing else.
   app.post<{ Body: { ids?: string[] } }>("/api/reading/send", async (req, reply) => {
     try {
-      return await send(req.body?.ids?.length ? req.body.ids : null);
+      const r = targetReader(req);
+      return await asReader(r, () => send(req.body?.ids?.length ? req.body.ids : null));
     } catch (err) {
       return fail(reply, err);
     }
@@ -686,42 +942,54 @@ export async function routes(app: FastifyInstance) {
   // Forgets a book's match and cached ASIN/ISBN answers, then matches it fresh.
   app.post<{ Body: { absItemId: string } }>("/api/reading/rematch", async (req, reply) => {
     try {
+      const r = targetReader(req);
       const { absItemId } = req.body;
       const before = db
         .prepare("SELECT hc_book_id, library_id FROM overrides WHERE abs_item_id = ? AND action = 'match'")
         .get(absItemId) as { hc_book_id: number; library_id: string } | undefined;
       await rematchItem(absItemId);
       if (before) await decide(before.hc_book_id, before.library_id, "reset");
-      const r = await syncReading("match again");
-      return { started: r === "started", running: r === "running" };
+      const res = await syncReading("match again", { userId: r.id });
+      return { started: res === "started", running: res === "running" };
     } catch (err) {
       return fail(reply, err);
     }
   });
 
-  app.post<{ Body: { id: string } }>("/api/reading/skip", async (req) => {
-    skipChange(req.body.id);
-    return { ok: true };
+  app.post<{ Body: { id: string } }>("/api/reading/skip", async (req, reply) => {
+    try {
+      asReader(targetReader(req), () => skipChange(req.body.id));
+      return { ok: true };
+    } catch (err) {
+      return fail(reply, err);
+    }
   });
 
-  app.get("/api/reading/history", async () =>
-    history().map((h) => ({
-      id: h.id,
-      ts: h.ts,
-      absItemId: h.abs_item_id,
-      hcBookId: h.hc_book_id,
-      title: h.title,
-      description: h.description,
-      kind: h.kind,
-      undoneAt: h.undone_at,
-      undoNote: h.undo_note,
-      coverUrl: `/api/abs/cover/${h.abs_item_id}`,
-    })),
-  );
+  app.get("/api/reading/history", async (req, reply) => {
+    try {
+      return asReader(targetReader(req), () =>
+        history().map((h) => ({
+          id: h.id,
+          ts: h.ts,
+          absItemId: h.abs_item_id,
+          hcBookId: h.hc_book_id,
+          title: h.title,
+          description: h.description,
+          kind: h.kind,
+          undoneAt: h.undone_at,
+          undoNote: h.undo_note,
+          coverUrl: `/api/abs/cover/${h.abs_item_id}`,
+        })),
+      );
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
 
   app.post<{ Params: { id: string } }>("/api/reading/history/:id/undo", async (req, reply) => {
     try {
-      return { note: await undo(Number(req.params.id)) };
+      const r = targetReader(req);
+      return { note: await asReader(r, () => undo(Number(req.params.id))) };
     } catch (err) {
       return fail(reply, err);
     }
@@ -731,20 +999,21 @@ export async function routes(app: FastifyInstance) {
     "/api/reading/decisions",
     async (req, reply) => {
       try {
+        const r = targetReader(req);
         const { absItemId, action, hcBookId, hcBook } = req.body;
         const before = db
           .prepare("SELECT hc_book_id, library_id FROM overrides WHERE abs_item_id = ? AND action = 'match'")
           .get(absItemId) as { hc_book_id: number; library_id: string } | undefined;
-        const libraryId = decideItem(absItemId, action, hcBookId);
+        const libraryId = asReader(r, () => decideItem(absItemId, action, hcBookId));
         applyDecision(absItemId, action, hcBook ?? null);
         // One match for both features: tell the collections too.
         if (libraryId && action === "match" && hcBookId) {
-          rememberBook(absItemId, hcBook ?? null);
+          asReader(r, () => rememberBook(absItemId, hcBook ?? null));
           await decide(hcBookId, libraryId, "match", absItemId);
         } else if (before && action === "reset") {
           await decide(before.hc_book_id, before.library_id, "reset");
         }
-        syncReading("decision").catch(() => {});
+        syncReading("decision", { userId: r.id }).catch(() => {});
         return { ok: true };
       } catch (err) {
         return fail(reply, err);

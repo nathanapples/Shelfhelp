@@ -18,7 +18,13 @@ import { judge, scoreCandidate, type HcBook } from "./matcher.js";
 import { normalizeAsin, seriesNumber } from "./normalize.js";
 import { getSettings, isConfigured } from "./settings.js";
 import { log } from "./activity.js";
-import { currentJob, finishJob, startJob, step } from "./progress.js";
+import { currentJob, finishJob, jobsView, startJob, step } from "./progress.js";
+import { asReader, getUser, reader, readerById, readers, type Reader } from "./users.js";
+
+/** The current reader's id, for every query below. */
+const U = () => reader().id;
+/** Hardcover as the current reader. */
+const hcFor = () => hardcover(reader().hardcoverToken);
 
 export type MatchStatus = "matched" | "review" | "missing" | "ignored";
 export type SyncStatus = "synced" | "pending" | "skipped" | "error" | "none" | "held";
@@ -79,25 +85,48 @@ export const STATUS_NAMES: Record<number, string> = {
   6: "Ignored",
 };
 
-let running = false;
-export const readingRunning = () => running;
+const runningFor = new Set<number>();
+/** Is a sync running for this reader (default: the current one)? */
+export const readingRunning = (id = reader().id) => runningFor.has(id);
 
 const SEARCH_AGAIN_MS = 7 * 24 * 3600_000;
 
-/** Pull progress, match, then work out (and with auto-send, send) changes. */
-export async function syncReading(reason: string, { force = false } = {}): Promise<"started" | "running" | "off" | "not-configured"> {
-  const settings = getSettings();
-  if (!settings.readingEnabled) return "off";
-  if (!isConfigured().hardcover || !isConfigured().abs) return "not-configured";
-  if (running) return "running";
-  running = true;
-  startJob(JOB, "Reading");
+/**
+ * Pull progress, match, then work out (and with auto-send, send) changes.
+ * For one reader, or everyone who has reading sync on.
+ */
+export async function syncReading(
+  reason: string,
+  { force = false, userId }: { force?: boolean; userId?: number } = {},
+): Promise<"started" | "running" | "off" | "not-configured"> {
+  if (!isConfigured().abs) return "not-configured";
+  if (userId !== undefined) {
+    const r = readerById(userId);
+    if (!r) return "not-configured";
+    return asReader(r, () => syncOne(reason, force));
+  }
+  let any: "started" | "running" | "off" | "not-configured" = "off";
+  for (const r of readers()) {
+    const res = await asReader(r, () => syncOne(reason, force));
+    if (res === "started" || any === "off") any = res;
+  }
+  return any;
+}
+
+async function syncOne(reason: string, force: boolean): Promise<"started" | "running" | "off" | "not-configured"> {
+  const me = reader();
+  if (!me.enabled) return "off";
+  if (!me.hardcoverToken) return "not-configured";
+  if (runningFor.has(me.id)) return "running";
+  runningFor.add(me.id);
+  startJob(job(), me.isOwner ? "Reading" : `Reading for ${me.name}`);
   try {
-    step(JOB, "Getting your listening progress from Audiobookshelf");
-    const progress = await new Abs().myProgress();
-    const libraries = await new Abs().selectedLibraries();
+    step(job(), "Getting listening progress from Audiobookshelf");
+    const abs = new Abs();
+    const progress = me.isOwner || !me.absUserId ? await abs.myProgress() : await abs.userProgress(me.absUserId);
+    const libraries = await abs.selectedLibraries();
     const allowed = new Set(libraries.map((l) => l.id));
-    for (const lib of libraries) await refreshLibrary(lib.id, { force, job: JOB });
+    for (const lib of libraries) await refreshLibrary(lib.id, { force, job: job() });
     const items = getItems([...new Set(progress.map((p) => p.libraryItemId))]);
     const now = new Date().toISOString();
 
@@ -109,42 +138,45 @@ export async function syncReading(reason: string, { force = false } = {}): Promi
     }
     // Forget books whose progress is gone, but keep rows from libraries you've
     // turned off so their history and decisions are there if you turn them back on.
-    const stale = db.prepare("SELECT abs_item_id, library_id FROM reading WHERE seen_at <> ?").all(now) as { abs_item_id: string; library_id: string }[];
-    for (const r of stale) if (allowed.has(r.library_id)) db.prepare("DELETE FROM reading WHERE abs_item_id = ?").run(r.abs_item_id);
+    const stale = db.prepare("SELECT abs_item_id, library_id FROM reading WHERE user_id = ? AND seen_at <> ?").all(U(), now) as { abs_item_id: string; library_id: string }[];
+    for (const r of stale) if (allowed.has(r.library_id)) db.prepare("DELETE FROM reading WHERE user_id = ? AND abs_item_id = ?").run(U(), r.abs_item_id);
 
     // Your shelves first, so matching can prefer the copy you already have.
     const library = await hardcoverLibrary();
     await dropVanishedMatches();
     await matchAll();
-    step(JOB, "Getting book details from Hardcover");
+    step(job(), "Getting book details from Hardcover");
     await fillBookDetails();
-    const summary = await plan(settings.readingAutoSend, library);
-    log("info", `Reading progress (${reason}): ${summary}`);
-    finishJob(JOB, true, summary);
+    const summary = await plan(me.autoSend, library);
+    log("info", `Reading progress${me.isOwner ? "" : ` for ${me.name}`} (${reason}): ${summary}`);
+    finishJob(job(), true, summary);
   } catch (err) {
     const message = (err as Error).message;
-    log("error", `Reading progress sync failed: ${message}`);
-    finishJob(JOB, false, message);
+    log("error", `Reading progress sync${me.isOwner ? "" : ` for ${me.name}`} failed: ${message}`);
+    finishJob(job(), false, message);
   } finally {
-    running = false;
+    runningFor.delete(me.id);
   }
   return "started";
 }
 
-const JOB = "reading";
-export const readingJob = () => currentJob(JOB);
+/** Progress job ids: reading-<user id> and reading-send-<user id>. */
+export const readingJobId = (id: number) => `reading-${id}`;
+const job = () => readingJobId(reader().id);
+const sendJobId = () => `reading-send-${reader().id}`;
+export const readingJob = () => currentJob(job());
 
 function upsertProgress(p: AbsProgress, libraryId: string, now: string) {
   const progress = p.isFinished ? 1 : Math.max(p.progress || 0, p.ebookProgress || 0);
   db.prepare(
-    `INSERT INTO reading (abs_item_id, library_id, progress, current_time, duration, is_finished, started_at, finished_at, last_update, seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(abs_item_id) DO UPDATE SET library_id = excluded.library_id, progress = excluded.progress,
+    `INSERT INTO reading (user_id, abs_item_id, library_id, progress, current_time, duration, is_finished, started_at, finished_at, last_update, seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, abs_item_id) DO UPDATE SET library_id = excluded.library_id, progress = excluded.progress,
        current_time = excluded.current_time, duration = excluded.duration, is_finished = excluded.is_finished,
        started_at = excluded.started_at, finished_at = excluded.finished_at, last_update = excluded.last_update,
        seen_at = excluded.seen_at`,
   ).run(
-    p.libraryItemId, libraryId, progress, p.currentTime ?? null, p.duration ?? null, p.isFinished ? 1 : 0,
+    U(), p.libraryItemId, libraryId, progress, p.currentTime ?? null, p.duration ?? null, p.isFinished ? 1 : 0,
     p.startedAt ?? null, p.finishedAt ?? null, p.lastUpdate ?? null, now,
   );
 }
@@ -152,7 +184,7 @@ function upsertProgress(p: AbsProgress, libraryId: string, now: string) {
 /** Rows from the libraries you've chosen in Settings. */
 function rows(): ReadingRow[] {
   const chosen = getSettings().absLibraries;
-  const all = db.prepare("SELECT * FROM reading").all() as unknown as ReadingRow[];
+  const all = db.prepare("SELECT * FROM reading WHERE user_id = ?").all(U()) as unknown as ReadingRow[];
   return chosen.length ? all.filter((r) => chosen.includes(r.library_id)) : all;
 }
 
@@ -161,11 +193,11 @@ async function matchAll() {
   const all = rows().filter((r) => r.progress > 0 || r.is_finished);
   const items = getItems(all.map((r) => r.abs_item_id));
   const strictness = getSettings().matchStrictness;
-  const shelved = new Set((db.prepare("SELECT book_id FROM hc_library").all() as { book_id: number }[]).map((r) => r.book_id));
+  const shelved = new Set((db.prepare("SELECT book_id FROM hc_library WHERE user_id = ?").all(U()) as { book_id: number }[]).map((r) => r.book_id));
 
   let i = 0;
   for (const row of all) {
-    step(JOB, "Matching your books to Hardcover", i++, all.length);
+    step(job(), "Matching your books to Hardcover", i++, all.length);
     const item = items.get(row.abs_item_id);
     if (!item) continue;
     let decided = decidedMatch(row.abs_item_id, row.library_id);
@@ -223,10 +255,10 @@ function saveAuto(
 ) {
   db.prepare(
     `UPDATE reading SET match_status = ?, match_source = 'auto', hc_book_id = ?, hc_book = ?, score = ?, reasons = ?,
-     candidates = ?, searched_key = ?, searched_at = CASE WHEN ? THEN datetime('now') ELSE searched_at END WHERE abs_item_id = ?`,
+     candidates = ?, searched_key = ?, searched_at = CASE WHEN ? THEN datetime('now') ELSE searched_at END WHERE user_id = ? AND abs_item_id = ?`,
   ).run(
     status, best?.id ?? null, best ? JSON.stringify(view(best)) : null, best?.score ?? 0, JSON.stringify(reasons),
-    JSON.stringify(candidates), key, searched ? 1 : 0, itemId,
+    JSON.stringify(candidates), key, searched ? 1 : 0, U(), itemId,
   );
 }
 
@@ -247,19 +279,19 @@ export function preferShelved<T extends { id: number; titleSim: number; authorSi
 /** Matches whose Hardcover book is gone (merged or deleted) are matched again. */
 async function dropVanishedMatches() {
   const matched = db
-    .prepare("SELECT abs_item_id, hc_book_id FROM reading WHERE match_status IN ('matched', 'review') AND hc_book_id IS NOT NULL AND match_source <> 'manual'")
-    .all() as { abs_item_id: string; hc_book_id: number }[];
+    .prepare("SELECT abs_item_id, hc_book_id FROM reading WHERE user_id = ? AND match_status IN ('matched', 'review') AND hc_book_id IS NOT NULL AND match_source <> 'manual'")
+    .all(U()) as { abs_item_id: string; hc_book_id: number }[];
   if (!matched.length) return;
-  step(JOB, "Checking your matches still exist on Hardcover");
+  step(job(), "Checking your matches still exist on Hardcover");
   const ids = [...new Set(matched.map((m) => m.hc_book_id))];
   const alive = new Set<number>();
   for (let i = 0; i < ids.length; i += 500) {
-    for (const b of await hardcover().books.getMany(ids.slice(i, i + 500))) alive.add(b.id);
+    for (const b of await hcFor().books.getMany(ids.slice(i, i + 500))) alive.add(b.id);
   }
   for (const m of matched) {
     if (alive.has(m.hc_book_id)) continue;
     await relookupItem(m.abs_item_id).catch(() => {});
-    db.prepare("UPDATE reading SET searched_key = NULL WHERE abs_item_id = ?").run(m.abs_item_id);
+    db.prepare("UPDATE reading SET searched_key = NULL WHERE user_id = ? AND abs_item_id = ?").run(U(), m.abs_item_id);
   }
 }
 
@@ -268,6 +300,7 @@ export async function rematchItem(itemId: string) {
   tx(() => {
     db.prepare("DELETE FROM item_overrides WHERE abs_item_id = ?").run(itemId);
     db.prepare("DELETE FROM overrides WHERE abs_item_id = ? AND action = 'match'").run(itemId);
+    // Matching decisions are shared, so everyone's copy is looked up again.
     db.prepare("UPDATE reading SET searched_key = NULL, match_source = NULL WHERE abs_item_id = ?").run(itemId);
   });
   await relookupItem(itemId);
@@ -275,12 +308,12 @@ export async function rematchItem(itemId: string) {
 
 /** Looks up Hardcover details for matched books that don't have them yet. */
 async function fillBookDetails() {
-  const missing = db.prepare("SELECT abs_item_id, hc_book_id FROM reading WHERE hc_book_id IS NOT NULL AND hc_book IS NULL").all() as {
+  const missing = db.prepare("SELECT abs_item_id, hc_book_id FROM reading WHERE user_id = ? AND hc_book_id IS NOT NULL AND hc_book IS NULL").all(U()) as {
     abs_item_id: string;
     hc_book_id: number;
   }[];
   if (!missing.length) return;
-  const books = await hardcover().books.getMany([...new Set(missing.map((m) => m.hc_book_id))]);
+  const books = await hcFor().books.getMany([...new Set(missing.map((m) => m.hc_book_id))]);
   const byId = new Map(books.map((b) => [b.id, b]));
   for (const m of missing) {
     const b = byId.get(m.hc_book_id);
@@ -329,7 +362,7 @@ function decidedMatch(itemId: string, libraryId: string): Decided | null {
 }
 
 function saveMatch(itemId: string, d: Decided) {
-  const current = db.prepare("SELECT hc_book_id, hc_book FROM reading WHERE abs_item_id = ?").get(itemId) as
+  const current = db.prepare("SELECT hc_book_id, hc_book FROM reading WHERE user_id = ? AND abs_item_id = ?").get(U(), itemId) as
     | { hc_book_id: number | null; hc_book: string | null }
     | undefined;
   let keepBook = current?.hc_book_id === d.hcBookId ? current?.hc_book : null;
@@ -346,8 +379,8 @@ function saveMatch(itemId: string, d: Decided) {
     }
   }
   db.prepare(
-    `UPDATE reading SET match_status = ?, match_source = ?, hc_book_id = ?, hc_book = ?, reasons = ?, score = NULL WHERE abs_item_id = ?`,
-  ).run(d.status, d.source, d.hcBookId, keepBook, JSON.stringify([d.reason]), itemId);
+    `UPDATE reading SET match_status = ?, match_source = ?, hc_book_id = ?, hc_book = ?, reasons = ?, score = NULL WHERE user_id = ? AND abs_item_id = ?`,
+  ).run(d.status, d.source, d.hcBookId, keepBook, JSON.stringify([d.reason]), U(), itemId);
 }
 
 export type Candidate = HcBookView & { idVia: string[] };
@@ -360,7 +393,7 @@ export async function findCandidates(item: { id: string; title: string; authors:
 
   const out = new Map<number, Candidate>();
   if (byId.size) {
-    const books = await hardcover().books.getMany([...byId.keys()]);
+    const books = await hcFor().books.getMany([...byId.keys()]);
     for (const b of books) {
       const fs = b.cachedFeaturedSeries && "series" in b.cachedFeaturedSeries ? b.cachedFeaturedSeries : null;
       out.set(b.id, {
@@ -429,8 +462,7 @@ export interface Rules {
 }
 
 function rules(): Rules {
-  const s = getSettings();
-  return { minProgress: s.readingMinProgress, addNew: true };
+  return { minProgress: reader().minProgress, addNew: true };
 }
 
 function stateKey(r: ReadingRow) {
@@ -545,29 +577,29 @@ function currentProgress(entry: Entry): number | null {
 
 /** Your whole Hardcover library, by book id. Paged, about one request per 100 books. */
 async function hardcoverLibrary(): Promise<Map<number, Entry>> {
-  const hc = hardcover();
+  const hc = hcFor();
   const out = new Map<number, Entry>();
   for (let offset = 0; ; offset += 100) {
-    step(JOB, `Checking your Hardcover shelves (${offset} books so far)`);
+    step(job(), `Checking your Hardcover shelves (${offset} books so far)`);
     const page = await hc.library.list({ limit: 100, offset });
     for (const e of page.items) out.set(e.bookId, e);
     if (page.items.length < page.limit) break;
   }
   const now = new Date().toISOString();
   tx(() => {
-    db.prepare("DELETE FROM hc_library").run();
-    const ins = db.prepare("INSERT INTO hc_library (book_id, entry_id, status, progress, refreshed_at) VALUES (?, ?, ?, ?, ?)");
-    for (const e of out.values()) ins.run(e.bookId, e.id, e.statusId, currentProgress(e), now);
+    db.prepare("DELETE FROM hc_library WHERE user_id = ?").run(U());
+    const ins = db.prepare("INSERT INTO hc_library (user_id, book_id, entry_id, status, progress, refreshed_at) VALUES (?, ?, ?, ?, ?, ?)");
+    for (const e of out.values()) ins.run(U(), e.bookId, e.id, e.statusId, currentProgress(e), now);
   });
   return out;
 }
 
-/** What's on your Hardcover shelves for these books, from the last sync. */
-export function myShelfStatus(bookIds: number[]): Map<number, { status: number; statusName: string; progress: number | null }> {
+/** What's on a reader's Hardcover shelves for these books (default: the current reader), from the last sync. */
+export function myShelfStatus(bookIds: number[], userId = U()): Map<number, { status: number; statusName: string; progress: number | null }> {
   if (!bookIds.length) return new Map();
   const rows = db
-    .prepare(`SELECT book_id, status, progress FROM hc_library WHERE book_id IN (${bookIds.map(() => "?").join(",")})`)
-    .all(...bookIds) as { book_id: number; status: number; progress: number | null }[];
+    .prepare(`SELECT book_id, status, progress FROM hc_library WHERE user_id = ? AND book_id IN (${bookIds.map(() => "?").join(",")})`)
+    .all(userId, ...bookIds) as { book_id: number; status: number; progress: number | null }[];
   return new Map(rows.map((r) => [r.book_id, { status: r.status, statusName: STATUS_NAMES[r.status] ?? "On a shelf", progress: r.progress }]));
 }
 
@@ -576,7 +608,7 @@ export function myShelfStatus(bookIds: number[]): Map<number, { status: number; 
  * otherwise every change waits as "pending" until you send it.
  */
 async function plan(autoSend: boolean, known?: Map<number, Entry>): Promise<string> {
-  db.prepare("UPDATE reading SET sync_status = 'none', sync_action = NULL WHERE match_status <> 'matched'").run();
+  db.prepare("UPDATE reading SET sync_status = 'none', sync_action = NULL WHERE user_id = ? AND match_status <> 'matched'").run(U());
   const matched = rows().filter((r) => r.match_status === "matched" && r.hc_book_id);
   const rule = rules();
   // Every matched book is checked against your current Hardcover shelves, so a
@@ -586,7 +618,7 @@ async function plan(autoSend: boolean, known?: Map<number, Entry>): Promise<stri
   const todo = matched.filter((r) => r.synced_key !== stateKey(r) || !yours(r));
   // Always refreshed, so the page shows your current Hardcover shelves.
   const library = known ?? (await hardcoverLibrary());
-  step(JOB, "Working out what to send");
+  step(job(), "Working out what to send");
   if (!todo.length) return `${matched.length} matched, nothing new`;
   let pending = 0;
   let held = 0;
@@ -617,7 +649,7 @@ async function plan(autoSend: boolean, known?: Map<number, Entry>): Promise<stri
  * back to waiting with the new plan.
  */
 export async function send(ids: string[] | null, library?: Map<number, Entry>) {
-  const hc = hardcover();
+  const hc = hcFor();
   const waiting = rows().filter((r) => r.match_status === "matched" && r.sync_status === "pending" && (!ids || ids.includes(r.abs_item_id)));
   if (!waiting.length) return { sent: 0, failed: 0, changed: 0 };
   const lib = library ?? (await hardcoverLibrary());
@@ -626,8 +658,8 @@ export async function send(ids: string[] | null, library?: Map<number, Entry>) {
   let sent = 0;
   let failed = 0;
   let changed = 0;
-  const sendJob = currentJob(JOB) ? JOB : "reading-send";
-  if (sendJob === "reading-send") startJob(sendJob, "Sending to Hardcover");
+  const sendJob = currentJob(job()) ? job() : sendJobId();
+  if (sendJob === sendJobId()) startJob(sendJob, "Sending to Hardcover");
   let n = 0;
   for (const r of waiting) {
     step(sendJob, "Sending changes to Hardcover", n++, waiting.length);
@@ -642,10 +674,10 @@ export async function send(ids: string[] | null, library?: Map<number, Entry>) {
     try {
       const entryId = await push(hc, r, p, entry, items.get(r.abs_item_id)?.asin ?? null);
       db.prepare(
-        `INSERT INTO reading_history (abs_item_id, hc_book_id, title, description, kind, entry_id, created_entry, prev_status, prev_progress, prev_read_ids, prev_dates)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO reading_history (user_id, abs_item_id, hc_book_id, title, description, kind, entry_id, created_entry, prev_status, prev_progress, prev_read_ids, prev_dates)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
-        r.abs_item_id, r.hc_book_id!, title, p.description, p.kind, entryId ?? null, p.kind === "add" ? 1 : 0,
+        U(), r.abs_item_id, r.hc_book_id!, title, p.description, p.kind, entryId ?? null, p.kind === "add" ? 1 : 0,
         entry?.statusId ?? null, entry ? currentProgress(entry) : null, JSON.stringify(readIds(entry)),
         p.dates ? JSON.stringify({ readId: p.dates.readId, ...p.dates.before }) : null,
       );
@@ -656,14 +688,14 @@ export async function send(ids: string[] | null, library?: Map<number, Entry>) {
       failed++;
     }
   }
-  if (sendJob === "reading-send") finishJob(sendJob, failed === 0, `Sent ${sent}${failed ? `, ${failed} failed` : ""}`);
+  if (sendJob === sendJobId()) finishJob(sendJob, failed === 0, `Sent ${sent}${failed ? `, ${failed} failed` : ""}`);
   log("info", `Sent ${sent} reading change${sent === 1 ? "" : "s"} to Hardcover${failed ? `, ${failed} failed` : ""}${changed ? `, ${changed} changed since you looked and went back to waiting` : ""}`);
   return { sent, failed, changed };
 }
 
 /** Leaves one change unsent. It comes back only if your progress changes. */
 export function skipChange(itemId: string) {
-  const r = db.prepare("SELECT * FROM reading WHERE abs_item_id = ?").get(itemId) as ReadingRow | undefined;
+  const r = db.prepare("SELECT * FROM reading WHERE user_id = ? AND abs_item_id = ?").get(U(), itemId) as ReadingRow | undefined;
   if (!r || r.sync_status !== "pending") return;
   mark(r, "skipped", `Skipped by you: ${r.sync_action}`, r.hc_status, r.hc_progress, true);
 }
@@ -672,13 +704,13 @@ function mark(r: ReadingRow, status: SyncStatus, action: string, hcStatus: numbe
   db.prepare(
     `UPDATE reading SET sync_status = ?, sync_action = ?, hc_status = ?, hc_progress = ?,
        synced_key = CASE WHEN ? THEN ? ELSE synced_key END, synced_at = CASE WHEN ? THEN datetime('now') ELSE synced_at END
-     WHERE abs_item_id = ?`,
-  ).run(status, action, hcStatus, hcProgress, done ? 1 : 0, stateKey(r), done ? 1 : 0, r.abs_item_id);
+     WHERE user_id = ? AND abs_item_id = ?`,
+  ).run(status, action, hcStatus, hcProgress, done ? 1 : 0, stateKey(r), done ? 1 : 0, U(), r.abs_item_id);
 }
 
 /** The audiobook edition to record: the one with this ASIN, else the most-read audio edition. */
 async function audioEdition(bookId: number, asin: string | null): Promise<number | undefined> {
-  const page = await hardcover().books.editions(bookId, { limit: 50 });
+  const page = await hcFor().books.editions(bookId, { limit: 50 });
   const audio = page.items.filter((e) => e.readingFormatId === 2);
   const want = normalizeAsin(asin);
   const exact = want ? audio.find((e) => normalizeAsin(e.asin) === want) : undefined;
@@ -724,7 +756,7 @@ async function push(hc: ReturnType<typeof hardcover>, r: ReadingRow, plan: Plan,
       log("warn", `Progress for "${json<HcBookView | null>(r.hc_book, null)?.title ?? bookId}" not sent: ${(err as Error).message}`);
     }
   }
-  if (getSettings().readingMarkOwned && editionId) {
+  if (reader().markOwned && editionId) {
     await hc.library.markOwned(editionId).catch((err: Error) => log("warn", `Couldn't mark as owned: ${err.message}`));
   }
   return entryId;
@@ -734,7 +766,7 @@ async function push(hc: ReturnType<typeof hardcover>, r: ReadingRow, plan: Plan,
 // History and undo
 
 export function history() {
-  return db.prepare("SELECT * FROM reading_history ORDER BY id DESC LIMIT 500").all() as Record<string, unknown>[];
+  return db.prepare("SELECT * FROM reading_history WHERE user_id = ? ORDER BY id DESC LIMIT 500").all(U()) as Record<string, unknown>[];
 }
 
 /**
@@ -743,7 +775,7 @@ export function history() {
  * started is deleted; a progress update goes back to the old percent.
  */
 export async function undo(id: number) {
-  const h = db.prepare("SELECT * FROM reading_history WHERE id = ?").get(id) as
+  const h = db.prepare("SELECT * FROM reading_history WHERE id = ? AND user_id = ?").get(id, U()) as
     | {
         id: number; abs_item_id: string; hc_book_id: number; title: string; kind: string; entry_id: number | null;
         created_entry: number; prev_status: number | null; prev_progress: number | null; prev_read_ids: string | null; undone_at: string | null;
@@ -752,7 +784,7 @@ export async function undo(id: number) {
     | undefined;
   if (!h) throw new Error("That change wasn't found.");
   if (h.undone_at) throw new Error("That change was already undone.");
-  const hc = hardcover();
+  const hc = hcFor();
   const entry = h.entry_id ? await hc.library.get(h.entry_id) : await hc.library.forBook(h.hc_book_id);
   if (!entry) throw new Error(`"${h.title}" isn't in your Hardcover library anymore.`);
   let note: string;
@@ -791,7 +823,7 @@ export async function undo(id: number) {
 
   db.prepare("UPDATE reading_history SET undone_at = datetime('now'), undo_note = ? WHERE id = ?").run(note, h.id);
   // Keep it from being sent again until your progress changes.
-  const r = db.prepare("SELECT * FROM reading WHERE abs_item_id = ?").get(h.abs_item_id) as ReadingRow | undefined;
+  const r = db.prepare("SELECT * FROM reading WHERE user_id = ? AND abs_item_id = ?").get(U(), h.abs_item_id) as ReadingRow | undefined;
   if (r) mark(r, "skipped", `Undone by you. ${note}`, h.created_entry ? null : h.prev_status, h.prev_progress, true);
   log("info", `Undid "${h.title}": ${note}`);
   return note;
@@ -833,7 +865,7 @@ export function backfillHistory() {
 // Decisions and views
 
 export function decideItem(itemId: string, action: "match" | "ignore" | "missing" | "reset", hcBookId?: number) {
-  const row = db.prepare("SELECT library_id FROM reading WHERE abs_item_id = ?").get(itemId) as { library_id: string } | undefined;
+  const row = db.prepare("SELECT library_id FROM reading WHERE user_id = ? AND abs_item_id = ?").get(U(), itemId) as { library_id: string } | undefined;
   tx(() => {
     if (action === "reset") {
       db.prepare("DELETE FROM item_overrides WHERE abs_item_id = ?").run(itemId);
@@ -852,7 +884,7 @@ export function decideItem(itemId: string, action: "match" | "ignore" | "missing
 
 /** Stores a picked book's details so the card can show it before the next sync. */
 export function rememberBook(itemId: string, book: HcBookView | null) {
-  if (book) db.prepare("UPDATE reading SET hc_book = ? WHERE abs_item_id = ?").run(JSON.stringify(view(book)), itemId);
+  if (book) db.prepare("UPDATE reading SET hc_book = ? WHERE user_id = ? AND abs_item_id = ?").run(JSON.stringify(view(book)), U(), itemId);
 }
 
 export function readingView() {
@@ -905,10 +937,10 @@ export function readingView() {
 
   const count = (f: (b: (typeof books)[number]) => boolean) => books.filter(f).length;
   return {
-    enabled: getSettings().readingEnabled,
-    autoSend: getSettings().readingAutoSend,
-    minProgress: getSettings().readingMinProgress,
-    running,
+    enabled: reader().enabled,
+    autoSend: reader().autoSend,
+    minProgress: reader().minProgress,
+    running: readingRunning(),
     counts: {
       total: books.length,
       listening: count((b) => !b.isFinished),
@@ -938,58 +970,62 @@ export function readingState(b: { matchStatus: string; hcStatus: number | null; 
   return "synced";
 }
 
-let who: { at: number; abs: string | null; hardcover: string | null; image: string | null } | null = null;
+const whoCache = new Map<string, { at: number; username: string | null; image: string | null }>();
 
-/** Names for a user card. Cached, since they rarely change. */
-async function identity() {
-  if (who && Date.now() - who.at < 10 * 60_000) return who;
-  const [abs, hc] = await Promise.all([
-    new Abs().me().then((m) => m.username).catch(() => null),
-    hardcover()
-      .me.get()
-      .then((m) => m as { username?: string; cachedImage?: { url?: string } | null; image?: { url?: string } | null })
-      .catch(() => null),
-  ]);
-  who = { at: Date.now(), abs, hardcover: hc?.username ?? null, image: hc?.cachedImage?.url ?? hc?.image?.url ?? null };
-  return who;
+/** A reader's Hardcover username and picture. Cached, since they rarely change. */
+async function hardcoverIdentity(token: string) {
+  if (!token) return { username: null, image: null };
+  const hit = whoCache.get(token);
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit;
+  const me = (await hardcover(token)
+    .me.get()
+    .catch(() => null)) as { username?: string; cachedImage?: { url?: string } | null; image?: { url?: string } | null } | null;
+  const out = { at: Date.now(), username: me?.username ?? null, image: me?.cachedImage?.url ?? me?.image?.url ?? null };
+  whoCache.set(token, out);
+  return out;
 }
 
-/**
- * One summary per user for the Reading overview. Today that's just the
- * Audiobookshelf user whose key Shelfhelp uses; with sign-in, admins will see
- * everyone and each user only themselves.
- */
-export async function readingUsers() {
-  const view = readingView();
-  const groups: Record<string, number> = { synced: 0, waiting: 0, review: 0, notfound: 0, skipped: 0, under: 0, dnf: 0 };
-  for (const b of view.books) groups[readingState(b)]++;
-  const errors = view.books.filter((b) => b.matchStatus === "matched" && b.syncStatus === "error").length;
-  const counted = view.books.filter((b) => !["under", "dnf"].includes(readingState(b)));
-  const listening = view.books.filter((b) => !b.isFinished && readingState(b) !== "under");
-  const id = await identity();
-  return [
-    {
-      id: "me",
-      name: id.abs ?? "You",
-      absUser: id.abs,
-      hardcoverUser: id.hardcover,
-      image: id.image,
-      role: "admin" as const,
-      you: true,
-      enabled: view.enabled,
-      autoSend: view.autoSend,
-      minProgress: view.minProgress,
-      running: view.running,
-      counts: {
-        ...groups,
-        errors,
-        issues: groups.review + groups.notfound + groups.skipped,
-        total: counted.length,
-        listening: counted.filter((b) => !b.isFinished).length,
-        finished: counted.filter((b) => b.isFinished).length,
-      },
-      nowListening: listening.slice(0, 1).map((b) => ({ title: b.title, progress: b.progress, coverUrl: b.coverUrl }))[0] ?? null,
-      covers: view.books.slice(0, 3).map((b) => b.coverUrl),
-    },
-  ];
+/** One summary card per reader, for the Reading overview. */
+export async function readingUsers(visible: Reader[], viewerId: number) {
+  const last = jobsView().last;
+  return Promise.all(
+    visible.map((r) =>
+      asReader(r, async () => {
+        const view = readingView();
+        const groups: Record<string, number> = { synced: 0, waiting: 0, review: 0, notfound: 0, skipped: 0, under: 0, dnf: 0 };
+        for (const b of view.books) groups[readingState(b)]++;
+        const errors = view.books.filter((b) => b.matchStatus === "matched" && b.syncStatus === "error").length;
+        const counted = view.books.filter((b) => !["under", "dnf"].includes(readingState(b)));
+        const listening = view.books.filter((b) => !b.isFinished && readingState(b) !== "under");
+        const id = await hardcoverIdentity(r.hardcoverToken);
+        const u = getUser(r.id)!;
+        const run = last[readingJobId(r.id)] ?? null;
+        return {
+          id: r.id,
+          name: r.name,
+          absUser: u.username,
+          hardcoverUser: id.username,
+          hasHardcover: !!r.hardcoverToken,
+          image: id.image,
+          role: u.role,
+          you: r.id === viewerId,
+          enabled: r.enabled,
+          autoSend: r.autoSend,
+          minProgress: r.minProgress,
+          running: view.running,
+          lastRun: run ? { ok: run.ok, message: run.message, finishedAt: run.finishedAt } : null,
+          counts: {
+            ...groups,
+            errors,
+            issues: groups.review + groups.notfound + groups.skipped,
+            total: counted.length,
+            listening: counted.filter((b) => !b.isFinished).length,
+            finished: counted.filter((b) => b.isFinished).length,
+          },
+          nowListening: listening.slice(0, 1).map((b) => ({ title: b.title, progress: b.progress, coverUrl: b.coverUrl }))[0] ?? null,
+          covers: view.books.slice(0, 3).map((b) => b.coverUrl),
+        };
+      }),
+    ),
+  );
 }

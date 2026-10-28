@@ -136,7 +136,7 @@ for (const [bookId, status] of [[104, 3], [101, 1]] as const) {
 const entryJson = (e: MockEntry) => ({ id: e.id, bookId: e.bookId, statusId: e.statusId, editionId: e.editionId, userId: 1, userBookReads: e.reads });
 const hit = (b: MockBook) => ({ document: { id: String(b.id), title: b.title, slug: b.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"), author_names: [b.author], image: { url: `${HC}/cover/${b.id}.svg` }, series_names: b.series ? [b.series[0]] : [], featured_series_position: b.series?.[1] ?? null, release_year: 2010 } });
 
-function hardcover(body: { query: string; variables?: Record<string, unknown> }) {
+function hardcover(body: { query: string; variables?: Record<string, unknown> }, token = "") {
   const q = body.query;
   const v = body.variables ?? {};
   if (q.includes("query GetLibrary") && !(v.statusIds as number[] | undefined)?.length) {
@@ -224,7 +224,7 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> })
     const found = [...books, ...duplicates].filter((b) => words.some((w) => b.title.toLowerCase().includes(w)));
     return { search: { ids: found.map((b) => b.id), results: { hits: found.map(hit), found: found.length }, query: v.query, queryType: "book", page: 1, perPage: 8, error: null } };
   }
-  if (q.includes("query Me")) return { me: [{ id: 1, username: "nathan", name: "Nathan" }] };
+  if (q.includes("query Me")) return { me: [token === "hc-sage" ? { id: 2, username: "sage", name: "Sage" } : { id: 1, username: "nathan", name: "Nathan" }] };
   if (q.includes("query GetList")) {
     const offset = Number(v.offset ?? 0);
     const limit = Number(v.limit ?? 50);
@@ -302,7 +302,7 @@ http
         res.writeHead(200, { "Content-Type": "application/json" });
         return res.end(JSON.stringify({ ok: true }));
       }
-      const out = hardcover(JSON.parse(data || "{}"));
+      const out = hardcover(JSON.parse(data || "{}"), String(req.headers.authorization ?? "").replace(/^Bearer /, ""));
       // MOCK_DELAY_MS slows every answer down, to watch progress in the UI.
       setTimeout(() => {
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -373,6 +373,27 @@ http
             { ...prog("pod_1", 0.5), episodeId: "ep_1" },
           ],
         });
+      }
+      // Other Audiobookshelf users, as an admin key sees them.
+      if (p === "/api/users") {
+        return send(200, {
+          users: [
+            { id: "u1", username: "root", email: "nathan@example.com", type: "root", isActive: true, hasOpenIDLink: true },
+            { id: "u2", username: "sage", email: "sage@example.com", type: "user", isActive: true, hasOpenIDLink: true },
+            { id: "u3", username: "guest", email: null, type: "guest", isActive: true },
+          ],
+        });
+      }
+      if ((m = p.match(/^\/api\/users\/([^/]+)$/))) {
+        const now = Date.now();
+        const prog = (id: string, progress: number, finished = false, daysAgo = 1) => ({
+          id: `mp_${m![1]}_${id}`, libraryItemId: id, episodeId: null, duration: 36000, progress, currentTime: progress * 36000,
+          isFinished: finished, lastUpdate: now - daysAgo * 86400000, startedAt: now - (daysAgo + 10) * 86400000,
+          finishedAt: finished ? now - daysAgo * 86400000 : null,
+        });
+        if (m[1] === "u2") return send(200, { id: "u2", username: "sage", mediaProgress: [prog("li_2", 0.55, false, 0), prog("li_6", 1, true, 6), prog("li_8", 0.25, false, 2)] });
+        if (m[1] === "u3") return send(200, { id: "u3", username: "guest", mediaProgress: [] });
+        return send(404, "Not found");
       }
       if (p === "/api/libraries") return send(200, { libraries: [{ id: "lib_audio", name: "Audiobooks", mediaType: "book" }, { id: "lib_kids", name: "Kids", mediaType: "book" }, { id: "lib_pod", name: "Podcasts", mediaType: "podcast" }] });
       if ((m = p.match(/^\/api\/libraries\/([^/]+)\/items$/))) {
@@ -558,3 +579,92 @@ http
     });
   })
   .listen(5093, () => console.log("mock Chaptarr on :5093"));
+
+
+// Pocket ID stand-in: an OpenID Connect provider with a page to pick who you are.
+import { SignJWT, exportJWK, generateKeyPair } from "jose";
+import { createHash, randomBytes } from "node:crypto";
+const OIDC = "http://localhost:5094";
+const people: Record<string, { sub: string; email: string; name: string; preferred_username: string; groups: string[] }> = {
+  nathan: { sub: "pid-nathan", email: "nathan@example.com", name: "Nathan", preferred_username: "nathan", groups: [] },
+  sage: { sub: "pid-sage", email: "sage@example.com", name: "Sage", preferred_username: "sage", groups: [] },
+  stranger: { sub: "pid-stranger", email: "stranger@example.com", name: "Stranger", preferred_username: "stranger", groups: [] },
+};
+const codes = new Map<string, { who: string; nonce: string; challenge: string; redirect: string }>();
+const { publicKey, privateKey } = await generateKeyPair("RS256");
+const jwk = { ...(await exportJWK(publicKey)), kid: "k1", alg: "RS256", use: "sig" };
+http
+  .createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", async () => {
+      const url = new URL(req.url ?? "/", OIDC);
+      const json = (code: number, body: unknown) => {
+        res.writeHead(code, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (url.pathname === "/.well-known/openid-configuration") {
+        return json(200, {
+          issuer: OIDC,
+          authorization_endpoint: `${OIDC}/authorize`,
+          token_endpoint: `${OIDC}/api/oidc/token`,
+          jwks_uri: `${OIDC}/.well-known/jwks.json`,
+          userinfo_endpoint: `${OIDC}/api/oidc/userinfo`,
+          token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"],
+        });
+      }
+      if (url.pathname === "/.well-known/jwks.json" || url.pathname === "/cdn-cgi/access/certs") return json(200, { keys: [jwk] });
+      // Test hook: a Cloudflare Access token for an email.
+      if (url.pathname === "/test/cf-token") {
+        const t = await new SignJWT({ email: url.searchParams.get("email"), type: "app" })
+          .setProtectedHeader({ alg: "RS256", kid: "k1" })
+          .setIssuer("https://team.example")
+          .setAudience("aud123")
+          .setSubject("cf-user")
+          .setIssuedAt()
+          .setExpirationTime("5m")
+          .sign(privateKey);
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        return res.end(t);
+      }
+      if (url.pathname === "/authorize") {
+        const q = url.searchParams;
+        if (q.get("client_id") !== "shelfhelp") return json(400, { error: "unknown client" });
+        const who = q.get("who");
+        if (!who) {
+          res.writeHead(200, { "Content-Type": "text/html" });
+          const links = Object.keys(people).map((k) => `<p><a id="as-${k}" href="${url.pathname}?${q}&who=${k}">Sign in as ${k}</a></p>`).join("");
+          return res.end(`<h1>Fake Pocket ID</h1>${links}`);
+        }
+        const code = randomBytes(12).toString("hex");
+        codes.set(code, { who, nonce: q.get("nonce") ?? "", challenge: q.get("code_challenge") ?? "", redirect: q.get("redirect_uri") ?? "" });
+        res.writeHead(302, { Location: `${q.get("redirect_uri")}?code=${code}&state=${q.get("state")}` });
+        return res.end();
+      }
+      if (url.pathname === "/api/oidc/token") {
+        const form = new URLSearchParams(raw);
+        const basic = String(req.headers.authorization ?? "").replace(/^Basic /, "");
+        const [id, secret] = basic ? Buffer.from(basic, "base64").toString().split(":") : [form.get("client_id"), form.get("client_secret")];
+        if (id !== "shelfhelp" || secret !== "secret") return json(401, { error: "invalid_client" });
+        const c = codes.get(form.get("code") ?? "");
+        if (!c) return json(400, { error: "invalid_grant" });
+        codes.delete(form.get("code")!);
+        const check = createHash("sha256").update(form.get("code_verifier") ?? "").digest("base64url");
+        if (check !== c.challenge) return json(400, { error: "invalid_grant", error_description: "PKCE check failed" });
+        if (form.get("redirect_uri") !== c.redirect) return json(400, { error: "invalid_grant", error_description: "redirect_uri mismatch" });
+        const p = people[c.who];
+        const idToken = await new SignJWT({ ...p, email_verified: true, nonce: c.nonce })
+          .setProtectedHeader({ alg: "RS256", kid: "k1" })
+          .setIssuer(OIDC)
+          .setAudience("shelfhelp")
+          .setSubject(p.sub)
+          .setIssuedAt()
+          .setExpirationTime("5m")
+          .sign(privateKey);
+        console.log(`[oidc] signed in ${c.who}`);
+        return json(200, { access_token: "at", token_type: "Bearer", id_token: idToken, expires_in: 300 });
+      }
+      json(404, { error: "not found" });
+    });
+  })
+  .listen(5094, () => console.log("mock Pocket ID on :5094"));

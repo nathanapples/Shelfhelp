@@ -38,7 +38,24 @@ export interface Settings {
   chaptarrEbookQuality: number;
   chaptarrAudiobookMetadata: number;
   chaptarrEbookMetadata: number;
+  /** How people sign in: none (shared password or open), oidc (Pocket ID), cloudflare (Cloudflare Access). */
+  authMode: AuthMode;
+  oidcIssuer: string;
+  oidcClientId: string;
+  oidcClientSecret: string;
+  /** Optional address Shelfhelp itself uses to reach the provider (e.g. inside Docker). */
+  oidcInternalUrl: string;
+  /** Members of this group are admins, as well as Audiobookshelf admins. */
+  oidcAdminGroup: string;
+  /** Name on the sign-in button. */
+  oidcLabel: string;
+  /** Cloudflare Access team domain, e.g. myteam.cloudflareaccess.com */
+  cfTeamDomain: string;
+  /** The Application Audience (AUD) tag from Cloudflare Access. */
+  cfAudience: string;
 }
+
+export type AuthMode = "none" | "oidc" | "cloudflare";
 
 export type RequestFormat = "audiobook" | "ebook" | "both";
 
@@ -65,6 +82,15 @@ const defaults: Settings = {
   chaptarrEbookQuality: 0,
   chaptarrAudiobookMetadata: 0,
   chaptarrEbookMetadata: 0,
+  authMode: "none",
+  oidcIssuer: "",
+  oidcClientId: "",
+  oidcClientSecret: "",
+  oidcInternalUrl: "",
+  oidcAdminGroup: "",
+  oidcLabel: "Pocket ID",
+  cfTeamDomain: "",
+  cfAudience: "",
 };
 
 /** Environment variables win over saved values, so a compose file can pin them. */
@@ -75,6 +101,14 @@ const envKeys: Partial<Record<keyof Settings, string>> = {
   syncIntervalMinutes: "SYNC_INTERVAL_MINUTES",
   chaptarrUrl: "CHAPTARR_URL",
   chaptarrApiKey: "CHAPTARR_API_KEY",
+  authMode: "AUTH_MODE",
+  oidcIssuer: "OIDC_ISSUER",
+  oidcClientId: "OIDC_CLIENT_ID",
+  oidcClientSecret: "OIDC_CLIENT_SECRET",
+  oidcInternalUrl: "OIDC_INTERNAL_URL",
+  oidcAdminGroup: "OIDC_ADMIN_GROUP",
+  cfTeamDomain: "CF_ACCESS_TEAM_DOMAIN",
+  cfAudience: "CF_ACCESS_AUD",
 };
 
 export function getSettings(): Settings {
@@ -98,6 +132,10 @@ export function getSettings(): Settings {
   const s = out as unknown as Settings;
   s.absUrl = s.absUrl.replace(/\/+$/, "");
   s.chaptarrUrl = s.chaptarrUrl.replace(/\/+$/, "");
+  s.oidcIssuer = s.oidcIssuer.replace(/\/+$/, "");
+  s.oidcInternalUrl = s.oidcInternalUrl.replace(/\/+$/, "");
+  s.cfTeamDomain = s.cfTeamDomain.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  if (!["none", "oidc", "cloudflare"].includes(s.authMode)) s.authMode = "none";
   return s;
 }
 

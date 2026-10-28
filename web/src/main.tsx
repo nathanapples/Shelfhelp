@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import "@fontsource-variable/inter";
 import "./index.css";
-import { api, type Status } from "./lib/api";
+import { api, isAdmin, type Status } from "./lib/api";
 import { ToastProvider } from "./components/toast";
 import { Layout } from "./components/Layout";
 import { LoadingBlock } from "./components/ui";
@@ -19,6 +19,7 @@ import LoginPage from "./pages/Login";
 import RequestsPage from "./pages/Requests";
 import DiscoverPage from "./pages/Discover";
 import LibraryPage from "./pages/Library";
+import AccountPage from "./pages/Account";
 
 function App() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -32,23 +33,29 @@ function App() {
   }, [load]);
 
   if (!status) return <LoadingBlock />;
-  if (status.authRequired && !status.signedIn) return <LoginPage onSignedIn={load} />;
+  if (!status.signedIn) return <LoginPage status={status} onSignedIn={load} />;
+  const admin = isAdmin(status);
 
   return (
-    <Layout version={status.version} authRequired={status.authRequired} showRequests={status.configured.chaptarr}>
+    <Layout status={status}>
       <Routes>
         <Route path="/" element={<DiscoverPage status={status} />} />
-        <Route path="/collections" element={<ListsPage status={status} />} />
-        <Route path="/library" element={<LibraryPage status={status} />} />
-        <Route path="/lists/:id" element={<ListDetailPage />} />
-        <Route path="/review" element={<ReviewPage />} />
-        <Route path="/missing" element={<MissingPage />} />
-        <Route path="/reading" element={<ReadingUsersPage />} />
+        <Route path="/reading" element={<ReadingUsersPage status={status} />} />
         <Route path="/reading/:userId" element={<ReadingPage />} />
         <Route path="/search" element={<SearchPage status={status} />} />
         <Route path="/requests" element={<RequestsPage status={status} />} />
-        <Route path="/activity" element={<Navigate to="/settings?tab=activity" replace />} />
-        <Route path="/settings" element={<SettingsPage status={status} onSaved={load} />} />
+        <Route path="/account" element={<AccountPage status={status} onChanged={load} />} />
+        {admin && (
+          <>
+            <Route path="/collections" element={<ListsPage status={status} />} />
+            <Route path="/library" element={<LibraryPage status={status} />} />
+            <Route path="/lists/:id" element={<ListDetailPage />} />
+            <Route path="/review" element={<ReviewPage />} />
+            <Route path="/missing" element={<MissingPage />} />
+            <Route path="/activity" element={<Navigate to="/settings?tab=activity" replace />} />
+            <Route path="/settings" element={<SettingsPage status={status} onSaved={load} />} />
+          </>
+        )}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

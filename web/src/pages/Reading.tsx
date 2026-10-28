@@ -27,7 +27,6 @@ import {
   type HcCandidate,
   type ReadingBook,
   type ReadingData,
-  type ReadingUser,
   type SearchHit,
   type HistoryEntry,
   type Library,
@@ -40,6 +39,10 @@ import { Cover, Empty, ErrorBlock, LoadingBlock, Modal, PageTitle, ScoreBar, Spi
 import { useToast } from "../components/toast";
 
 type Tab = "waiting" | "synced" | "issues" | "all" | "history";
+
+/** Whose reading this page shows. Set by the page from the URL; every call below goes to that reader. */
+let READER = 0;
+const rq = (path: string) => (READER ? `${path}${path.includes("?") ? "&" : "?"}user=${READER}` : path);
 
 /** One line under the tabs saying what each one holds. */
 const TAB_HELP: Record<Tab, string> = {
@@ -312,7 +315,7 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
   const decide = async (action: "match" | "ignore" | "missing" | "reset", hc?: HcBookRef) => {
     setBusy(true);
     try {
-      await api("/reading/decisions", { method: "POST", body: { absItemId: book.absItemId, action, hcBookId: hc?.id, hcBook: hc } });
+      await api(rq("/reading/decisions"), { method: "POST", body: { absItemId: book.absItemId, action, hcBookId: hc?.id, hcBook: hc } });
       toast(
         action === "match"
           ? `Matched to "${hc?.title}" on Hardcover`
@@ -334,7 +337,7 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
   const sendOne = async () => {
     setBusy(true);
     try {
-      const r = await api<{ sent: number; failed: number; changed: number }>("/reading/send", { method: "POST", body: { ids: [book.absItemId] } });
+      const r = await api<{ sent: number; failed: number; changed: number }>(rq("/reading/send"), { method: "POST", body: { ids: [book.absItemId] } });
       toast(
         r.sent ? `Sent to Hardcover: ${book.syncAction}` : r.changed ? "Hardcover changed since you looked; check the new plan" : "Couldn't send it",
         r.sent ? "success" : "error",
@@ -350,7 +353,7 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
   const matchAgain = async () => {
     setBusy(true);
     try {
-      const r = await api<{ started: boolean; running: boolean }>("/reading/rematch", { method: "POST", body: { absItemId: book.absItemId } });
+      const r = await api<{ started: boolean; running: boolean }>(rq("/reading/rematch"), { method: "POST", body: { absItemId: book.absItemId } });
       jobStarted();
       toast(
         r.running
@@ -366,7 +369,7 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
     }
   };
   const skipOne = async () => {
-    await api("/reading/skip", { method: "POST", body: { id: book.absItemId } });
+    await api(rq("/reading/skip"), { method: "POST", body: { id: book.absItemId } });
     toast(`Skipped. "${book.title}" will come back if your progress changes.`, "info");
     onChanged();
     onClose();
@@ -526,7 +529,7 @@ function SendModal({ books, onClose, onSent }: { books: ReadingBook[]; onClose: 
   const go = async () => {
     setBusy(true);
     try {
-      const r = await api<{ sent: number; failed: number; changed: number }>("/reading/send", { method: "POST", body: { ids: [...picked] } });
+      const r = await api<{ sent: number; failed: number; changed: number }>(rq("/reading/send"), { method: "POST", body: { ids: [...picked] } });
       toast(
         `Sent ${r.sent} change${r.sent === 1 ? "" : "s"} to Hardcover${r.failed ? `, ${r.failed} failed` : ""}${r.changed ? `, ${r.changed} changed since you looked` : ""}`,
         r.failed ? "error" : "success",
@@ -586,7 +589,7 @@ function SendModal({ books, onClose, onSent }: { books: ReadingBook[]; onClose: 
 
 function HistoryList({ onUndone }: { onUndone: () => void }) {
   const toast = useToast();
-  const { data, loading, reload } = useApi<HistoryEntry[]>("/reading/history");
+  const { data, loading, reload } = useApi<HistoryEntry[]>(rq("/reading/history"));
   const [busy, setBusy] = useState<number | null>(null);
   const [confirm, setConfirm] = useState<HistoryEntry | null>(null);
 
@@ -594,7 +597,7 @@ function HistoryList({ onUndone }: { onUndone: () => void }) {
     setBusy(h.id);
     setConfirm(null);
     try {
-      const r = await api<{ note: string }>(`/reading/history/${h.id}/undo`, { method: "POST" });
+      const r = await api<{ note: string }>(rq(`/reading/history/${h.id}/undo`), { method: "POST" });
       toast(`"${h.title}": ${r.note}`);
       reload();
       onUndone();
@@ -662,34 +665,34 @@ function HistoryList({ onUndone }: { onUndone: () => void }) {
   );
 }
 
+type ReaderSettings = Pick<Settings, "readingEnabled" | "readingAutoSend" | "readingMinProgress" | "readingMarkOwned">;
+
 /** Reading settings, opened from the gear on this page. */
 function ReadingSettings({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
-  const [s, setS] = useState<Settings | null>(null);
+  const [s, setS] = useState<ReaderSettings | null>(null);
   const [libs, setLibs] = useState<(Library & { selected: boolean })[] | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api<Settings>("/settings").then(setS).catch((e) => toast(e.message, "error"));
-    api<(Library & { selected: boolean })[]>("/abs/libraries?all=1").then(setLibs).catch(() => setLibs([]));
+    api<{ enabled: boolean; autoSend: boolean; minProgress: number; markOwned: boolean }>(rq("/reading/settings"))
+      .then((r) => setS({ readingEnabled: r.enabled, readingAutoSend: r.autoSend, readingMinProgress: r.minProgress, readingMarkOwned: r.markOwned }))
+      .catch((e) => toast(e.message, "error"));
+    // Libraries are shared, so only admins see them here.
+    api<(Library & { selected: boolean })[]>("/abs/libraries?all=1").then(setLibs).catch(() => setLibs(null));
   }, [toast]);
-  const set = <K extends keyof Settings>(k: K, v: Settings[K]) => s && setS({ ...s, [k]: v });
+  const set = <K extends keyof ReaderSettings>(k: K, v: ReaderSettings[K]) => s && setS({ ...s, [k]: v });
 
   const save = async () => {
     if (!s) return;
     setBusy(true);
     try {
       const chosen = libs?.filter((l) => l.selected).map((l) => l.id) ?? [];
-      await api("/settings", {
+      await api(rq("/reading/settings"), {
         method: "PUT",
-        body: {
-          readingEnabled: s.readingEnabled,
-          readingAutoSend: s.readingAutoSend,
-          readingMinProgress: s.readingMinProgress,
-          readingMarkOwned: s.readingMarkOwned,
-          // Every library checked is saved as "all", so new libraries are included too.
-          ...(libs ? { absLibraries: libs.every((l) => l.selected) ? [] : chosen } : {}),
-        },
+        body: { enabled: s.readingEnabled, autoSend: s.readingAutoSend, minProgress: s.readingMinProgress, markOwned: s.readingMarkOwned },
       });
+      // Every library checked is saved as "all", so new libraries are included too.
+      if (libs?.length) await api("/settings", { method: "PUT", body: { absLibraries: libs.every((l) => l.selected) ? [] : chosen } });
       toast("Reading settings saved");
       onSaved();
       onClose();
@@ -808,18 +811,19 @@ export default function ReadingPage() {
     }
   };
   const [poll, setPoll] = useState<number | false>(false);
-  const { data, error, loading, reload } = useApi<ReadingData>("/reading", { poll });
-  const { data: users } = useApi<{ users: ReadingUser[] }>("/reading/users");
   const { userId } = useParams();
-  const readerName = users?.users.find((u) => u.id === userId)?.name ?? "Your reading";
+  READER = Number(userId) || 0;
+  const { data, error, loading, reload } = useApi<ReadingData & { reader: { id: number; name: string; hasHardcover: boolean } }>(rq("/reading"), { poll });
+  const readerName = data?.reader.name ?? "Reading";
+  const rid = data?.reader.id ?? READER;
   const [openId, setOpenId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => setPoll(data?.running ? 2000 : 30000), [data?.running]);
   const jobs = useJobs();
-  const lastRun = jobs?.last.reading?.finishedAt ?? 0;
-  const lastSend = jobs?.last["reading-send"]?.finishedAt ?? 0;
+  const lastRun = jobs?.last[`reading-${rid}`]?.finishedAt ?? 0;
+  const lastSend = jobs?.last[`reading-send-${rid}`]?.finishedAt ?? 0;
   // Reload the books as soon as a sync finishes.
   useEffect(() => {
     if (lastRun || lastSend) reload();
@@ -852,9 +856,9 @@ export default function ReadingPage() {
 
   const sync = async () => {
     try {
-      const r = await api<{ started: boolean; running?: boolean }>("/reading/sync", { method: "POST" });
+      const r = await api<{ started: boolean; running?: boolean }>(rq("/reading/sync"), { method: "POST" });
       if (r.running) {
-        const job = jobs?.running.find((j) => j.id === "reading");
+        const job = jobs?.running.find((j) => j.id === `reading-${rid}`);
         toast(`Already checking${job ? `: ${job.phase.toLowerCase()}` : ""}. Progress is shown below.`, "info");
       }
       jobStarted();
@@ -892,8 +896,16 @@ export default function ReadingPage() {
         Your Audiobookshelf listening progress, sent to Hardcover.
         {data.enabled && (data.autoSend ? " Changes are sent automatically." : " Nothing is sent until you send it.")}
       </p>
-      <JobProgress jobs={jobs} id="reading" />
-      <JobProgress jobs={jobs} id="reading-send" idle={false} />
+      {!data.reader.hasHardcover && (
+        <div className="mb-6 rounded-xl bg-indigo-900/20 p-4 text-sm text-indigo-100 ring-1 ring-indigo-800">
+          Connect a Hardcover account to start syncing.{" "}
+          <Link to="/account" className="font-semibold underline">
+            Open My account
+          </Link>
+        </div>
+      )}
+      <JobProgress jobs={jobs} id={`reading-${rid}`} />
+      <JobProgress jobs={jobs} id={`reading-send-${rid}`} idle={false} />
 
       {!data.enabled && (
         <div className="mb-6 rounded-xl bg-gray-800 p-4 text-sm text-gray-300 ring-1 ring-gray-700">

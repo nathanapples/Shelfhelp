@@ -3,18 +3,19 @@ import { config } from "./config.js";
 import { getSettings } from "./settings.js";
 import { seriesNumber } from "./normalize.js";
 
-let cached: { token: string; client: HardcoverClient } | null = null;
+const clients = new Map<string, HardcoverClient>();
 
 export function hardcover(token = getSettings().hardcoverToken): HardcoverClient {
   if (!token) throw new Error("Hardcover isn't set up yet. Add your API token in Settings.");
-  if (cached?.token === token) return cached.client;
+  const hit = clients.get(token);
+  if (hit) return hit;
   const client = new HardcoverClient({
     token,
     ...(process.env.HARDCOVER_ENDPOINT ? { endpoint: process.env.HARDCOVER_ENDPOINT } : {}),
     userAgent: `shelfhelp/${config.version}`,
     onWarning: (m) => console.warn(`[hardcover] ${m}`),
   });
-  cached = { token, client };
+  clients.set(token, client);
   return client;
 }
 

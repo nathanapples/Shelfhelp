@@ -12,7 +12,7 @@ const OPEN: RequestStatus[] = ["pending", "requested", "downloading", "downloade
 const inTab = (t: Tab, r: BookRequest) =>
   t === "all" || (t === "open" ? OPEN.includes(r.status) : t === "available" ? r.status === "available" : r.status === "failed");
 
-function RequestRow({ r, onChanged }: { r: BookRequest; onChanged: () => void }) {
+function RequestRow({ r, onChanged, showWho }: { r: BookRequest; onChanged: () => void; showWho: boolean }) {
   const toast = useToast();
   const [busy, setBusy] = useState<"retry" | "forget" | null>(null);
 
@@ -74,7 +74,10 @@ function RequestRow({ r, onChanged }: { r: BookRequest; onChanged: () => void })
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="badge badge-dark">{formatLabel[r.format]}</span>
           <RequestBadge status={r.status} progress={r.progress} />
-          <span className="text-xs text-gray-500">Requested {timeAgo(r.requestedAt)}</span>
+          <span className="text-xs text-gray-500">
+            Requested {timeAgo(r.requestedAt)}
+            {showWho && r.requestedBy.length > 0 ? ` by ${r.requestedBy.join(", ")}` : ""}
+          </span>
         </div>
         {r.status === "downloading" && r.progress != null && (
           <div className="mt-2 h-1.5 max-w-xs overflow-hidden rounded-full bg-gray-700">
@@ -105,7 +108,7 @@ function Chip({ active, onClick, children, count }: { active: boolean; onClick: 
 
 export default function RequestsPage({ status }: { status: Status }) {
   const toast = useToast();
-  const { data, error, loading, reload, setData } = useApi<{ requests: BookRequest[]; counts: Partial<Record<RequestStatus, number>> }>("/requests", {
+  const { data, error, loading, reload, setData } = useApi<{ requests: BookRequest[]; counts: Partial<Record<RequestStatus, number>>; all?: boolean }>("/requests", {
     poll: 15000,
   });
   const [filter, setFilter] = useState<Tab>("all");
@@ -191,7 +194,7 @@ export default function RequestsPage({ status }: { status: Status }) {
       )}
       <ul className="max-w-4xl space-y-3">
         {rows.map((r) => (
-          <RequestRow key={r.id} r={r} onChanged={reload} />
+          <RequestRow key={r.id} r={r} onChanged={reload} showWho={!!data?.all} />
         ))}
       </ul>
     </div>

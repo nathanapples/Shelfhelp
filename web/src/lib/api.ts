@@ -115,6 +115,15 @@ export interface Settings {
   readingMinProgress: number;
   readingMarkOwned: boolean;
   absLibraries: string[];
+  authMode: AuthMode;
+  oidcIssuer: string;
+  oidcClientId: string;
+  oidcClientSecret: string;
+  oidcInternalUrl: string;
+  oidcAdminGroup: string;
+  oidcLabel: string;
+  cfTeamDomain: string;
+  cfAudience: string;
   chaptarrUrl: string;
   chaptarrApiKey: string;
   requestsEnabled: boolean;
@@ -144,7 +153,7 @@ export interface BookRequest {
   hcUrl: string | null;
   coverUrl: string | null;
   releaseYear: number | null;
-  requestedBy: string;
+  requestedBy: string[];
   status: RequestStatus;
   message: string | null;
   chaptarrBookId: number | null;
@@ -176,14 +185,38 @@ export interface ChaptarrOptions {
   using: Record<Format, ChaptarrChoice>;
 }
 
+export type AuthMode = "none" | "oidc" | "cloudflare";
+
+export interface UserView {
+  id: number;
+  name: string;
+  username: string | null;
+  email: string | null;
+  role: "admin" | "user";
+  isOwner: boolean;
+  absUserId: string | null;
+  hasHardcover: boolean;
+  ownHardcoverToken: boolean;
+  readingEnabled: boolean;
+  lastLoginAt: string | null;
+  via?: "open" | "password" | "oidc" | "cloudflare";
+}
+
 export interface Status {
   version: string;
+  authMode: AuthMode;
   authRequired: boolean;
+  passwordLogin: boolean;
+  oidcLabel: string;
   signedIn: boolean;
+  signinProblem: string | null;
+  user: UserView | null;
   configured: { hardcover: boolean; abs: boolean; chaptarr: boolean };
   requestsEnabled: boolean;
   requestFormat: RequestFormat;
 }
+
+export const isAdmin = (s: Status) => s.user?.role === "admin";
 
 export interface SearchHit {
   id: number;
@@ -431,13 +464,15 @@ export interface LinkPage {
 }
 
 export interface ReadingUser {
-  id: string;
+  id: number;
   name: string;
   absUser: string | null;
   hardcoverUser: string | null;
+  hasHardcover: boolean;
   image: string | null;
   role: "admin" | "user";
   you: boolean;
+  lastRun: { ok: boolean; message: string; finishedAt: number } | null;
   enabled: boolean;
   autoSend: boolean;
   minProgress: number;

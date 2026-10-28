@@ -98,7 +98,12 @@ To update: `docker compose pull && docker compose up -d`.
 | `PUID` / `PGID` | 1000 | User and group the app runs as |
 | `TZ` | UTC | Time zone |
 | `UMASK` | (system) | Optional, e.g. `002` |
-| `APP_PASSWORD` | unset | Require a password to open the web UI |
+| `APP_PASSWORD` | unset | With no sign-in, a password to open the web UI. With Pocket ID or Cloudflare, an emergency admin sign-in |
+| `AUTH_MODE` | none | `none`, `oidc` (Pocket ID) or `cloudflare`. Set `none` here to get back in if sign-in breaks |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | unset | Pocket ID (or any OpenID Connect provider) |
+| `OIDC_INTERNAL_URL` | unset | How the container reaches the provider, if not by its public address |
+| `OIDC_ADMIN_GROUP` | unset | Provider group whose members are Shelfhelp admins |
+| `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | unset | Cloudflare Access team domain and application AUD tag |
 | `HARDCOVER_TOKEN` | unset | Pins the Hardcover token instead of setting it in the UI |
 | `ABS_URL` / `ABS_TOKEN` | unset | Pins the Audiobookshelf connection |
 | `CHAPTARR_URL` / `CHAPTARR_API_KEY` | unset | Pins the Chaptarr connection |
@@ -107,9 +112,17 @@ To update: `docker compose pull && docker compose up -d`.
 
 Everything Shelfhelp keeps (settings, lists, decisions, the library snapshot) lives in `/config/shelfhelp.db`.
 
-## Roadmap
+## Users and sign-in
 
-- Other users: sign in with Audiobookshelf accounts, request books, and sync their own reading to Hardcover.
+Everyone who uses Shelfhelp is an Audiobookshelf user. The owner is the Audiobookshelf user whose API key Shelfhelp uses (give it an admin key so Shelfhelp can see other users' listening progress). Audiobookshelf admins are Shelfhelp admins; everyone else is a reader, who sees Discover, their own Requests, their own Reading, and My account. Each reader connects their own Hardcover account under My account; an admin can also add someone as a reader from the Reading page.
+
+Pick how people sign in under Settings, Users:
+
+- **No sign-in** (default): everyone is the owner. `APP_PASSWORD` asks for a password first.
+- **Pocket ID**: create an OIDC client in Pocket ID with the callback URL Settings shows (`https://<shelfhelp address>/api/auth/oidc/callback`; add one per address you use), then enter the issuer URL, client ID and secret. People are matched to their Audiobookshelf account by verified email, then username, the same way Audiobookshelf links Pocket ID accounts. Works behind Cloudflare Access too.
+- **Cloudflare Access**: put Shelfhelp behind a Cloudflare Access application and enter the team domain and AUD tag. Shelfhelp verifies the signed token Cloudflare adds to every request and matches the email to an Audiobookshelf account, so there's one login. It can only be turned on from a page opened through Cloudflare, as an admin, so you can't lock yourself out.
+
+With either provider, `APP_PASSWORD` still works as an emergency admin sign-in, and `AUTH_MODE=none` on the container turns sign-in off.
 
 ## Versions
 

@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowPathIcon, BookOpenIcon, ExclamationTriangleIcon, PauseCircleIcon, UserCircleIcon } from "@heroicons/react/24/outline";
-import { api, timeAgo, type ReadingUser } from "../lib/api";
+import { PlusIcon, ArrowPathIcon, BookOpenIcon, ExclamationTriangleIcon, PauseCircleIcon, UserCircleIcon } from "@heroicons/react/24/outline";
+import { api, isAdmin, timeAgo, type ReadingUser, type Status, type UserView } from "../lib/api";
 import { jobStarted, useApi, useJobs } from "../lib/hooks";
-import { Cover, Empty, ErrorBlock, LoadingBlock, PageTitle, Spinner } from "../components/ui";
+import { Cover, Empty, ErrorBlock, LoadingBlock, Modal, PageTitle, Spinner } from "../components/ui";
 import { useToast } from "../components/toast";
 
 const SEGMENTS: { key: "synced" | "waiting" | "issues" | "under"; label: string; bar: string; text: string; tab: string }[] = [
@@ -23,7 +24,8 @@ function Avatar({ user }: { user: ReadingUser }) {
   );
 }
 
-function UserCard({ user, lastRun, onChecked }: { user: ReadingUser; lastRun: { ok: boolean; message: string; finishedAt: number } | null; onChecked: () => void }) {
+function UserCard({ user, onChecked }: { user: ReadingUser; onChecked: () => void }) {
+  const lastRun = user.lastRun;
   const navigate = useNavigate();
   const toast = useToast();
   const c = user.counts;
@@ -33,7 +35,7 @@ function UserCard({ user, lastRun, onChecked }: { user: ReadingUser; lastRun: { 
   const check = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await api("/reading/sync", { method: "POST" });
+      await api(`/reading/sync?user=${user.id}`, { method: "POST" });
       jobStarted();
       toast(`Checking ${user.name}'s progress`, "info");
       setTimeout(onChecked, 500);
@@ -63,13 +65,13 @@ function UserCard({ user, lastRun, onChecked }: { user: ReadingUser; lastRun: { 
         <div className="relative min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400">
             <UserCircleIcon className="h-3.5 w-3.5 text-indigo-400" />
-            {user.role === "admin" ? "Admin" : "User"}
+            {user.role === "admin" ? "Admin" : "Reader"}
             {user.you && <span className="normal-case tracking-normal text-gray-500">· you</span>}
           </div>
           <h2 className="truncate text-xl font-bold text-white group-hover:underline">{user.name}</h2>
           <div className="truncate text-sm text-gray-400">
-            {user.hardcoverUser ? `Hardcover @${user.hardcoverUser}` : "Hardcover not connected"}
-            {user.enabled ? (user.autoSend ? " · auto-send" : " · you approve") : ""}
+            {user.hardcoverUser ? `Hardcover @${user.hardcoverUser}` : user.hasHardcover ? "Hardcover connected" : "Hardcover not connected"}
+            {user.enabled ? (user.autoSend ? " · sends automatically" : " · changes wait for review") : ""}
           </div>
         </div>
         <div className="relative hidden text-right sm:block">
@@ -115,7 +117,9 @@ function UserCard({ user, lastRun, onChecked }: { user: ReadingUser; lastRun: { 
 
       <div className="mt-auto flex items-center justify-between gap-3 border-t border-gray-700 bg-gray-800/60 px-4 py-2.5 sm:px-5">
         <div className="flex min-w-0 items-center gap-2 text-xs text-gray-400">
-          {user.running ? (
+          {!user.hasHardcover ? (
+            <span>{user.you ? "Connect Hardcover in My account to start" : "Waiting for them to connect Hardcover"}</span>
+          ) : user.running ? (
             <>
               <Spinner className="h-4 w-4" /> Checking now
             </>
@@ -136,7 +140,7 @@ function UserCard({ user, lastRun, onChecked }: { user: ReadingUser; lastRun: { 
             </span>
           )}
         </div>
-        <button className="btn btn-sm btn-default" onClick={check} disabled={user.running || !user.enabled}>
+        <button className="btn btn-sm btn-default" onClick={check} disabled={user.running || !user.enabled || !user.hasHardcover}>
           <ArrowPathIcon className="h-4 w-4" /> Check
         </button>
       </div>
@@ -144,24 +148,100 @@ function UserCard({ user, lastRun, onChecked }: { user: ReadingUser; lastRun: { 
   );
 }
 
-export default function ReadingUsersPage() {
+function AddReader({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+  const toast = useToast();
+  const { data } = useApi<{ users: UserView[]; absUsers: { id: string; username: string; email: string | null; type: string; shelfhelpId: number | null }[] }>(
+    "/users",
+  );
+  const [absUserId, setAbsUserId] = useState("");
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const readerIds = new Set((data?.users ?? []).filter((u) => u.hasHardcover).map((u) => u.id));
+  const choices = (data?.absUsers ?? []).filter((a) => !a.shelfhelpId || !readerIds.has(a.shelfhelpId));
+
+  const add = async () => {
+    setBusy(true);
+    try {
+      await api("/users", { method: "POST", body: { absUserId, hardcoverToken: token.trim() || undefined } });
+      toast("Reader added");
+      onAdded();
+      onClose();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Add a reader"
+      subtitle="Sync someone's Audiobookshelf listening to their Hardcover account."
+      footer={
+        <>
+          <button className="btn btn-default" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={add} disabled={busy || !absUserId}>
+            {busy && <Spinner className="h-4 w-4 text-white" />} Add reader
+          </button>
+        </>
+      }
+    >
+      <label className="mt-2 block text-sm font-medium text-gray-300">Audiobookshelf user</label>
+      <select className="input mt-1" value={absUserId} onChange={(e) => setAbsUserId(e.target.value)}>
+        <option value="">Pick someone</option>
+        {choices.map((a) => (
+          <option key={a.id} value={a.id}>
+            {a.username}
+            {a.email ? ` (${a.email})` : ""}
+          </option>
+        ))}
+      </select>
+      <label className="mt-4 block text-sm font-medium text-gray-300">Their Hardcover API token</label>
+      <input className="input mt-1 font-mono" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} />
+      <p className="mt-2 text-xs text-gray-400">
+        Optional. Leave it empty and they can connect Hardcover themselves under My account once they sign in. Tokens are at
+        hardcover.app/account/api.
+      </p>
+    </Modal>
+  );
+}
+
+export default function ReadingUsersPage({ status }: { status: Status }) {
   const jobs = useJobs();
-  const running = !!jobs?.running.some((j) => j.id === "reading");
+  const running = !!jobs?.running.some((j) => j.id.startsWith("reading-"));
   const { data, error, loading, reload } = useApi<{ users: ReadingUser[] }>("/reading/users", { poll: running ? 3000 : 30000 });
-  const lastRun = jobs?.last.reading ?? null;
+  const [adding, setAdding] = useState(false);
+  const admin = isAdmin(status);
 
   return (
     <div>
-      <PageTitle>Reading</PageTitle>
+      <PageTitle
+        extra={
+          admin && (
+            <button className="btn btn-primary" onClick={() => setAdding(true)}>
+              <PlusIcon className="h-5 w-5" /> Add reader
+            </button>
+          )
+        }
+      >
+        Reading
+      </PageTitle>
       <p className="-mt-3 mb-6 max-w-3xl text-sm text-gray-400">
-        Audiobookshelf listening progress sent to each person's Hardcover account. Open a reader to see their books and send changes.
+        {admin
+          ? "Audiobookshelf listening progress sent to each person's Hardcover account. Open a reader to see their books and send changes."
+          : "Your Audiobookshelf listening progress, sent to your Hardcover account."}
       </p>
       {loading && <LoadingBlock />}
       {error && <ErrorBlock message={error} />}
       {data?.users.length === 0 && <Empty icon={<BookOpenIcon className="h-16 w-16" />} title="No readers yet" />}
       <div className="grid grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-2 2xl:grid-cols-3">
-        {data?.users.map((u) => <UserCard key={u.id} user={u} lastRun={lastRun} onChecked={reload} />)}
+        {data?.users.map((u) => <UserCard key={u.id} user={u} onChecked={reload} />)}
       </div>
+      {adding && <AddReader onClose={() => setAdding(false)} onAdded={reload} />}
     </div>
   );
 }

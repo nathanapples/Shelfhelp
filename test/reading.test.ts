@@ -119,3 +119,17 @@ test("reading groups match the cards", async () => {
   assert.equal(readingState(b({ matchStatus: "review" })), "review");
   assert.equal(readingState(b({ matchStatus: "missing" })), "notfound");
 });
+
+test("reading data is kept per reader", async () => {
+  const { db } = await import("../server/lib/db.ts");
+  const { myShelfStatus } = await import("../server/lib/reading.ts");
+  const { asReader, readerById } = await import("../server/lib/users.ts");
+  db.prepare("INSERT INTO users (id, username, role, hardcover_token) VALUES (2, 'sage', 'user', 'hc-sage')").run();
+  const now = new Date().toISOString();
+  db.prepare("INSERT INTO hc_library (user_id, book_id, entry_id, status, refreshed_at) VALUES (1, 50, 1, 3, ?), (2, 50, 2, 2, ?)").run(now, now);
+  assert.equal(myShelfStatus([50], 1).get(50)?.status, 3);
+  assert.equal(myShelfStatus([50], 2).get(50)?.status, 2);
+  // Inside a reader's context, their shelves are the default.
+  assert.equal(asReader(readerById(2)!, () => myShelfStatus([50]).get(50)?.status), 2);
+  assert.equal(readerById(2)!.hardcoverToken, "hc-sage");
+});

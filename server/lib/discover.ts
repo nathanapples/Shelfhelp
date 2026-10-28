@@ -14,7 +14,7 @@ export const ROWS: { id: RowId; title: string; subtitle: string }[] = [
   { id: "added", title: "Recently added", subtitle: "Newest in Audiobookshelf" },
   { id: "soon", title: "Coming soon", subtitle: "Releasing in the next two months" },
   { id: "year", title: "Popular this year", subtitle: "Trending on Hardcover over the past year" },
-  { id: "requests", title: "Recent requests", subtitle: "What you've asked Chaptarr for" },
+  { id: "requests", title: "Your recent requests", subtitle: "What you've asked for" },
 ];
 
 const TTL = 6 * 3600_000;
@@ -30,39 +30,39 @@ async function cached(key: string, load: () => Promise<HcSummary[]>) {
   return books;
 }
 
-function annotate(books: HcSummary[]) {
+function annotate(books: HcSummary[], userId: number) {
   const ids = books.map((b) => b.id);
   const lib = inLibrary(ids);
   const req = requestsFor(ids);
-  const mine = myShelfStatus(ids);
+  const mine = myShelfStatus(ids, userId);
   return books.map((b) => ({ ...b, absItemId: lib.get(b.id) ?? null, requests: req.get(b.id) ?? {}, mine: mine.get(b.id) ?? null }));
 }
 
-export async function discoverRow(id: RowId) {
+export async function discoverRow(id: RowId, userId: number) {
   const hc = () => hardcover();
   const now = new Date();
   switch (id) {
     case "trending":
-      return annotate(await cached(id, async () => (await hc().books.trending({ duration: "month", limit: 20 })).items.map(summarizeBook)));
+      return annotate(await cached(id, async () => (await hc().books.trending({ duration: "month", limit: 20 })).items.map(summarizeBook)), userId);
     case "year":
-      return annotate(await cached(id, async () => (await hc().books.trending({ duration: "one_year", limit: 20 })).items.map(summarizeBook)));
+      return annotate(await cached(id, async () => (await hc().books.trending({ duration: "one_year", limit: 20 })).items.map(summarizeBook)), userId);
     case "new": {
       const from = day(new Date(now.getTime() - 30 * 86400_000));
-      return annotate(await cached(id, async () => (await hc().books.released({ from, to: day(now), limit: 20 })).items.map(summarizeBook)));
+      return annotate(await cached(id, async () => (await hc().books.released({ from, to: day(now), limit: 20 })).items.map(summarizeBook)), userId);
     }
     case "soon": {
       const to = day(new Date(now.getTime() + 60 * 86400_000));
       const from = day(new Date(now.getTime() + 86400_000));
-      return annotate(await cached(id, async () => (await hc().books.released({ from, to, limit: 20 })).items.map(summarizeBook)));
+      return annotate(await cached(id, async () => (await hc().books.released({ from, to, limit: 20 })).items.map(summarizeBook)), userId);
     }
     case "want": {
       // Your Want to Read shelf, as of the last reading sync, minus books you already have.
-      const ids = (db.prepare("SELECT book_id FROM hc_library WHERE status = 1 ORDER BY refreshed_at DESC").all() as { book_id: number }[]).map((r) => r.book_id);
+      const ids = (db.prepare("SELECT book_id FROM hc_library WHERE user_id = ? AND status = 1 ORDER BY refreshed_at DESC").all(userId) as { book_id: number }[]).map((r) => r.book_id);
       const have = inLibrary(ids);
       const missing = ids.filter((i) => !have.has(i)).slice(0, 40);
       if (!missing.length) return [];
       const books = await cached(`want:${missing.join(",")}`, async () => (await hc().books.getMany(missing)).map(summarizeBook));
-      return annotate(books).slice(0, 20);
+      return annotate(books, userId).slice(0, 20);
     }
     case "added":
       return recentlyAdded(20).map((r) => ({
@@ -79,12 +79,15 @@ export async function discoverRow(id: RowId) {
         absItemId: r.absItemId,
         addedAt: r.addedAt,
         requests: {},
-        mine: r.hcBook ? (myShelfStatus([r.hcBook.id]).get(r.hcBook.id) ?? null) : null,
+        mine: r.hcBook ? (myShelfStatus([r.hcBook.id], userId).get(r.hcBook.id) ?? null) : null,
       }));
     case "requests": {
       const rows = db
-        .prepare("SELECT hc_book_id, MAX(requested_at) AS at, title, authors, slug, cover_url, release_year FROM requests GROUP BY hc_book_id ORDER BY at DESC LIMIT 20")
-        .all() as { hc_book_id: number; title: string; authors: string; slug: string | null; cover_url: string | null; release_year: number | null }[];
+        .prepare(
+          `SELECT r.hc_book_id, MAX(r.requested_at) AS at, r.title, r.authors, r.slug, r.cover_url, r.release_year FROM requests r
+           JOIN request_users ru ON ru.request_id = r.id WHERE ru.user_id = ? GROUP BY r.hc_book_id ORDER BY at DESC LIMIT 20`,
+        )
+        .all(userId) as { hc_book_id: number; title: string; authors: string; slug: string | null; cover_url: string | null; release_year: number | null }[];
       return annotate(
         rows.map((r) => ({
           id: r.hc_book_id,
@@ -98,6 +101,7 @@ export async function discoverRow(id: RowId) {
           seriesPosition: null,
           hasAudiobook: null,
         })),
+        userId,
       );
     }
   }
