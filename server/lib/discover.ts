@@ -72,7 +72,7 @@ const tagRow = (kind: TagKind, slug: string): RowConfig => ({ key: `${kind}-${sl
 
 const builtin = (id: BuiltinId): RowConfig => ({ key: id, kind: "builtin", id });
 /** Modeled on Hardcover's own Discover page: picks for you, trending, series to continue, then new and upcoming. */
-export const STARTER_ROWS: RowConfig[] = (["foryou", "trending", "continue", "want", "new", "added", "authors", "toprated"] as BuiltinId[]).map(builtin);
+export const STARTER_ROWS: RowConfig[] = (["foryou", "trending", "continue", "want", "new", "authors", "toprated", "added"] as BuiltinId[]).map(builtin);
 
 function valid(rows: unknown): RowConfig[] | null {
   if (!Array.isArray(rows)) return null;

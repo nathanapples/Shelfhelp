@@ -6,6 +6,7 @@ import { config } from "./lib/config.js";
 import { bookEditions, fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
 import { getItems, refreshLibrary, searchLibrary } from "./lib/library.js";
 import { cleanIssuer, getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } from "./lib/settings.js";
+import { ensureWantToRead } from "./lib/autolists.js";
 import { decide, getList, hardcoverUrl, isRunning, pushCollection, rematch, runningLists, statusCounts, syncAll, syncList, type ListRow } from "./lib/sync.js";
 import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
@@ -243,6 +244,7 @@ export async function routes(app: FastifyInstance) {
         if (u.id === OWNER_ID) saveSettings({ hardcoverToken: token });
         else updateUser(u.id, { hardcover_token: token });
         syncReading("Hardcover connected", { userId: u.id }).catch(() => {});
+        ensureWantToRead({ userId: u.id }).catch(() => {});
         return { ok: true, hardcoverUser: who.username };
       }
       if (u.id !== OWNER_ID) updateUser(u.id, { hardcover_token: null });
@@ -278,6 +280,7 @@ export async function routes(app: FastifyInstance) {
         if (u.id === OWNER_ID) saveSettings({ hardcoverToken: req.body.hardcoverToken });
         else updateUser(u.id, { hardcover_token: req.body.hardcoverToken });
         syncReading("reader added", { userId: u.id }).catch(() => {});
+        ensureWantToRead({ userId: u.id }).catch(() => {});
       }
       return userView(getUser(u.id)!);
     } catch (err) {
@@ -300,7 +303,10 @@ export async function routes(app: FastifyInstance) {
           if (id === OWNER_ID) {
             if (b.hardcoverToken) saveSettings({ hardcoverToken: b.hardcoverToken });
           } else updateUser(id, { hardcover_token: b.hardcoverToken || null });
-          if (b.hardcoverToken) syncReading("Hardcover connected", { userId: id }).catch(() => {});
+          if (b.hardcoverToken) {
+            syncReading("Hardcover connected", { userId: id }).catch(() => {});
+            ensureWantToRead({ userId: id }).catch(() => {});
+          }
         }
         return userView(getUser(id)!);
       } catch (err) {
@@ -387,6 +393,8 @@ export async function routes(app: FastifyInstance) {
     const before = getSettings().matchStrictness;
     const modeBefore = getSettings().authMode;
     const saved = saveSettings(patch);
+    // A new Hardcover token, or the setting turned on: make the Want to Read collections now.
+    if (patch.hardcoverToken || patch.autoWantToRead || patch.absUrl || patch.absToken) ensureWantToRead().catch(() => {});
     // Turning on Cloudflare Access: you must still be an admin afterwards, or it's undone.
     if (saved.authMode === "cloudflare" && modeBefore !== "cloudflare") {
       const cf = await cloudflareUser(req).catch(() => null);
@@ -886,7 +894,7 @@ export async function routes(app: FastifyInstance) {
       const b = req.body;
       const sourceType = b.sourceType === "hardcover_status" || b.sourceType === "requests" ? b.sourceType : "hardcover_list";
       const existing = db
-        .prepare("SELECT id FROM lists WHERE source_type = ? AND hc_list_id = ? AND abs_library_id = ?")
+        .prepare("SELECT id FROM lists WHERE source_type = ? AND hc_list_id = ? AND abs_library_id = ? AND user_id IS NULL")
         .get(sourceType, b.hcListId, b.absLibraryId) as
         | { id: number }
         | undefined;

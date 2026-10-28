@@ -119,10 +119,11 @@ export const SHELVES: Record<number, { name: string; slug: string; description: 
 };
 
 /** Every book on one of your status shelves, most recently changed first. */
-export async function fetchShelf(statusId: number): Promise<{ info: ListInfo; books: ListBook[] }> {
+/** A Hardcover status shelf. `token` reads someone else's shelf (default: the token in Settings). */
+export async function fetchShelf(statusId: number, token?: string): Promise<{ info: ListInfo; books: ListBook[] }> {
   const shelf = SHELVES[statusId];
   if (!shelf) throw new Error(`Unknown Hardcover shelf ${statusId}`);
-  const hc = hardcover();
+  const hc = token ? hardcover(token) : hardcover();
   const books: ListBook[] = [];
   const pageSize = 100;
   for (let offset = 0; ; offset += pageSize) {
@@ -150,8 +151,8 @@ export async function fetchShelf(statusId: number): Promise<{ info: ListInfo; bo
 
 export type SourceType = "hardcover_list" | "hardcover_status";
 
-export function fetchSource(type: string, id: number) {
-  return type === "hardcover_status" ? fetchShelf(id) : fetchList(id);
+export function fetchSource(type: string, id: number, token?: string) {
+  return type === "hardcover_status" ? fetchShelf(id, token) : fetchList(id);
 }
 
 /** Your status shelves with counts and a few covers, for the picker. */

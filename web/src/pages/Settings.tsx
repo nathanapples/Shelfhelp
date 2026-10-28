@@ -170,7 +170,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
       />
 
       {tab === "general" && (
-        <Section title="General Settings" description="How often lists sync and how careful matching should be.">
+        <Section title="General Settings" description="How often collections sync, how careful matching should be, and which collections are made for you.">
           <div className="form-row">
             <label>
               Sync every
@@ -220,7 +220,18 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
               ))}
             </div>
           </div>
-          {actions(["syncIntervalMinutes", "matchStrictness"])}
+          <div className="form-row">
+            <label>
+              Want to Read collections
+              <span className="label-tip">
+                Makes a collection of each reader's Hardcover Want to Read shelf as soon as they connect Hardcover. Each is made once, so one you delete stays deleted.
+              </span>
+            </label>
+            <div className="form-input-area">
+              <Toggle checked={s.autoWantToRead ?? true} onChange={(v) => set("autoWantToRead", v)} />
+            </div>
+          </div>
+          {actions(["syncIntervalMinutes", "matchStrictness", "autoWantToRead"])}
         </Section>
       )}
 

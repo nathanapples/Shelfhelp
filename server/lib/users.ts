@@ -29,6 +29,7 @@ export interface UserRow {
   created_at: string;
   last_login_at: string | null;
   discover_rows: string | null;
+  want_list_at: string | null;
 }
 
 export interface Reader {

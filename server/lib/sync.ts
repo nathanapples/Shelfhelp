@@ -7,6 +7,7 @@ import { matchBook, type Candidate } from "./matcher.js";
 import { getSettings, isConfigured } from "./settings.js";
 import { log } from "./activity.js";
 import { finishJob, startJob, step } from "./progress.js";
+import { readerById } from "./users.js";
 
 export interface ListRow {
   id: number;
@@ -26,6 +27,8 @@ export interface ListRow {
   last_status: string | null;
   last_error: string | null;
   created_at: string;
+  /** Whose Hardcover shelf this is. NULL: the token in Settings. */
+  user_id: number | null;
 }
 
 export type BookStatus = "matched" | "review" | "missing" | "ignored";
@@ -63,7 +66,12 @@ export async function syncList(listId: number, { forceLibrary = false } = {}) {
   startJob(job, list.name);
   try {
     step(job, list.source_type === "requests" ? "Getting requests" : "Getting the list from Hardcover");
-    const { info, books } = list.source_type === "requests" ? requestSource(list.hc_list_id) : await fetchSource(list.source_type, list.hc_list_id);
+    let token: string | undefined;
+    if (list.user_id) {
+      token = readerById(list.user_id)?.hardcoverToken || undefined;
+      if (!token) throw new Error("This reader hasn't connected Hardcover.");
+    }
+    const { info, books } = list.source_type === "requests" ? requestSource(list.hc_list_id) : await fetchSource(list.source_type, list.hc_list_id, token);
     await refreshLibrary(list.abs_library_id, { force: forceLibrary, job });
     step(job, `Matching ${books.length} books`);
     rematch(list, books);
@@ -263,6 +271,9 @@ export async function decide(hcBookId: number, libraryId: string, action: "match
 
 export async function syncAll(reason: string) {
   if (!isConfigured().hardcover || !isConfigured().abs) return;
+  // Readers who connected Hardcover get their Want to Read collection first.
+  const { ensureWantToRead } = await import("./autolists.js");
+  await ensureWantToRead({ sync: false }).catch((err) => log("warn", `Couldn't make Want to Read collections: ${(err as Error).message}`));
   const lists = db.prepare("SELECT id FROM lists WHERE enabled = 1 ORDER BY id").all() as { id: number }[];
   if (!lists.length) return;
   log("info", `Syncing ${lists.length} list${lists.length === 1 ? "" : "s"} (${reason})`);

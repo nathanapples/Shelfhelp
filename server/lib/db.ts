@@ -407,6 +407,12 @@ const migrations: string[] = [
   ALTER TABLE requests ADD COLUMN edition_id INTEGER;
   ALTER TABLE requests ADD COLUMN edition_label TEXT;
   `,
+  `
+  -- Shelves read with one reader's Hardcover token (NULL: the token in Settings).
+  ALTER TABLE lists ADD COLUMN user_id INTEGER;
+  -- When Shelfhelp made the reader's Want to Read collection, so it's made only once.
+  ALTER TABLE users ADD COLUMN want_list_at TEXT;
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

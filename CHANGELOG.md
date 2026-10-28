@@ -2,6 +2,12 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.12.0 (2026-10-28)
+
+- Each reader gets a Want to Read collection automatically: as soon as someone connects Hardcover (in My account, Settings, Users, or the owner's token in Settings), Shelfhelp makes "Name's Want to Read" from their own Hardcover shelf in the first Audiobookshelf library and syncs it. Readers who already have a Hardcover token get theirs on the next sync. Each is made once, so one you delete stays deleted. Turn it off in Settings, General.
+- Shelf collections can now follow another reader's Hardcover shelf, using their token.
+- Discover: the genre and mood lines moved to the bottom, just above Customize this page, with Recently added right above them.
+
 ## 0.11.0 (2026-10-28)
 
 - Default Discover rows trimmed to: Top picks for you, Trending on Hardcover, Pick up where you left off, From your Want to Read, Recent releases, Recently added, New from authors you listen to, Highest rated new books. Your recent requests, Upcoming releases, the featured prompt and the genre rows are no longer defaults (they can still be added in Customize).

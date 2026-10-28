@@ -42,6 +42,8 @@ export interface Settings {
   chaptarrEbookQuality: number;
   chaptarrAudiobookMetadata: number;
   chaptarrEbookMetadata: number;
+  /** Make a Want to Read collection for each reader once they connect Hardcover. */
+  autoWantToRead: boolean;
   /** Default Discover rows for everyone. Empty uses Shelfhelp's starter rows. */
   discoverRows: unknown[];
   /** How people sign in: none (shared password or open), oidc (Pocket ID), cloudflare (Cloudflare Access). */
@@ -90,6 +92,7 @@ const defaults: Settings = {
   chaptarrEbookQuality: 0,
   chaptarrAudiobookMetadata: 0,
   chaptarrEbookMetadata: 0,
+  autoWantToRead: true,
   discoverRows: [],
   authMode: "none",
   oidcIssuer: "",

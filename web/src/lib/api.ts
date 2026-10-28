@@ -106,6 +106,7 @@ export interface Library {
 
 export interface Settings {
   hardcoverToken: string;
+  autoWantToRead: boolean;
   absUrl: string;
   absToken: string;
   syncIntervalMinutes: number;

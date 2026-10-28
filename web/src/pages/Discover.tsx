@@ -167,16 +167,18 @@ export default function DiscoverPage({ status }: { status: Status }) {
 
   return (
     <div className="pt-2">
-      <div className="mb-4">
-        <TagStrip label="Genres" icon={TagIcon} tags={config?.genres ?? []} />
-        <TagStrip label="Moods" icon={FaceSmileIcon} tags={config?.moods ?? []} />
-      </div>
       {shown.map((r) => (
         <Shelf key={r.key} row={r} status={status} version={r.key === "requests" ? version : 0} onOpen={(book, replace) => setOpen({ book, replace })} />
       ))}
       {config && shown.length === 0 && (
         <div className="py-16 text-center text-sm text-gray-500">No rows. Use Customize this page to add some.</div>
       )}
+      {config && (config.genres?.length || config.moods?.length) ? (
+        <div className="mt-2">
+          <TagStrip label="Genres" icon={TagIcon} tags={config.genres ?? []} />
+          <TagStrip label="Moods" icon={FaceSmileIcon} tags={config.moods ?? []} />
+        </div>
+      ) : null}
       {config && (
         <div className="mt-6 flex justify-center border-t border-gray-800 pt-6">
           <button className="btn btn-default" onClick={() => setCustomizing(true)}>
