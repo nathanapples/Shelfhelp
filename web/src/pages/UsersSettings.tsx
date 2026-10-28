@@ -138,7 +138,7 @@ export function UsersSettings({
           <Field label="Callback URL" tip="Add this to the Shelfhelp client in Pocket ID. Add one for each address you open Shelfhelp at.">
             <code className="block break-all rounded-md bg-gray-900 px-3 py-2 text-sm text-gray-200 ring-1 ring-gray-700">{redirect}</code>
           </Field>
-          <Field label="Issuer URL" tip="Your Pocket ID address, e.g. https://id.example.com">
+          <Field label="Issuer URL" tip="Just your Pocket ID address, e.g. https://id.example.com (the .well-known link works too).">
             <input className="input" placeholder="https://id.example.com" value={s.oidcIssuer} disabled={locked("oidcIssuer")} onChange={(e) => set("oidcIssuer", e.target.value)} />
           </Field>
           <Field label="Client ID">

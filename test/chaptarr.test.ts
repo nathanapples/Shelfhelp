@@ -122,3 +122,9 @@ test("requester tags and request collections", async () => {
   assert.deepEqual(mine.books.map((b) => b.id), [55]);
   assert.ok(requestSource(0).books.some((b) => b.id === 55));
 });
+
+test("issuer URLs pasted from Pocket ID", async () => {
+  const { cleanIssuer } = await import("../server/lib/settings.ts");
+  assert.equal(cleanIssuer("https://id.example.com/.well-known/openid-configuration"), "https://id.example.com");
+  assert.equal(cleanIssuer(" https://id.example.com/ "), "https://id.example.com");
+});

@@ -138,11 +138,19 @@ export function getSettings(): Settings {
   const s = out as unknown as Settings;
   s.absUrl = s.absUrl.replace(/\/+$/, "");
   s.chaptarrUrl = s.chaptarrUrl.replace(/\/+$/, "");
-  s.oidcIssuer = s.oidcIssuer.replace(/\/+$/, "");
-  s.oidcInternalUrl = s.oidcInternalUrl.replace(/\/+$/, "");
+  s.oidcIssuer = cleanIssuer(s.oidcIssuer);
+  s.oidcInternalUrl = cleanIssuer(s.oidcInternalUrl);
   s.cfTeamDomain = s.cfTeamDomain.replace(/^https?:\/\//, "").replace(/\/+$/, "");
   if (!["none", "oidc", "cloudflare"].includes(s.authMode)) s.authMode = "none";
   return s;
+}
+
+/** Pocket ID shows its discovery link; people paste that. The issuer is the part before it. */
+export function cleanIssuer(url: string) {
+  return url
+    .trim()
+    .replace(/\/\.well-known\/openid-configuration\/?$/i, "")
+    .replace(/\/+$/, "");
 }
 
 export function lockedByEnv(): (keyof Settings)[] {

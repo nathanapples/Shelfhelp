@@ -2,6 +2,10 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.4.1 (2026-10-28)
+
+- Pocket ID: pasting the full `.well-known/openid-configuration` link as the issuer URL now works.
+
 ## 0.4.0 (2026-10-28)
 
 - Requested books are tagged in Audiobookshelf with who asked for them ("Requested by sage"), like Seerr tags requests in Sonarr and Radarr. Existing tags are kept, and the wording can be changed under Settings, Chaptarr.

@@ -5,7 +5,7 @@ import { db, json } from "./lib/db.js";
 import { config } from "./lib/config.js";
 import { fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
 import { getItems, refreshLibrary, searchLibrary } from "./lib/library.js";
-import { getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } from "./lib/settings.js";
+import { cleanIssuer, getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } from "./lib/settings.js";
 import { decide, getList, hardcoverUrl, isRunning, pushCollection, rematch, runningLists, statusCounts, syncAll, syncList, type ListRow } from "./lib/sync.js";
 import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
@@ -309,8 +309,8 @@ export async function routes(app: FastifyInstance) {
   app.post<{ Body: { issuer?: string; clientId?: string; internalUrl?: string } }>("/api/settings/test/oidc", async (req, reply) => {
     try {
       const s = getSettings();
-      const issuer = (req.body?.issuer || s.oidcIssuer).replace(/\/+$/, "");
-      const internal = (req.body?.internalUrl ?? s.oidcInternalUrl).replace(/\/+$/, "");
+      const issuer = cleanIssuer(req.body?.issuer || s.oidcIssuer);
+      const internal = cleanIssuer(req.body?.internalUrl ?? s.oidcInternalUrl);
       const base = internal || issuer;
       const res = await fetch(`${base}/.well-known/openid-configuration`, { signal: AbortSignal.timeout(15_000) }).catch((err: Error) => {
         throw new Error(`Couldn't reach ${base}: ${(err as Error & { cause?: { code?: string } }).cause?.code ?? err.message}`);
