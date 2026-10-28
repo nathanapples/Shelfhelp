@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { AdjustmentsHorizontalIcon, ChevronLeftIcon, ChevronRightIcon, TagIcon } from "@heroicons/react/24/outline";
+import { AdjustmentsHorizontalIcon, ChevronLeftIcon, ChevronRightIcon, FaceSmileIcon, TagIcon } from "@heroicons/react/24/outline";
 import { isAdmin, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type RequestOutcome, type SearchHit, type Status } from "../lib/api";
 import { CustomizeDiscover } from "../components/CustomizeDiscover";
 import { useApi } from "../lib/hooks";
@@ -28,23 +28,44 @@ export function afterRequest<T extends { book: SearchHit; replace?: (b: SearchHi
   setOpen((cur) => (cur && cur.book.id === next.id ? { ...cur, book: withOutcomes(cur.book, outcomes) } : cur));
 }
 
-/** Genre chips that open the genre's page. */
-export function GenreStrip({ genres }: { genres: DiscoverRowInfo[] }) {
-  if (!genres.length) return <div className="flex-1" />;
+/** A scrolling line of genre or mood chips, each opening its page. Arrows scroll it on any screen size. */
+export function TagStrip({ label, icon: Icon, tags }: { label: string; icon: React.ComponentType<{ className?: string }>; tags: DiscoverRowInfo[] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const update = () => {
+    const el = ref.current;
+    if (el) setEdges({ left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 });
+  };
+  useEffect(() => {
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [tags.length]);
+  const scroll = (dir: number) => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.7, behavior: "smooth" });
+  if (!tags.length) return null;
+  const arrow = "flex-shrink-0 rounded-full p-1 text-gray-400 ring-1 ring-gray-700 transition hover:bg-gray-700 hover:text-white disabled:opacity-30";
   return (
-    <div className="hide-scrollbar flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1">
-      <span className="flex flex-shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500">
-        <TagIcon className="h-4 w-4" /> Genres
+    <div className="mb-2 flex items-center gap-1.5">
+      <span className="flex w-16 flex-shrink-0 items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 sm:w-20 sm:text-xs">
+        <Icon className="h-4 w-4 flex-shrink-0" /> {label}
       </span>
-      {genres.map((g) => (
-        <Link
-          key={g.key}
-          to={`/discover/${g.key}`}
-          className="flex-shrink-0 whitespace-nowrap rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-200 ring-1 ring-gray-600 transition hover:bg-gray-700 hover:text-white"
-        >
-          {g.title.replace(/^Top /, "")}
-        </Link>
-      ))}
+      <button className={arrow} onClick={() => scroll(-1)} disabled={!edges.left} aria-label={`Scroll ${label.toLowerCase()} left`}>
+        <ChevronLeftIcon className="h-4 w-4" />
+      </button>
+      <div ref={ref} onScroll={update} className="hide-scrollbar flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1">
+        {tags.map((g) => (
+          <Link
+            key={g.key}
+            to={`/discover/${g.key}`}
+            className="flex-shrink-0 whitespace-nowrap rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-200 ring-1 ring-gray-600 transition hover:bg-gray-700 hover:text-white"
+          >
+            {g.title.replace(/^Top /, "").replace(/ reads$/, "")}
+          </Link>
+        ))}
+      </div>
+      <button className={arrow} onClick={() => scroll(1)} disabled={!edges.right} aria-label={`Scroll ${label.toLowerCase()} right`}>
+        <ChevronRightIcon className="h-4 w-4" />
+      </button>
     </div>
   );
 }
@@ -146,17 +167,22 @@ export default function DiscoverPage({ status }: { status: Status }) {
 
   return (
     <div className="pt-2">
-      <div className="mb-4 flex items-center gap-2">
-        <GenreStrip genres={config?.genres ?? []} />
-        <button className="btn btn-sm btn-ghost flex-shrink-0" onClick={() => setCustomizing(true)} disabled={!config} title="Customize Discover">
-          <AdjustmentsHorizontalIcon className="h-4 w-4" /> <span className="hidden sm:inline">Customize</span>
-        </button>
+      <div className="mb-4">
+        <TagStrip label="Genres" icon={TagIcon} tags={config?.genres ?? []} />
+        <TagStrip label="Moods" icon={FaceSmileIcon} tags={config?.moods ?? []} />
       </div>
       {shown.map((r) => (
         <Shelf key={r.key} row={r} status={status} version={r.key === "requests" ? version : 0} onOpen={(book, replace) => setOpen({ book, replace })} />
       ))}
       {config && shown.length === 0 && (
-        <div className="py-16 text-center text-sm text-gray-500">No rows. Use Customize to add some.</div>
+        <div className="py-16 text-center text-sm text-gray-500">No rows. Use Customize this page to add some.</div>
+      )}
+      {config && (
+        <div className="mt-6 flex justify-center border-t border-gray-800 pt-6">
+          <button className="btn btn-default" onClick={() => setCustomizing(true)}>
+            <AdjustmentsHorizontalIcon className="h-4 w-4" /> Customize this page
+          </button>
+        </div>
       )}
       {customizing && config && (
         <CustomizeDiscover config={config} admin={isAdmin(status)} onClose={() => setCustomizing(false)} onSaved={reload} />

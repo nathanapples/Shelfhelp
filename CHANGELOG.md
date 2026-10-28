@@ -2,6 +2,14 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.11.0 (2026-10-28)
+
+- Default Discover rows trimmed to: Top picks for you, Trending on Hardcover, Pick up where you left off, From your Want to Read, Recent releases, Recently added, New from authors you listen to, Highest rated new books. Your recent requests, Upcoming releases, the featured prompt and the genre rows are no longer defaults (they can still be added in Customize).
+- Genres are now Hardcover's top 10 by number of books: Fiction, Fantasy, Young Adult, Adventure, Science Fiction, Comics, Classics, History, Romance, LGBTQ. Genre rows saved before keep working.
+- New moods line under genres, with Hardcover's top 10 moods: Adventurous, Emotional, Dark, Mysterious, Tense, Funny, Reflective, Lighthearted, Sad, Hopeful. Each opens the most-read books with that mood, and moods can be added as Discover rows.
+- Genres and moods have arrow buttons, so they scroll on small screens too.
+- "Customize this page" is now at the bottom of Discover.
+
 ## 0.10.0 (2026-10-28)
 
 - Discover follows Hardcover's own Discover page. New default order: Top picks for you, Trending on Hardcover, Pick up where you left off, From your Want to Read, Recent releases, Upcoming releases, Recently added, New from authors you listen to, the featured prompt, Top Fantasy, Top Science Fiction, Highest rated new books, Your recent requests. If you've saved your own rows, use "Use the defaults" in Customize to get this order, or add the new rows yourself.

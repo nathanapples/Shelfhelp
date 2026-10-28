@@ -44,41 +44,35 @@ export const BUILTINS: Record<BuiltinId, { title: string; subtitle: string }> = 
   prompt: { title: "Featured prompt", subtitle: "Hardcover's featured prompt, most picked books first" },
 };
 
-/** Genres to browse. Hardcover's genre tags are matched ignoring case, spaces and dashes. */
-export const GENRES: { slug: string; name: string }[] = [
-  ["fantasy", "Fantasy"],
-  ["science-fiction", "Science Fiction"],
-  ["mystery", "Mystery"],
-  ["thriller", "Thriller"],
-  ["romance", "Romance"],
-  ["horror", "Horror"],
-  ["historical-fiction", "Historical Fiction"],
-  ["literary-fiction", "Literary Fiction"],
-  ["young-adult", "Young Adult"],
-  ["nonfiction", "Nonfiction"],
-  ["biography", "Biography"],
-  ["history", "History"],
-  ["self-help", "Self Help"],
-  ["humor", "Humor"],
-  ["classics", "Classics"],
-].map(([slug, name]) => ({ slug, name }));
-const genreBySlug = new Map(GENRES.map((g) => [g.slug, g]));
+type TagKind = "genre" | "mood";
+const tagList = (pairs: string[]) => pairs.map((name) => ({ slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name }));
+
+/**
+ * Genres and moods to browse: the top 10 of each on Hardcover by number of
+ * books (hardcover.app/browse/tags/genre and /mood). Tags are matched
+ * ignoring case, spaces and dashes.
+ */
+export const TAGS: Record<TagKind, { slug: string; name: string }[]> = {
+  genre: tagList(["Fiction", "Fantasy", "Young Adult", "Adventure", "Science Fiction", "Comics", "Classics", "History", "Romance", "LGBTQ"]),
+  mood: tagList(["Adventurous", "Emotional", "Dark", "Mysterious", "Tense", "Funny", "Reflective", "Lighthearted", "Sad", "Hopeful"]),
+};
+// Genres offered before 0.11.0, still valid in rows people saved.
+const OLD_GENRES = tagList(["Mystery", "Thriller", "Horror", "Historical Fiction", "Literary Fiction", "Nonfiction", "Biography", "Self Help", "Humor"]);
+const tagBySlug: Record<TagKind, Map<string, { slug: string; name: string }>> = {
+  genre: new Map([...TAGS.genre, ...OLD_GENRES].map((g) => [g.slug, g])),
+  mood: new Map(TAGS.mood.map((g) => [g.slug, g])),
+};
 
 export type RowConfig =
   | { key: string; kind: "builtin"; id: BuiltinId }
   | { key: string; kind: "list"; listId: number; title: string; owner?: string | null; slug?: string | null }
-  | { key: string; kind: "genre"; genre: string };
+  | { key: string; kind: TagKind; tag: string };
 
-const genreRow = (slug: string): RowConfig => ({ key: `genre-${slug}`, kind: "genre", genre: slug });
+const tagRow = (kind: TagKind, slug: string): RowConfig => ({ key: `${kind}-${slug}`, kind, tag: slug });
 
 const builtin = (id: BuiltinId): RowConfig => ({ key: id, kind: "builtin", id });
 /** Modeled on Hardcover's own Discover page: picks for you, trending, series to continue, then new and upcoming. */
-export const STARTER_ROWS: RowConfig[] = [
-  ...(["foryou", "trending", "continue", "want", "new", "soon", "added", "authors", "prompt"] as BuiltinId[]).map(builtin),
-  genreRow("fantasy"),
-  genreRow("science-fiction"),
-  ...(["toprated", "requests"] as BuiltinId[]).map(builtin),
-];
+export const STARTER_ROWS: RowConfig[] = (["foryou", "trending", "continue", "want", "new", "added", "authors", "toprated"] as BuiltinId[]).map(builtin);
 
 function valid(rows: unknown): RowConfig[] | null {
   if (!Array.isArray(rows)) return null;
@@ -89,7 +83,12 @@ function valid(rows: unknown): RowConfig[] | null {
     if (r.kind === "builtin" && r.id in BUILTINS) out.push(builtin(r.id));
     else if (r.kind === "list" && Number(r.listId) > 0) {
       out.push({ key: `list-${Number(r.listId)}`, kind: "list", listId: Number(r.listId), title: String(r.title || "Hardcover list"), owner: r.owner ?? null, slug: r.slug ?? null });
-    } else if (r.kind === "genre" && genreBySlug.has(r.genre)) out.push(genreRow(r.genre));
+    } else if (r.kind === "genre" || r.kind === "mood") {
+      // Rows saved before 0.11.0 kept the slug in `genre`.
+      const slug = r.tag ?? (r as { genre?: string }).genre ?? "";
+      if (!tagBySlug[r.kind].has(slug)) continue;
+      out.push(tagRow(r.kind, slug));
+    }
     else continue;
     seen.add(out[out.length - 1].key);
   }
@@ -123,19 +122,28 @@ export function rowInfo(r: RowConfig) {
     return { ...r, title: featured.prompt.question, subtitle: "Hardcover's featured prompt, most picked books first" };
   }
   if (r.kind === "builtin") return { ...r, ...BUILTINS[r.id] };
-  if (r.kind === "genre") return { ...r, title: `Top ${genreBySlug.get(r.genre)!.name}`, subtitle: `The most-read ${genreBySlug.get(r.genre)!.name.toLowerCase()} books on Hardcover` };
-  return { ...r, subtitle: r.owner ? `A Hardcover list by @${r.owner}` : "A Hardcover list" };
+  if (r.kind === "genre" || r.kind === "mood") {
+    const name = tagBySlug[r.kind].get(r.tag)!.name;
+    const lower = /^[A-Z]+$/.test(name) ? name : name.toLowerCase();
+    return {
+      ...r,
+      title: r.kind === "genre" ? `Top ${name}` : `${name} reads`,
+      subtitle: r.kind === "genre" ? `The most-read ${lower} books on Hardcover` : `The most-read books Hardcover readers call ${lower}`,
+    };
+  }
+  const l = r as Extract<RowConfig, { kind: "list" }>;
+  return { ...l, subtitle: l.owner ? `A Hardcover list by @${l.owner}` : "A Hardcover list" };
 }
 
-export const genreRows = () => GENRES.map((g) => rowInfo(genreRow(g.slug)));
+export const tagRows = (kind: TagKind) => TAGS[kind].map((g) => rowInfo(tagRow(kind, g.slug)));
 
 /** Title and subtitle for any row key, for its own page. */
 export async function rowInfoFor(key: string, userId: number) {
   const mine = rowsFor(userId).rows.find((r) => r.key === key) ?? defaultRows().find((r) => r.key === key);
   if (mine) return rowInfo(mine);
   if (key in BUILTINS) return rowInfo(builtin(key as BuiltinId));
-  const g = key.match(/^genre-(.+)$/);
-  if (g && genreBySlug.has(g[1])) return rowInfo(genreRow(g[1]));
+  const g = key.match(/^(genre|mood)-(.+)$/);
+  if (g && tagBySlug[g[1] as TagKind].has(g[2])) return rowInfo(tagRow(g[1] as TagKind, g[2]));
   const l = key.match(/^list-(\d+)$/);
   if (l) {
     const { info } = await fetchList(Number(l[1]));
@@ -272,14 +280,15 @@ async function continueSeries(userId: number, limit: number): Promise<HcSummary[
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-/** The most-read books Hardcover tags with a genre. Search can only match words, so hits are checked for the exact genre. */
-async function genreBooks(name: string, limit: number): Promise<HcSummary[]> {
+/** The most-read books Hardcover tags with a genre or mood. Search can only match words, so hits are checked for the exact tag. */
+async function tagBooks(kind: TagKind, name: string, limit: number): Promise<HcSummary[]> {
+  const field = kind === "genre" ? "genres" : "moods";
   const want = norm(name);
   const exact: HcSummary[] = [];
   const loose: HcSummary[] = [];
   const perPage = 50;
   for (let page = 1; page <= 4 && exact.length < limit; page++) {
-    const res = await hardcover().search.books(name, { fields: "genres", weights: "1", typos: "0", sort: "users_count:desc", perPage, page });
+    const res = await hardcover().search.books(name, { fields: field, weights: "1", typos: "0", sort: "users_count:desc", perPage, page });
     for (const h of res.hits) {
       const book: HcSummary = {
         id: Number(h.id),
@@ -295,11 +304,11 @@ async function genreBooks(name: string, limit: number): Promise<HcSummary[]> {
         rating: h.rating ?? null,
         ratingsCount: h.ratingsCount ?? null,
       };
-      ((h.genres ?? []).some((g) => norm(g) === want) ? exact : loose).push(book);
+      ((kind === "genre" ? h.genres : h.moods) ?? []).some((g) => norm(g) === want) ? exact.push(book) : loose.push(book);
     }
     if (res.hits.length < perPage) break;
   }
-  // Older search results may not carry genres; then trust the search.
+  // Older search results may not carry the tags; then trust the search.
   return (exact.length >= Math.min(8, limit) ? exact : [...exact, ...loose]).slice(0, limit);
 }
 
@@ -325,7 +334,7 @@ async function vibeBooks(userId: number, limit: number): Promise<HcSummary[]> {
   return out;
 }
 
-/** One row's books. `key` is a built-in id, list-<id> or genre-<slug>. `limit` is bigger on the row's own page. */
+/** One row's books. `key` is a built-in id, list-<id>, genre-<slug> or mood-<slug>. `limit` is bigger on the row's own page. */
 export async function discoverRow(key: string, userId: number, limit = ROW) {
   const hc = () => hardcover();
   const L = limit;
@@ -334,11 +343,12 @@ export async function discoverRow(key: string, userId: number, limit = ROW) {
     const id = Number(list[1]);
     return annotate(await cached(key, async () => (await fetchList(id)).books.map(fromList)), userId).slice(0, limit === ROW ? 30 : 200);
   }
-  const genre = key.match(/^genre-(.+)$/);
-  if (genre) {
-    const g = genreBySlug.get(genre[1]);
+  const tag = key.match(/^(genre|mood)-(.+)$/);
+  if (tag) {
+    const kind = tag[1] as TagKind;
+    const g = tagBySlug[kind].get(tag[2]);
     if (!g) throw new Error("No such row");
-    return annotate(await cached(`${key}:${L}`, () => genreBooks(g.name, L)), userId);
+    return annotate(await cached(`${key}:${L}`, () => tagBooks(kind, g.name, L)), userId);
   }
   switch (key as BuiltinId) {
     case "continue":

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowDownIcon, ArrowUpIcon, PlusIcon, RectangleStackIcon, SparklesIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { ArrowDownIcon, ArrowUpIcon, FaceSmileIcon, PlusIcon, RectangleStackIcon, SparklesIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { api, type DiscoverConfig, type DiscoverRowInfo, type HcList } from "../lib/api";
 import { Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
@@ -107,6 +107,8 @@ export function CustomizeDiscover({
               <RectangleStackIcon className="h-5 w-5 flex-shrink-0 text-indigo-400" />
             ) : r.kind === "genre" ? (
               <TagIcon className="h-5 w-5 flex-shrink-0 text-pink-400" />
+            ) : r.kind === "mood" ? (
+              <FaceSmileIcon className="h-5 w-5 flex-shrink-0 text-amber-400" />
             ) : (
               <SparklesIcon className="h-5 w-5 flex-shrink-0 text-purple-400" />
             )}
@@ -144,21 +146,30 @@ export function CustomizeDiscover({
           ))}
       </div>
 
-      <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Add a genre</h4>
-      <div className="flex flex-wrap gap-2">
-        {(config.genres ?? [])
-          .filter((g) => !has(g.key))
-          .map((g) => (
-            <button
-              key={g.key}
-              onClick={() => setRows([...rows, g])}
-              title={g.subtitle}
-              className="flex items-center gap-1 rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-200 ring-1 ring-gray-600 hover:bg-gray-700"
-            >
-              <PlusIcon className="h-4 w-4" /> {g.title.replace(/^Top /, "")}
-            </button>
-          ))}
-      </div>
+      {(
+        [
+          ["Add a genre", config.genres ?? []],
+          ["Add a mood", config.moods ?? []],
+        ] as const
+      ).map(([heading, tags]) => (
+        <div key={heading}>
+          <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">{heading}</h4>
+          <div className="flex flex-wrap gap-2">
+            {tags
+              .filter((g) => !has(g.key))
+              .map((g) => (
+                <button
+                  key={g.key}
+                  onClick={() => setRows([...rows, g])}
+                  title={g.subtitle}
+                  className="flex items-center gap-1 rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-200 ring-1 ring-gray-600 hover:bg-gray-700"
+                >
+                  <PlusIcon className="h-4 w-4" /> {g.title.replace(/^Top /, "").replace(/ reads$/, "")}
+                </button>
+              ))}
+          </div>
+        </div>
+      ))}
 
       <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Add a Hardcover list</h4>
       <div className="flex gap-2">

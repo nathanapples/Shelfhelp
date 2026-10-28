@@ -137,7 +137,8 @@ for (const [bookId, status] of [[104, 3], [101, 1]] as const) {
 const entryJson = (e: MockEntry) => ({ id: e.id, bookId: e.bookId, statusId: e.statusId, editionId: e.editionId, userId: 1, userBookReads: e.reads });
 const genresOf = (b: MockBook) =>
   b.author === "Brandon Sanderson" ? ["Fantasy", "Fiction"] : b.author === "Blake Crouch" ? ["Thriller", "Science Fiction"] : b.id === 113 ? ["Urban Fantasy"] : ["Science Fiction", "Fiction"];
-const hit = (b: MockBook) => ({ document: { genres: genresOf(b), users_count: 1000 - b.id, has_audiobook: true, id: String(b.id), title: b.title, slug: b.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"), author_names: [b.author], image: { url: `${HC}/cover/${b.id}.svg` }, series_names: b.series ? [b.series[0]] : [], featured_series_position: b.series?.[1] ?? null, release_year: 2010 } });
+const moodsOf = (b: MockBook) => (b.id % 2 ? ["Adventurous", "Tense"] : ["Emotional", "Dark", "Reflective"]);
+const hit = (b: MockBook) => ({ document: { genres: genresOf(b), moods: moodsOf(b), users_count: 1000 - b.id, has_audiobook: true, id: String(b.id), title: b.title, slug: b.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"), author_names: [b.author], image: { url: `${HC}/cover/${b.id}.svg` }, series_names: b.series ? [b.series[0]] : [], featured_series_position: b.series?.[1] ?? null, release_year: 2010 } });
 
 function hardcover(body: { query: string; variables?: Record<string, unknown> }, token = "") {
   const q = body.query;
@@ -242,6 +243,11 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
   if (q.includes("query GetSeriesBooks")) {
     const inSeries = books.filter((b) => b.series && seriesId(b.series[0]) === Number(v.seriesId));
     return { book_series: inSeries.map((b) => ({ position: b.series![1], details: null, compilation: false, featured: true, book: listBooks(books.indexOf(b), 1)[0].book })) };
+  }
+  if (q.includes("query Search") && v.fields === "moods") {
+    const want = String(v.query).toLowerCase();
+    const found = books.filter((b) => moodsOf(b).some((g) => g.toLowerCase() === want));
+    return { search: { ids: found.map((b) => b.id), results: { hits: found.map(hit), found: found.length }, query: v.query, queryType: "book", page: Number(v.page ?? 1), perPage: 50, error: null } };
   }
   if (q.includes("query Search") && v.fields === "genres") {
     const want = String(v.query).toLowerCase();

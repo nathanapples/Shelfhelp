@@ -11,7 +11,7 @@ import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
-import { BUILTINS, PAGE, defaultRows, loadFeaturedPrompt, discoverRow, genreRows, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
+import { BUILTINS, PAGE, defaultRows, loadFeaturedPrompt, discoverRow, tagRows, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
 import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
 import { ISSUE_KINDS, addComment, createIssue, deleteIssue, issueCounts, issueDetail, listIssues, setIssueStatus } from "./lib/issues.js";
 import { canSeeRequest, editionLabel, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
@@ -556,7 +556,8 @@ export async function routes(app: FastifyInstance) {
       builtins: Object.entries(BUILTINS)
         .filter(([id]) => chaptarr || id !== "requests")
         .map(([id, b]) => ({ key: id, kind: "builtin", id, ...b })),
-      genres: genreRows(),
+      genres: tagRows("genre"),
+      moods: tagRows("mood"),
     };
   });
 
