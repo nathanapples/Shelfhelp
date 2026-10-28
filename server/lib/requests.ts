@@ -389,7 +389,6 @@ async function doRefresh() {
   const open = (db.prepare(`SELECT * FROM requests WHERE status IN (${OPEN.map(() => "?").join(",")})`).all(...OPEN) as unknown as RequestRow[]);
   if (!open.length) {
     await tagInChaptarr();
-    await untagAbs();
     return;
   }
   const s = getSettings();
@@ -455,7 +454,6 @@ async function doRefresh() {
 
   const arrived = await markAvailable(s.absUrl && s.absToken ? true : false);
   await tagInChaptarr();
-  await untagAbs();
   // Collections made from requests pick up books as they arrive.
   if (arrived) {
     const { syncList } = await import("./sync.js");
@@ -553,45 +551,6 @@ export async function tagInChaptarr() {
   }
 }
 
-/**
- * Takes off the "Requested by" tags older versions of Shelfhelp put on
- * Audiobookshelf items. Only the exact tag Shelfhelp added is removed.
- */
-export async function untagAbs() {
-  const s = getSettings();
-  if (!s.absUrl || !s.absToken) return;
-  const rows = db
-    .prepare(
-      `SELECT ru.request_id, ru.user_id, ru.tag, r.abs_item_id FROM request_users ru JOIN requests r ON r.id = ru.request_id
-       WHERE ru.tagged_at IS NOT NULL`,
-    )
-    .all() as { request_id: number; user_id: number; tag: string | null; abs_item_id: string | null }[];
-  if (!rows.length) return;
-  const abs = new Abs();
-  const done = (r: (typeof rows)[number]) =>
-    db.prepare("UPDATE request_users SET tagged_at = NULL, tag = NULL WHERE request_id = ? AND user_id = ?").run(r.request_id, r.user_id);
-  const byItem = new Map<string, typeof rows>();
-  for (const r of rows) {
-    if (!r.abs_item_id || !r.tag) done(r);
-    else byItem.set(r.abs_item_id, [...(byItem.get(r.abs_item_id) ?? []), r]);
-  }
-  for (const [itemId, list] of byItem) {
-    try {
-      const tags = await abs.itemTags(itemId);
-      const drop = new Set(list.map((r) => r.tag));
-      const next = tags.filter((t) => !drop.has(t));
-      if (next.length !== tags.length) {
-        await abs.setItemTags(itemId, next);
-        log("info", `Removed ${[...drop].join(", ")} from a book in Audiobookshelf`);
-      }
-      list.forEach(done);
-    } catch (err) {
-      if ((err as { status?: number }).status === 404) list.forEach(done);
-      else log("warn", `Couldn't remove an old request tag in Audiobookshelf: ${(err as Error).message}`);
-    }
-  }
-}
-
 /** A collection source: one person's requests (userId) or everyone's (0). */
 export function requestSource(userId: number) {
   const rows = (
@@ -661,7 +620,7 @@ export function startRequestWatcher(everyMs = 5 * 60_000) {
     const chores = db
       .prepare(
         `SELECT COUNT(*) AS n FROM request_users ru JOIN requests r ON r.id = ru.request_id
-         WHERE ru.tagged_at IS NOT NULL OR (ru.chaptarr_tagged_at IS NULL AND r.chaptarr_book_id IS NOT NULL AND r.status != 'failed')`,
+         WHERE ru.chaptarr_tagged_at IS NULL AND r.chaptarr_book_id IS NOT NULL AND r.status != 'failed'`,
       )
       .get() as { n: number };
     if (open.n || chores.n) refreshRequests(0);

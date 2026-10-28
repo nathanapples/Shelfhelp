@@ -2,6 +2,10 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.7.1 (2026-10-28)
+
+- Shelfhelp no longer touches Audiobookshelf tags at all, including the one-time cleanup of the old "Requested by" tags. Remove any leftovers in Audiobookshelf yourself.
+
 ## 0.7.0 (2026-10-28)
 
 - Requests are tagged in Chaptarr, not Audiobookshelf. Shelfhelp no longer writes tags to Audiobookshelf, and it removes the "Requested by" tags it added before (only those exact tags; your own tags stay).

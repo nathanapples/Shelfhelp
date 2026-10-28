@@ -399,7 +399,7 @@ const migrations: string[] = [
   `,
   `
   -- Requesters are tagged in Chaptarr now, not in Audiobookshelf. The old
-  -- tagged_at/tag columns mark Audiobookshelf tags still to be taken off.
+  -- tagged_at/tag columns are no longer used.
   ALTER TABLE request_users ADD COLUMN chaptarr_tagged_at TEXT;
   `,
 ];

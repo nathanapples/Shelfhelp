@@ -102,17 +102,6 @@ export class Abs {
     return this.request<{ id: string; username: string; type: string; permissions?: Record<string, boolean> }>("GET", "/api/me");
   }
 
-  /** An item's tags. */
-  async itemTags(itemId: string): Promise<string[]> {
-    const item = await this.request<{ media?: { tags?: string[] } }>("GET", `/api/items/${encodeURIComponent(itemId)}`);
-    return item.media?.tags ?? [];
-  }
-
-  /** Replaces an item's tags. */
-  async setItemTags(itemId: string, tags: string[]) {
-    await this.request("PATCH", `/api/items/${encodeURIComponent(itemId)}/media`, { tags });
-  }
-
   /** Every Audiobookshelf user. Needs an admin API key. */
   async users() {
     const data = await this.request<{ users: { id: string; username: string; email?: string | null; type: string; isActive?: boolean; hasOpenIDLink?: boolean }[] }>(
