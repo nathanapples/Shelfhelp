@@ -111,6 +111,10 @@ Everything Shelfhelp keeps (settings, lists, decisions, the library snapshot) li
 
 - Other users: sign in with Audiobookshelf accounts, request books, and sync their own reading to Hardcover.
 
+## Versions
+
+Each release is tagged, and the image is published with its version. Use `ghcr.io/nathanapples/shelfhelp:0.2` to get fixes for 0.2 without jumping to 0.3, a full version like `:0.2.0` to stay put, or `:latest` to follow every change. What changed is in [CHANGELOG.md](CHANGELOG.md). The running version is shown at the bottom of the sidebar.
+
 ## Development
 
 ```bash
