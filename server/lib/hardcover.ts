@@ -306,6 +306,8 @@ export async function searchBooks(q: string, perPage = 24) {
     seriesName: h.seriesNames?.[0] ?? null,
     seriesPosition: h.featuredSeriesPosition ?? null,
     hasAudiobook: h.hasAudiobook ?? null,
+    rating: h.rating ?? null,
+    ratingsCount: h.ratingsCount ?? null,
   }));
 }
 

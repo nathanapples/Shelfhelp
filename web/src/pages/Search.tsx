@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
-import type { RequestOutcome, SearchHit, Status } from "../lib/api";
+import { isAdmin, type RequestOutcome, type SearchHit, type Status } from "../lib/api";
 import { useApi } from "../lib/hooks";
 import { BookTile } from "../components/BookTile";
 import { RequestModal } from "../components/Request";
@@ -38,6 +38,7 @@ export default function SearchPage({ status }: { status: Status }) {
         ))}
       </ul>
       <RequestModal
+        admin={isAdmin(status)}
         book={open}
         enabled={status.requestsEnabled}
         defaultFormat={status.requestFormat}

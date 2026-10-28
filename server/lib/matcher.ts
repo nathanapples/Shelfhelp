@@ -172,6 +172,8 @@ export function matchBook(
   index: LibraryIndex,
   idLinks: Map<number, Map<string, string[]>>,
   strictness: Strictness = "balanced",
+  /** "itemId|bookId" pairs you've said aren't the same book. */
+  rejected?: Set<string>,
 ): MatchResult {
   const t = THRESHOLDS[strictness];
   const linked = idLinks.get(book.id) ?? new Map<string, string[]>();
@@ -180,7 +182,7 @@ export function matchBook(
   const candidates: Candidate[] = [];
   for (const id of ids) {
     const item = index.byId.get(id);
-    if (!item) continue;
+    if (!item || rejected?.has(`${id}|${book.id}`)) continue;
     candidates.push(scoreCandidate(book, item, linked.get(id) ?? []));
   }
   candidates.sort((a, b) => b.score - a.score);

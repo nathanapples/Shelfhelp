@@ -100,8 +100,8 @@ const listBooks = (offset: number, limit: number) =>
       releaseYear: 2000 + (b.id % 25),
       pages: 300,
       audioSeconds: b.audioSeconds ?? null,
-      rating: 4.2,
-      ratingsCount: 100,
+      rating: 3.6 + (b.id % 13) / 10,
+      ratingsCount: 40 + b.id * 37,
       usersCount: 1000,
       cachedImage: { url: `${HC}/cover/${b.id}.svg` },
       cachedContributors: [{ author: { name: b.author }, contribution: null }],
@@ -194,6 +194,16 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
     return { user_books: e ? [{ ...entryJson(e), edition: null }] : [] };
   }
   if (q.includes("query GetEditionsForBook")) return { editions: [edition(Number(v.bookId))] };
+  if (q.includes("query DiscoverTopRated") || q.includes("query DiscoverAudio") || q.includes("query DiscoverAuthors")) {
+    let picked = books.map((_, i) => listBooks(i, 1)[0].book);
+    if (q.includes("DiscoverTopRated")) picked = picked.sort((a, b) => b.rating - a.rating).slice(0, 8);
+    if (q.includes("DiscoverAudio")) picked = picked.filter((b, i) => i % 2 === 0).slice(0, 8);
+    if (q.includes("DiscoverAuthors")) {
+      const names = new Set((v.names as string[]).map((n) => n.toLowerCase()));
+      picked = picked.filter((b) => names.has(b.cachedContributors[0].author.name.toLowerCase()));
+    }
+    return { books: picked };
+  }
   if (q.includes("query TrendingBookIds")) {
     const ids = books.map((b) => b.id);
     return { books_trending: { ids: v.duration === "one_year" ? ids.slice().reverse() : ids.slice(4).concat(ids.slice(0, 4)), error: null } };

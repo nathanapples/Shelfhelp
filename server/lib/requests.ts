@@ -5,7 +5,7 @@ import { Chaptarr, ChaptarrError, addBody, chooseFor, errorText, localOf, format
 import { hardcover, authorsOf } from "./hardcover.js";
 import { log } from "./activity.js";
 import { Abs } from "./abs.js";
-import { refreshLibrary, libraryIndex, idLinks } from "./library.js";
+import { refreshLibrary, libraryIndex, idLinks, rejectedPairs } from "./library.js";
 import { matchBook } from "./matcher.js";
 
 export type RequestStatus = "pending" | "requested" | "downloading" | "downloaded" | "available" | "failed";
@@ -42,6 +42,8 @@ export interface HcSummary {
   seriesName: string | null;
   seriesPosition: number | string | null;
   hasAudiobook: boolean | null;
+  rating?: number | null;
+  ratingsCount?: number | null;
 }
 
 const OPEN: RequestStatus[] = ["pending", "requested", "downloading", "downloaded"];
@@ -125,8 +127,10 @@ export function inLibrary(bookIds: number[]): Map<number, string> {
     `SELECT hc_book_id, abs_item_id FROM reading WHERE match_status = 'matched' AND hc_book_id IN (${ph})`,
     `SELECT hc_book_id, abs_item_id FROM library_links WHERE status = 'matched' AND hc_book_id IN (${ph}) AND abs_item_id IN (SELECT id FROM abs_items)`,
   ];
+  const rejected = rejectedPairs();
   for (const q of queries) {
     for (const r of db.prepare(q).all(...bookIds) as { hc_book_id: number; abs_item_id: string | null }[]) {
+      if (r.abs_item_id && rejected.has(`${r.abs_item_id}|${r.hc_book_id}`)) continue;
       if (r.abs_item_id && !known.has(r.hc_book_id)) known.set(r.hc_book_id, r.abs_item_id);
     }
   }
@@ -159,6 +163,8 @@ type SdkBook = {
   cachedFeaturedSeries?: unknown;
   hasAudiobook?: boolean | null;
   audioSeconds?: number | null;
+  rating?: number | null;
+  ratingsCount?: number | null;
 };
 
 export function summarizeBook(b: SdkBook | object): HcSummary {
@@ -181,6 +187,8 @@ function summarize(b: SdkBook): HcSummary {
     seriesName: fs.series?.name ?? null,
     seriesPosition: fs.position ?? null,
     hasAudiobook: b.hasAudiobook ?? (b.audioSeconds ? true : null),
+    rating: b.rating ?? null,
+    ratingsCount: b.ratingsCount ?? null,
   };
 }
 
@@ -470,7 +478,7 @@ async function markAvailable(absReady: boolean) {
     if (!itemId && r.status === "downloaded") {
       // No ASIN/ISBN link yet: fall back to a confident title and author match.
       for (const lib of libs) {
-        const m = matchBook({ id: r.hc_book_id, title: r.title, authors: json<string[]>(r.authors, []) }, libraryIndex(lib), idLinks(lib), "strict");
+        const m = matchBook({ id: r.hc_book_id, title: r.title, authors: json<string[]>(r.authors, []) }, libraryIndex(lib), idLinks(lib), "strict", rejectedPairs());
         if (m.status === "matched" && m.absItemId) {
           itemId = m.absItemId;
           break;

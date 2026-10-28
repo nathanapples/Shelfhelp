@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowPathIcon, ArrowRightIcon, EyeSlashIcon, LinkIcon, MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon, ArrowRightIcon, EyeSlashIcon, LinkIcon, LinkSlashIcon, MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { api, duration, sentences, type HcBookRef, type LinkPage, type LinkRow, type LinkStatus, type SearchHit, type Status } from "../lib/api";
 import { jobStarted, useApi, useDebounced, useJobs } from "../lib/hooks";
 import { Cover, Empty, ErrorBlock, LoadingBlock, Modal, PageTitle, Spinner } from "../components/ui";
@@ -50,6 +50,37 @@ function LinkModal({ row, onClose, onChanged }: { row: LinkRow | null; onClose: 
     }
   };
 
+  const unlink = async () => {
+    if (!row.hcBook) return;
+    const hcBookId = row.hcBook.id;
+    setBusy(true);
+    try {
+      await api("/library/unlink", { method: "POST", body: { absItemId: row.absItemId, hcBookId } });
+      toast(
+        <span>
+          Unlinked from {row.hcBook.title}. Looking it up again.{" "}
+          <button
+            className="font-semibold text-indigo-300 underline"
+            onClick={async () => {
+              await api("/library/relink", { method: "POST", body: { absItemId: row.absItemId, hcBookId } }).catch(() => {});
+              toast("Undone. It may be linked again on the next check.", "info");
+              onChanged();
+            }}
+          >
+            Undo
+          </button>
+        </span>,
+      );
+      jobStarted();
+      onChanged();
+      onClose();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const others = row.candidates.filter((c) => c.id !== row.hcBook?.id);
   return (
     <Modal
@@ -62,6 +93,11 @@ function LinkModal({ row, onClose, onChanged }: { row: LinkRow | null; onClose: 
           <button className="btn btn-default" onClick={() => decide("reset")} disabled={busy}>
             <ArrowPathIcon className="h-4 w-4" /> Match again
           </button>
+          {row.hcBook && (
+            <button className="btn btn-default" onClick={unlink} disabled={busy} title="These are different books. Unlink them everywhere.">
+              <LinkSlashIcon className="h-4 w-4" /> Not this book
+            </button>
+          )}
           <button className="btn btn-default" onClick={() => decide("missing")} disabled={busy}>
             <XMarkIcon className="h-4 w-4" /> Not on Hardcover
           </button>

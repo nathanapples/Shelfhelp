@@ -199,3 +199,9 @@ export function searchLibrary(libraryId: string, q: string, limit = 30) {
     .all(libraryId, like, like, like, like, like, limit) as Record<string, unknown>[];
   return rows.map(rowToItem);
 }
+
+/** Every "itemId|bookId" pair you've said is not the same book. */
+export function rejectedPairs(): Set<string> {
+  const rows = db.prepare("SELECT abs_item_id, hc_book_id FROM link_rejections").all() as { abs_item_id: string; hc_book_id: number }[];
+  return new Set(rows.map((r) => `${r.abs_item_id}|${r.hc_book_id}`));
+}

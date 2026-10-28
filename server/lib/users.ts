@@ -28,6 +28,7 @@ export interface UserRow {
   reading_mark_owned: number;
   created_at: string;
   last_login_at: string | null;
+  discover_rows: string | null;
 }
 
 export interface Reader {

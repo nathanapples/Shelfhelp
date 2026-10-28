@@ -234,6 +234,8 @@ export interface SearchHit {
   absItemId: string | null;
   mine?: { status: number; statusName: string; progress: number | null } | null;
   requests?: RequestMap;
+  rating?: number | null;
+  ratingsCount?: number | null;
 }
 
 export interface Activity {
@@ -408,9 +410,21 @@ export interface JobsData {
 }
 
 export interface DiscoverRowInfo {
-  id: string;
+  key: string;
+  kind: "builtin" | "list";
+  id?: string;
+  listId?: number;
+  owner?: string | null;
+  slug?: string | null;
   title: string;
   subtitle: string;
+}
+
+export interface DiscoverConfig {
+  rows: DiscoverRowInfo[];
+  custom: boolean;
+  defaults: DiscoverRowInfo[];
+  builtins: DiscoverRowInfo[];
 }
 
 export interface DiscoverBook extends SearchHit {

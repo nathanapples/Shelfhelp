@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
-import type { DiscoverBook, DiscoverRowInfo, SearchHit, Status } from "../lib/api";
+import { AdjustmentsHorizontalIcon, ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
+import { isAdmin, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type SearchHit, type Status } from "../lib/api";
+import { CustomizeDiscover } from "../components/CustomizeDiscover";
 import { useApi } from "../lib/hooks";
 import { BookCard } from "../components/BookCard";
 import { BookTile } from "../components/BookTile";
@@ -20,7 +21,7 @@ function Shelf({
   onOpen: (b: SearchHit, replace: (b: SearchHit) => void) => void;
   version: number;
 }) {
-  const { data, error, loading, setData } = useApi<DiscoverBook[]>(`/discover/${row.id}?v=${version}`);
+  const { data, error, loading, setData } = useApi<DiscoverBook[]>(`/discover/${row.key}?v=${version}`);
   const scroller = useRef<HTMLDivElement>(null);
   const scroll = (dir: number) => scroller.current?.scrollBy({ left: dir * scroller.current.clientWidth * 0.8, behavior: "smooth" });
   if (!loading && !error && data?.length === 0) return null;
@@ -31,10 +32,14 @@ function Shelf({
       <div className="mb-3 flex items-end justify-between gap-3">
         <div className="min-w-0">
           <h2 className="truncate text-xl font-bold text-white sm:text-2xl">
-            {row.id === "requests" ? (
+            {row.key === "requests" ? (
               <Link to="/requests" className="hover:text-indigo-300">
                 {row.title} ›
               </Link>
+            ) : row.kind === "list" && row.owner && row.slug ? (
+              <a href={`https://hardcover.app/@${row.owner}/lists/${row.slug}`} target="_blank" rel="noreferrer" className="hover:text-indigo-300">
+                {row.title} ›
+              </a>
             ) : (
               row.title
             )}
@@ -59,10 +64,10 @@ function Shelf({
       <div ref={scroller} className="hide-scrollbar -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-4 pt-2 sm:-mx-6 sm:scroll-px-6 sm:gap-4 sm:px-6 lg:-mx-8 lg:scroll-px-8 lg:px-8">
         {data?.map((b, i) => (
           <div key={`${b.id}-${b.absItemId ?? i}`} className="snap-start">
-            {row.id === "added" && !b.id ? (
+            {row.key === "added" && !b.id ? (
               <BookCard book={{ ...b, status: "matched" }} pill="Added" fit="contain" note={b.addedAt ? `Added ${new Date(b.addedAt).toLocaleDateString()}` : null} />
             ) : (
-              <BookTile book={b} status={status} onOpen={() => onOpen(b, replace)} pill={row.id === "added" ? "Added" : undefined} fit={row.id === "added" ? "contain" : undefined} />
+              <BookTile book={b} status={status} onOpen={() => onOpen(b, replace)} pill={row.key === "added" ? "Added" : undefined} fit={row.key === "added" ? "contain" : undefined} />
             )}
           </div>
         ))}
@@ -72,10 +77,11 @@ function Shelf({
 }
 
 export default function DiscoverPage({ status }: { status: Status }) {
-  const { data: rows } = useApi<DiscoverRowInfo[]>("/discover");
+  const { data: config, reload } = useApi<DiscoverConfig>("/discover");
   const [open, setOpen] = useState<{ book: SearchHit; replace: (b: SearchHit) => void } | null>(null);
   const [version, setVersion] = useState(0);
-  const shown = (rows ?? []).filter((r) => r.id !== "requests" || status.configured.chaptarr);
+  const [customizing, setCustomizing] = useState(false);
+  const shown = config?.rows ?? [];
 
   if (!status.configured.hardcover) {
     return (
@@ -91,10 +97,22 @@ export default function DiscoverPage({ status }: { status: Status }) {
 
   return (
     <div className="pt-2">
+      <div className="-mb-2 flex justify-end">
+        <button className="btn btn-sm btn-ghost" onClick={() => setCustomizing(true)} disabled={!config}>
+          <AdjustmentsHorizontalIcon className="h-4 w-4" /> Customize
+        </button>
+      </div>
       {shown.map((r) => (
-        <Shelf key={r.id} row={r} status={status} version={r.id === "requests" ? version : 0} onOpen={(book, replace) => setOpen({ book, replace })} />
+        <Shelf key={r.key} row={r} status={status} version={r.key === "requests" ? version : 0} onOpen={(book, replace) => setOpen({ book, replace })} />
       ))}
+      {config && shown.length === 0 && (
+        <div className="py-16 text-center text-sm text-gray-500">No rows. Use Customize to add some.</div>
+      )}
+      {customizing && config && (
+        <CustomizeDiscover config={config} admin={isAdmin(status)} onClose={() => setCustomizing(false)} onSaved={reload} />
+      )}
       <RequestModal
+        admin={isAdmin(status)}
         book={open?.book ?? null}
         enabled={status.requestsEnabled}
         defaultFormat={status.requestFormat}

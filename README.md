@@ -47,7 +47,9 @@ Some of these rules follow [ShelfBridge](https://github.com/rohit-purandare/Shel
 
 ## Discover
 
-The home page. Rows of trending books, new releases, what's coming soon, books on your Want to Read shelf that aren't in Audiobookshelf yet, and what was recently added. A check mark means you already have it; tap any book to see what's in Audiobookshelf and request it.
+The home page. Rows of trending books, new releases, the highest rated new books, new books from authors already in your library, what's coming soon, books on your Want to Read shelf that aren't in Audiobookshelf yet, what was recently added, and any Hardcover lists you add. A check mark means you already have it; tap any book for its Hardcover rating, what's in Audiobookshelf, and to request it.
+
+Customize sets which rows you see and in what order. Admins can save their rows as everyone's default; anyone can pick their own.
 
 ## Library
 

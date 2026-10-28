@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { StarIcon } from "@heroicons/react/20/solid";
 import { Link } from "react-router-dom";
 import {
   ArrowDownTrayIcon,
@@ -60,6 +61,8 @@ export interface RequestableBook {
   absItemId?: string | null;
   mine?: { statusName: string; progress: number | null } | null;
   requests?: RequestMap;
+  rating?: number | null;
+  ratingsCount?: number | null;
 }
 
 /** Format choice, current request status and the Request button. */
@@ -171,7 +174,18 @@ export function RequestControls({
 }
 
 /** What Audiobookshelf already has that matches or looks like this book. */
-export function InLibrary({ book, onLinked }: { book: RequestableBook; onLinked?: () => void }) {
+export function InLibrary({
+  book,
+  admin,
+  onLinked,
+  onOwned,
+}: {
+  book: RequestableBook;
+  admin: boolean;
+  onLinked?: () => void;
+  /** Called with whether Audiobookshelf has this book, each time it's checked. */
+  onOwned?: (owned: boolean) => void;
+}) {
   const toast = useToast();
   const [data, setData] = useState<Similar | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -179,7 +193,10 @@ export function InLibrary({ book, onLinked }: { book: RequestableBook; onLinked?
   const load = () => {
     const q = new URLSearchParams({ hcBookId: String(book.id), title: book.title, authors: book.authors.join("|") });
     api<Similar>(`/library/similar?${q}`)
-      .then(setData)
+      .then((d) => {
+        setData(d);
+        onOwned?.(d.confirmed.length > 0);
+      })
       .catch((e) => setError((e as Error).message));
   };
   useEffect(load, [book.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -205,7 +222,45 @@ export function InLibrary({ book, onLinked }: { book: RequestableBook; onLinked?
           },
         },
       });
-      toast("Linked. Shelfhelp will treat it as this book everywhere.");
+      toast(
+        <span>
+          Linked as the same book.{" "}
+          <button className="font-semibold text-indigo-300 underline" onClick={() => unlink(absItemId, true)}>
+            Undo
+          </button>
+        </span>,
+      );
+      load();
+      onLinked?.();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** "Not the same book". With undo, it's the undo of a "Same book". */
+  const unlink = async (absItemId: string, undoing = false) => {
+    setBusy(absItemId);
+    try {
+      await api("/library/unlink", { method: "POST", body: { absItemId, hcBookId: book.id } });
+      if (undoing) toast("Undone. They're no longer linked.", "info");
+      else
+        toast(
+          <span>
+            Unlinked. Shelfhelp won't treat these as the same book again.{" "}
+            <button
+              className="font-semibold text-indigo-300 underline"
+              onClick={async () => {
+                await api("/library/relink", { method: "POST", body: { absItemId, hcBookId: book.id } }).catch(() => {});
+                toast("Undone. Shelfhelp may link them again on its next check.", "info");
+                load();
+              }}
+            >
+              Undo
+            </button>
+          </span>,
+        );
       load();
       onLinked?.();
     } catch (e) {
@@ -240,7 +295,19 @@ export function InLibrary({ book, onLinked }: { book: RequestableBook; onLinked?
                 {[item.authors.join(", "), item.narrators.length ? `read by ${item.narrators.join(", ")}` : null, duration(item.duration)].filter(Boolean).join(" · ")}
               </div>
             </div>
-            <span className="badge badge-success flex-shrink-0">Same book · {via}</span>
+            <div className="flex flex-shrink-0 flex-col items-end gap-1">
+              <span className="badge badge-success">Same book · {via}</span>
+              {admin && (
+                <button
+                  className="text-xs text-gray-400 hover:text-red-300"
+                  onClick={() => unlink(item.id)}
+                  disabled={!!busy}
+                  title="These are different books. Unlink them everywhere in Shelfhelp."
+                >
+                  {busy === item.id ? "Unlinking..." : "Not the same book"}
+                </button>
+              )}
+            </div>
           </li>
         ))}
         {data.similar.map((s) => (
@@ -252,9 +319,11 @@ export function InLibrary({ book, onLinked }: { book: RequestableBook; onLinked?
                 {[s.item.authors.join(", "), duration(s.item.duration), s.titleSim >= 0.6 ? "similar title" : "same author, different title"].filter(Boolean).join(" · ")}
               </div>
             </div>
-            <button className="btn btn-sm btn-default flex-shrink-0" onClick={() => same(s.absItemId)} disabled={!!busy} title="Link this Audiobookshelf book to this Hardcover book">
-              {busy === s.absItemId ? <Spinner className="h-4 w-4" /> : <CheckCircleIcon className="h-4 w-4" />} Same book
-            </button>
+            {admin && (
+              <button className="btn btn-sm btn-default flex-shrink-0" onClick={() => same(s.absItemId)} disabled={!!busy} title="Link this Audiobookshelf book to this Hardcover book">
+                {busy === s.absItemId ? <Spinner className="h-4 w-4" /> : <CheckCircleIcon className="h-4 w-4" />} Same book
+              </button>
+            )}
           </li>
         ))}
       </ul>
@@ -274,21 +343,43 @@ export function RequestModal({
   defaultFormat,
   onClose,
   onDone,
+  admin = false,
 }: {
+  admin?: boolean;
   book: RequestableBook | null;
   enabled: boolean;
   defaultFormat: RequestFormat;
   onClose: () => void;
   onDone?: (outcomes: RequestOutcome[]) => void;
 }) {
+  const [owned, setOwned] = useState<boolean | null>(null);
+  useEffect(() => setOwned(null), [book?.id]);
   if (!book) return null;
   const hcUrl = book.slug ? `https://hardcover.app/books/${book.slug}` : null;
+  const shown = { ...book, absItemId: owned === null ? book.absItemId : owned ? (book.absItemId ?? "yes") : null };
   return (
     <Modal open onClose={onClose} backdrop={book.coverUrl} size="max-w-2xl">
       <div className="flex flex-col gap-5 pt-6 sm:flex-row">
         <Cover src={book.coverUrl} alt={book.title} className="mx-auto h-60 w-40 flex-shrink-0 rounded-lg shadow-lg ring-1 ring-gray-700 sm:mx-0" />
         <div className="min-w-0 flex-1">
-          {book.releaseYear && <div className="text-sm text-gray-400">{book.releaseYear}</div>}
+          <div className="flex flex-wrap items-center gap-x-3 text-sm text-gray-400">
+            {book.releaseYear && <span>{book.releaseYear}</span>}
+            {book.rating ? (
+              <a
+                href={hcUrl ?? undefined}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 text-yellow-300 hover:text-yellow-200"
+                title="Average rating on Hardcover"
+              >
+                <StarIcon className="h-4 w-4" />
+                <span className="font-semibold">{book.rating.toFixed(2)}</span>
+                {book.ratingsCount ? <span className="text-gray-400">({book.ratingsCount.toLocaleString()} ratings on Hardcover)</span> : null}
+              </a>
+            ) : (
+              <span className="text-gray-500">No Hardcover rating yet</span>
+            )}
+          </div>
           <h2 className="text-2xl font-bold leading-tight text-white">{book.title}</h2>
           {book.subtitle && <div className="mt-0.5 text-gray-300">{book.subtitle}</div>}
           <div className="mt-1 text-gray-300">{book.authors.join(", ")}</div>
@@ -299,7 +390,7 @@ export function RequestModal({
             </div>
           )}
           <div className="mt-3 flex flex-wrap gap-2">
-            {book.absItemId && <span className="badge badge-success">In Audiobookshelf</span>}
+            {shown.absItemId && <span className="badge badge-success">In Audiobookshelf</span>}
             {book.mine && <span className="badge badge-dark">Hardcover: {book.mine.statusName}</span>}
             {hcUrl && (
               <a href={hcUrl} target="_blank" rel="noreferrer" className="badge badge-dark inline-flex items-center gap-1 hover:text-white">
@@ -308,12 +399,12 @@ export function RequestModal({
             )}
           </div>
           <div className="mt-5">
-            <RequestControls book={book} enabled={enabled} defaultFormat={defaultFormat} onDone={onDone} />
+            <RequestControls book={shown} enabled={enabled} defaultFormat={defaultFormat} onDone={onDone} />
           </div>
         </div>
       </div>
       <div className="mt-6 border-t border-gray-700 pt-4">
-        <InLibrary book={book} />
+        <InLibrary book={book} admin={admin} onOwned={setOwned} />
       </div>
     </Modal>
   );

@@ -392,6 +392,11 @@ export async function findCandidates(item: { id: string; title: string; authors:
   for (const l of linked) byId.set(l.hc_book_id, [...(byId.get(l.hc_book_id) ?? []), l.via]);
 
   const out = new Map<number, Candidate>();
+  // Books you've said this item isn't.
+  const rejected = new Set(
+    (db.prepare("SELECT hc_book_id FROM link_rejections WHERE abs_item_id = ?").all(item.id) as { hc_book_id: number }[]).map((r) => r.hc_book_id),
+  );
+  for (const id of rejected) byId.delete(id);
   if (byId.size) {
     const books = await hcFor().books.getMany([...byId.keys()]);
     for (const b of books) {
@@ -413,7 +418,7 @@ export async function findCandidates(item: { id: string; title: string; authors:
   const query = `${item.title.replace(/\([^)]*\)|\[[^\]]*\]/g, " ")} ${item.authors[0] ?? ""}`.replace(/\s+/g, " ").trim();
   try {
     for (const h of await searchBooks(query, 8)) {
-      if (out.has(h.id)) continue;
+      if (out.has(h.id) || rejected.has(h.id)) continue;
       out.set(h.id, {
         id: h.id,
         slug: h.slug,

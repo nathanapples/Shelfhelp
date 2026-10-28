@@ -42,6 +42,8 @@ export interface Settings {
   chaptarrEbookQuality: number;
   chaptarrAudiobookMetadata: number;
   chaptarrEbookMetadata: number;
+  /** Default Discover rows for everyone. Empty uses Shelfhelp's starter rows. */
+  discoverRows: unknown[];
   /** How people sign in: none (shared password or open), oidc (Pocket ID), cloudflare (Cloudflare Access). */
   authMode: AuthMode;
   oidcIssuer: string;
@@ -88,6 +90,7 @@ const defaults: Settings = {
   chaptarrEbookQuality: 0,
   chaptarrAudiobookMetadata: 0,
   chaptarrEbookMetadata: 0,
+  discoverRows: [],
   authMode: "none",
   oidcIssuer: "",
   oidcClientId: "",

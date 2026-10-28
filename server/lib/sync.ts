@@ -2,7 +2,7 @@ import { Abs } from "./abs.js";
 import { db, json, tx } from "./db.js";
 import { fetchSource, type ListBook } from "./hardcover.js";
 import { requestSource } from "./requests.js";
-import { idLinks, libraryIndex, refreshLibrary } from "./library.js";
+import { idLinks, libraryIndex, refreshLibrary, rejectedPairs } from "./library.js";
 import { matchBook, type Candidate } from "./matcher.js";
 import { getSettings, isConfigured } from "./settings.js";
 import { log } from "./activity.js";
@@ -110,6 +110,7 @@ export function rematch(list: ListRow, books?: ListBook[]) {
   const links = idLinks(libraryId);
   const overrides = overridesFor(libraryId);
   const strictness = getSettings().matchStrictness;
+  const rejected = rejectedPairs();
 
   tx(() => {
     db.prepare("DELETE FROM list_books WHERE list_id = ?").run(list.id);
@@ -118,7 +119,7 @@ export function rematch(list: ListRow, books?: ListBook[]) {
         cover_url, release_year, audio_seconds, status, match_source, abs_item_id, score, reasons, candidates)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     for (const b of source) {
-      const result = matchBook(b, index, links, strictness);
+      const result = matchBook(b, index, links, strictness, rejected);
       let status: BookStatus = result.status;
       let source_ = "auto";
       let itemId = result.absItemId;

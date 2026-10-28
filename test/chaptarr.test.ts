@@ -128,3 +128,30 @@ test("issuer URLs pasted from Pocket ID", async () => {
   assert.equal(cleanIssuer("https://id.example.com/.well-known/openid-configuration"), "https://id.example.com");
   assert.equal(cleanIssuer(" https://id.example.com/ "), "https://id.example.com");
 });
+
+test("Discover rows: starter, defaults, and your own", async () => {
+  const { rowsFor, saveRows, resetRows, STARTER_ROWS } = await import("../server/lib/discover.ts");
+  const { db } = await import("../server/lib/db.ts");
+  db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (8, 'reader', 'user')").run();
+  assert.deepEqual(rowsFor(8).rows.map((r) => r.key), STARTER_ROWS.map((r) => r.key));
+  saveRows(1, [{ key: "week", kind: "builtin", id: "week" }, { key: "x", kind: "builtin", id: "nope" }], true);
+  assert.deepEqual(rowsFor(8).rows.map((r) => r.key), ["week"]);
+  saveRows(8, [{ key: "list-5", kind: "list", listId: 5, title: "Mine" }], false);
+  assert.deepEqual(rowsFor(8), { rows: [{ key: "list-5", kind: "list", listId: 5, title: "Mine", owner: null, slug: null }], custom: true });
+  resetRows(8);
+  assert.equal(rowsFor(8).custom, false);
+});
+
+test("Not the same book: no matcher links them again", async () => {
+  const { db } = await import("../server/lib/db.ts");
+  const { unlinkItem } = await import("../server/lib/linking.ts");
+  const { inLibrary } = await import("../server/lib/requests.ts");
+  const now = new Date().toISOString();
+  db.prepare("INSERT OR IGNORE INTO abs_items (id, library_id, title, authors, narrators, series, seen_at) VALUES ('wrongly', 'lib', 'Book A', '[]', '[]', '[]', ?)").run(now);
+  db.prepare("INSERT OR IGNORE INTO id_links (abs_item_id, hc_book_id, via) VALUES ('wrongly', 77, 'asin')").run();
+  db.prepare("INSERT INTO item_overrides (abs_item_id, action, hc_book_id) VALUES ('wrongly', 'match', 77)").run();
+  assert.equal(inLibrary([77]).get(77), "wrongly");
+  unlinkItem("wrongly", 77);
+  assert.equal(inLibrary([77]).has(77), false);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM item_overrides WHERE abs_item_id = 'wrongly'").get()!.n, 0);
+});

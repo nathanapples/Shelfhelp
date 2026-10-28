@@ -11,8 +11,8 @@ import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
-import { ROWS, discoverRow, type RowId } from "./lib/discover.js";
-import { applyDecision, linkLibrary, linkView, similarInLibrary } from "./lib/linking.js";
+import { BUILTINS, defaultRows, discoverRow, listRow, resetRows, rowInfo, rowsFor, saveRows } from "./lib/discover.js";
+import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
 import { canSeeRequest, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
 import { requestRecoveryLink, useRecoveryLink, cloudflareProblem, cloudflareUser, endSession, createSession, oidcCallback, oidcDiscovery, oidcRedirectUri, oidcStart, passwordMatches, viewer, type Viewer } from "./lib/auth.js";
 import { OWNER_ID, absUsers, allUsers, asReader, getUser, readerById, readers, resolveOwner, updateUser, userForAbs, userView, type Reader } from "./lib/users.js";
@@ -28,7 +28,7 @@ declare module "fastify" {
 
 /** What someone who isn't an admin may use. Everything else is admin-only. */
 const USER_ROUTES: [string, RegExp][] = [
-  ["GET", /^\/api\/discover(\/[^/]+)?$/],
+  ["*", /^\/api\/discover(\/[^/]+)?$/],
   ["GET", /^\/api\/hardcover\/(search|book)$/],
   ["GET", /^\/api\/abs\/cover\/[^/]+$/],
   ["GET", /^\/api\/library\/similar$/],
@@ -530,12 +530,39 @@ export async function routes(app: FastifyInstance) {
     }
   });
 
-  // Discover
-  app.get("/api/discover", async () => ROWS);
+  // Discover: your rows (or the defaults), and each row's books.
+  app.get("/api/discover", async (req) => {
+    const { rows, custom } = rowsFor(req.viewer.user.id);
+    const chaptarr = isConfigured().chaptarr;
+    return {
+      rows: rows.filter((r) => chaptarr || r.key !== "requests").map(rowInfo),
+      custom,
+      defaults: defaultRows().map(rowInfo),
+      builtins: Object.entries(BUILTINS).map(([id, b]) => ({ key: id, kind: "builtin", id, ...b })),
+    };
+  });
+
+  app.put<{ Body: { rows: unknown; asDefault?: boolean } }>("/api/discover/rows", async (req, reply) => {
+    if (req.body?.asDefault && !isAdmin(req)) return reply.code(403).send({ error: "Only an admin can change the defaults." });
+    return { rows: saveRows(req.viewer.user.id, req.body?.rows, !!req.body?.asDefault).map(rowInfo) };
+  });
+
+  app.delete("/api/discover/rows", async (req) => {
+    resetRows(req.viewer.user.id);
+    return { ok: true };
+  });
+
+  app.post<{ Body: { ref: string } }>("/api/discover/list", async (req, reply) => {
+    try {
+      return rowInfo(await listRow(req.body?.ref ?? ""));
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
   app.get<{ Params: { row: string } }>("/api/discover/:row", async (req, reply) => {
     try {
-      if (!ROWS.some((r) => r.id === req.params.row)) return reply.code(404).send({ error: "No such row" });
-      return await discoverRow(req.params.row as RowId, req.viewer.user.id);
+      return await discoverRow(req.params.row, req.viewer.user.id);
     } catch (err) {
       return fail(reply, err);
     }
@@ -567,6 +594,38 @@ export async function routes(app: FastifyInstance) {
     } catch (err) {
       return fail(reply, err);
     }
+  });
+
+  /** "Not the same book": unlinks an Audiobookshelf book from a Hardcover book, everywhere. */
+  app.post<{ Body: { absItemId: string; hcBookId: number } }>("/api/library/unlink", async (req, reply) => {
+    try {
+      const { absItemId, hcBookId } = req.body;
+      if (!absItemId || !hcBookId) return reply.code(400).send({ error: "Which books?" });
+      unlinkItem(absItemId, Number(hcBookId));
+      // Collections that had this book re-match without it.
+      const lists = db
+        .prepare("SELECT DISTINCT list_id FROM list_books WHERE abs_item_id = ? AND hc_book_id = ?")
+        .all(absItemId, Number(hcBookId)) as { list_id: number }[];
+      for (const l of lists) {
+        const list = getList(l.list_id);
+        if (list) {
+          rematch(list);
+          await pushCollection(list.id).catch(() => {});
+        }
+      }
+      linkLibrary("unlink");
+      syncReading("unlink").catch(() => {});
+      return { ok: true };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  /** Undo for an unlink. */
+  app.post<{ Body: { absItemId: string; hcBookId: number } }>("/api/library/relink", async (req) => {
+    forgetRejection(req.body.absItemId, Number(req.body.hcBookId));
+    linkLibrary("undo unlink");
+    return { ok: true };
   });
 
   app.post<{ Body: { absItemId: string; action: "match" | "ignore" | "missing" | "reset"; hcBookId?: number; hcBook?: HcBookView } }>(

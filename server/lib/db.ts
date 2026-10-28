@@ -356,6 +356,18 @@ const migrations: string[] = [
   ALTER TABLE request_users ADD COLUMN tagged_at TEXT;
   ALTER TABLE request_users ADD COLUMN tag TEXT;
   `,
+  `
+  -- Pairs you've said are NOT the same book. Every matcher skips them.
+  CREATE TABLE link_rejections (
+    abs_item_id TEXT NOT NULL,
+    hc_book_id  INTEGER NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (abs_item_id, hc_book_id)
+  );
+
+  -- A person's own Discover rows (JSON). Empty uses the defaults.
+  ALTER TABLE users ADD COLUMN discover_rows TEXT;
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

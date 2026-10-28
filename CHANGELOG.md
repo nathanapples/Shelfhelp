@@ -2,6 +2,13 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.5.0 (2026-10-28)
+
+- Discover is customizable. Customize picks, orders and removes rows; anyone can set their own, and admins can save theirs as everyone's default.
+- New Discover rows: Trending this week, Highest rated new books, New from authors you listen to, and Popular audiobooks. Any public Hardcover list can be a row too.
+- Book popups show the Hardcover rating.
+- "Same book" and linking are admin-only. Linking shows an Undo, and linked books have a "Not the same book" button (also in Library as "Not this book") that unlinks them everywhere and stops them being linked again. Unlinking has its own Undo.
+
 ## 0.4.2 (2026-10-28)
 
 - "Can't sign in?" on the login page writes a one-time admin sign-in link to the container log (`docker logs shelfhelp`). It works once, for 15 minutes.

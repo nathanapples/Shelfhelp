@@ -7,8 +7,8 @@
  * author. Searches are paced to stay inside Hardcover's rate limit.
  */
 import { Abs } from "./abs.js";
-import { db, json } from "./db.js";
-import { getItems, idLinks, libraryIndex, libraryItems, refreshLibrary } from "./library.js";
+import { db, json, tx } from "./db.js";
+import { getItems, idLinks, libraryIndex, libraryItems, refreshLibrary, rejectedPairs } from "./library.js";
 import { judge, matchBook, scoreCandidate, type Status } from "./matcher.js";
 import { findCandidates, toHcBook, view, type HcBookView } from "./reading.js";
 import { getSettings, isConfigured } from "./settings.js";
@@ -282,8 +282,10 @@ export function similarInLibrary(book: { id: number; title: string; subtitle?: s
 
   const similar: { absItemId: string; score: number; titleSim: number; authorSim: number | null; notes: string[] }[] = [];
   const libs = (db.prepare("SELECT DISTINCT library_id FROM abs_items").all() as { library_id: string }[]).map((r) => r.library_id);
+  const rejected = rejectedPairs();
+  for (const id of [...confirmed.keys()]) if (rejected.has(`${id}|${book.id}`)) confirmed.delete(id);
   for (const lib of libs) {
-    const m = matchBook({ id: book.id, title: book.title, subtitle: book.subtitle, authors: book.authors }, libraryIndex(lib), idLinks(lib), "loose");
+    const m = matchBook({ id: book.id, title: book.title, subtitle: book.subtitle, authors: book.authors }, libraryIndex(lib), idLinks(lib), "loose", rejected);
     for (const c of m.candidates) {
       if (confirmed.has(c.absItemId) || c.score < 35) continue;
       similar.push({ absItemId: c.absItemId, score: c.score, titleSim: c.titleSim, authorSim: c.authorSim, notes: c.notes });
@@ -321,4 +323,34 @@ export function recentlyAdded(limit = 20) {
     addedAt: r.added_at,
     hcBook: json<HcBookView | null>(r.hc_book, null),
   }));
+}
+
+/**
+ * "These aren't the same book": remembers the pair so no matcher links them
+ * again, drops any match between them (Library, Reading, Collections), and
+ * looks the item up again. Returns the collections that need a resync.
+ */
+export function unlinkItem(itemId: string, hcBookId: number): { libraryId: string | null } {
+  const item = getItems([itemId]).get(itemId);
+  tx(() => {
+    db.prepare("INSERT OR IGNORE INTO link_rejections (abs_item_id, hc_book_id) VALUES (?, ?)").run(itemId, hcBookId);
+    db.prepare("DELETE FROM item_overrides WHERE abs_item_id = ? AND hc_book_id = ?").run(itemId, hcBookId);
+    db.prepare("DELETE FROM overrides WHERE abs_item_id = ? AND hc_book_id = ? AND action = 'match'").run(itemId, hcBookId);
+    db.prepare(
+      `UPDATE library_links SET status = 'missing', source = NULL, hc_book_id = NULL, hc_book = NULL, searched_key = NULL, reasons = ?, updated_at = ?
+       WHERE abs_item_id = ? AND hc_book_id = ?`,
+    ).run(JSON.stringify(["unlinked by you; looking again"]), new Date().toISOString(), itemId, hcBookId);
+    db.prepare(
+      `UPDATE reading SET match_status = 'missing', match_source = NULL, hc_book_id = NULL, hc_book = NULL, searched_key = NULL,
+         sync_status = 'none', sync_action = NULL WHERE abs_item_id = ? AND hc_book_id = ?`,
+    ).run(itemId, hcBookId);
+  });
+  log("info", `Unlinked "${item?.title ?? itemId}" from Hardcover book ${hcBookId}`);
+  return { libraryId: item?.libraryId ?? null };
+}
+
+/** Undoes an "isn't the same book". */
+export function forgetRejection(itemId: string, hcBookId: number) {
+  db.prepare("DELETE FROM link_rejections WHERE abs_item_id = ? AND hc_book_id = ?").run(itemId, hcBookId);
+  db.prepare("UPDATE library_links SET searched_key = NULL WHERE abs_item_id = ?").run(itemId);
 }
