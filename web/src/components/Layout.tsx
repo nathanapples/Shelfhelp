@@ -23,8 +23,8 @@ import { useToast } from "./toast";
 const nav: { to: string; label: string; icon: React.ComponentType<{ className?: string }>; end?: boolean; count?: string; admin?: boolean }[] = [
   { to: "/", label: "Discover", icon: SparklesIcon, end: true },
   { to: "/requests", label: "Requests", icon: InboxArrowDownIcon, count: "requests" },
-  { to: "/reading", label: "Reading", icon: BookOpenIcon },
   { to: "/issues", label: "Issues", icon: ExclamationTriangleIcon, count: "issues" },
+  { to: "/reading", label: "Reading", icon: BookOpenIcon },
   { to: "/collections", label: "Collections", icon: RectangleStackIcon, admin: true },
   { to: "/library", label: "Library", icon: BuildingLibraryIcon, admin: true },
   { to: "/settings", label: "Settings", icon: CogIcon, admin: true },

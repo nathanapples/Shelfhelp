@@ -182,21 +182,45 @@ async function run(force: boolean): Promise<string> {
   return `${total} books checked, ${searched} looked up on Hardcover. ${c.matched} linked, ${c.review} to check, ${c.missing} not found.`;
 }
 
-export function linkCounts() {
+export function linkCounts(libraryId?: string | null) {
+  const lib = libraryId ? " WHERE library_id = ?" : "";
+  const libArgs = libraryId ? [libraryId] : [];
   const rows = db
-    .prepare("SELECT status, COUNT(*) AS n FROM library_links WHERE abs_item_id IN (SELECT id FROM abs_items) GROUP BY status")
-    .all() as { status: LinkStatus; n: number }[];
+    .prepare(`SELECT status, COUNT(*) AS n FROM library_links WHERE abs_item_id IN (SELECT id FROM abs_items${lib}) GROUP BY status`)
+    .all(...libArgs) as { status: LinkStatus; n: number }[];
   const out = { matched: 0, review: 0, missing: 0, ignored: 0, unchecked: 0 };
   for (const r of rows) out[r.status] = r.n;
-  const all = (db.prepare("SELECT COUNT(*) AS n FROM abs_items").get() as { n: number }).n;
+  const all = (db.prepare(`SELECT COUNT(*) AS n FROM abs_items${lib}`).get(...libArgs) as { n: number }).n;
   out.unchecked = Math.max(0, all - out.matched - out.review - out.missing - out.ignored);
   return out;
 }
 
+/** How many books each Audiobookshelf library has in the local snapshot. */
+export function libraryCounts(): Record<string, number> {
+  const rows = db.prepare("SELECT library_id, COUNT(*) AS n FROM abs_items GROUP BY library_id").all() as { library_id: string; n: number }[];
+  return Object.fromEntries(rows.map((r) => [r.library_id, r.n]));
+}
+
 /** One page of the Library list. */
-export function linkView({ status, q, offset = 0, limit = 60 }: { status?: string; q?: string; offset?: number; limit?: number }) {
+export function linkView({
+  status,
+  q,
+  libraryId,
+  offset = 0,
+  limit = 60,
+}: {
+  status?: string;
+  q?: string;
+  libraryId?: string | null;
+  offset?: number;
+  limit?: number;
+}) {
   const where: string[] = [];
   const args: (string | number)[] = [];
+  if (libraryId) {
+    where.push("i.library_id = ?");
+    args.push(libraryId);
+  }
   if (status === "unchecked") where.push("l.abs_item_id IS NULL");
   else if (status && status !== "all") {
     where.push("l.status = ?");
@@ -215,7 +239,8 @@ export function linkView({ status, q, offset = 0, limit = 60 }: { status?: strin
   const items = getItems(rows.map((r) => r.item_id));
   return {
     total,
-    counts: linkCounts(),
+    counts: linkCounts(libraryId),
+    libraries: libraryCounts(),
     rows: rows.map((r) => {
       const item = items.get(r.item_id)!;
       return {

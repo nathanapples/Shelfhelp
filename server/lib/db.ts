@@ -402,6 +402,11 @@ const migrations: string[] = [
   -- tagged_at/tag columns are no longer used.
   ALTER TABLE request_users ADD COLUMN chaptarr_tagged_at TEXT;
   `,
+  `
+  -- The exact Hardcover edition someone asked for (narrator, publisher...), if any.
+  ALTER TABLE requests ADD COLUMN edition_id INTEGER;
+  ALTER TABLE requests ADD COLUMN edition_label TEXT;
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

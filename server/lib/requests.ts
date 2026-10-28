@@ -1,8 +1,8 @@
 /** Book requests sent to Chaptarr, and keeping their status current. */
 import { db, json } from "./db.js";
 import { getSettings, type RequestFormat } from "./settings.js";
-import { Chaptarr, ChaptarrError, addBody, chooseFor, errorText, localOf, formatLabel, type ChaptarrBook, type Format } from "./chaptarr.js";
-import { hardcover, authorsOf } from "./hardcover.js";
+import { Chaptarr, ChaptarrError, addBody, chooseFor, errorText, findEdition, localOf, formatLabel, type ChaptarrBook, type Format } from "./chaptarr.js";
+import { hardcover, authorsOf, bookEditions, type HcEdition } from "./hardcover.js";
 import { log } from "./activity.js";
 import { Abs } from "./abs.js";
 import { refreshLibrary, libraryIndex, idLinks, rejectedPairs } from "./library.js";
@@ -29,6 +29,8 @@ export interface RequestRow {
   requested_at: string;
   updated_at: string;
   checked_at: string | null;
+  edition_id: number | null;
+  edition_label: string | null;
 }
 
 export interface HcSummary {
@@ -68,6 +70,8 @@ export function requestView(r: RequestRow) {
     requestedAt: r.requested_at,
     updatedAt: r.updated_at,
     checkedAt: r.checked_at,
+    editionId: r.edition_id ?? null,
+    edition: r.edition_label ?? null,
   };
 }
 
@@ -205,6 +209,22 @@ export async function hardcoverBook(ref: { id?: number; slug?: string }): Promis
   return null;
 }
 
+/** A short description of an edition: narrator, publisher, year. */
+export function editionLabel(e: HcEdition): string {
+  const year = e.releaseDate?.slice(0, 4) ?? null;
+  return (
+    [
+      e.narrators.length ? `Narrated by ${e.narrators.join(", ")}` : null,
+      e.publisher,
+      e.editionFormat && !e.narrators.length ? e.editionFormat : null,
+      year,
+      e.language && !/^english$/i.test(e.language) ? e.language : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || `Hardcover edition ${e.id}`
+  );
+}
+
 export function formatsFor(f: RequestFormat): Format[] {
   return f === "both" ? ["audiobook", "ebook"] : [f];
 }
@@ -255,7 +275,12 @@ export interface RequestOutcome {
 }
 
 /** Sends one book to Chaptarr in one or both formats. */
-export async function requestBook(hcBookId: number, format: RequestFormat, userId: number): Promise<RequestOutcome[]> {
+export async function requestBook(
+  hcBookId: number,
+  format: RequestFormat,
+  userId: number,
+  editionIds: Partial<Record<Format, number | null>> = {},
+): Promise<RequestOutcome[]> {
   const by = String(userId);
   const s = getSettings();
   if (!s.requestsEnabled) throw new Error("Requests are turned off. Turn them on in Settings, Chaptarr.");
@@ -263,6 +288,18 @@ export async function requestBook(hcBookId: number, format: RequestFormat, userI
   const hcBook = await hardcoverBook({ id: hcBookId });
   if (!hcBook) throw new Error(`Hardcover has no book ${hcBookId}.`);
   const [roots, quality, metadata] = await Promise.all([c.rootFolders(), c.qualityProfiles(), c.metadataProfiles()]);
+  // The exact editions asked for, checked against Hardcover.
+  const picked: Partial<Record<Format, HcEdition>> = {};
+  if (Object.values(editionIds).some(Boolean)) {
+    const all = await bookEditions(hcBookId);
+    for (const f of formatsFor(format)) {
+      const id = editionIds[f];
+      if (!id) continue;
+      const e = all.find((x) => x.id === Number(id));
+      if (!e) throw new Error(`Hardcover has no edition ${id} of ${hcBook.title}.`);
+      picked[f] = e;
+    }
+  }
   const out: RequestOutcome[] = [];
   // New authors get the requester's tag as they're added; existing ones are
   // tagged by tagInChaptarr below.
@@ -271,11 +308,12 @@ export async function requestBook(hcBookId: number, format: RequestFormat, userI
   if (label) tagIds = await c.ensureTag(label).then((id) => [id]).catch(() => []);
   for (const f of formatsFor(format)) {
     let row: RequestRow;
+    const edition = picked[f] ?? null;
     try {
-      row = await requestOne(c, hcBook, f, chooseFor(f, s, roots, quality, metadata), s.requestSearchNow, by, tagIds);
+      row = await requestOne(c, hcBook, f, chooseFor(f, s, roots, quality, metadata), s.requestSearchNow, by, tagIds, edition);
     } catch (err) {
       const message = (err as Error).message;
-      row = save(hcBook, f, { status: "failed", message }, by);
+      row = save(hcBook, f, { status: "failed", message, ...editionPatch(edition) }, by);
     }
     db.prepare("INSERT OR IGNORE INTO request_users (request_id, user_id) VALUES (?, ?)").run(row.id, userId);
     const label = `${hcBook.title} (${formatLabel(f).toLowerCase()})`;
@@ -287,6 +325,8 @@ export async function requestBook(hcBookId: number, format: RequestFormat, userI
   return out;
 }
 
+const editionPatch = (e: HcEdition | null): Partial<RequestRow> => ({ edition_id: e?.id ?? null, edition_label: e ? editionLabel(e) : null });
+
 async function requestOne(
   c: Chaptarr,
   hcBook: HcSummary,
@@ -295,38 +335,53 @@ async function requestOne(
   searchNow: boolean,
   by: string,
   tagIds: number[] = [],
+  edition: HcEdition | null = null,
 ): Promise<RequestRow> {
   const { found, local } = await findIn(c, hcBook.id, format);
+  const ed = editionPatch(edition);
+  const save_ = (b: HcSummary, f: Format, patch: Partial<RequestRow>, who: string) => save(b, f, { ...ed, ...patch }, who);
   if (local) {
+    const note = edition ? " Chaptarr already had the book, so the edition you picked wasn't changed there." : "";
     if (local.hasFiles) {
-      return save(hcBook, format, { status: "downloaded", chaptarr_book_id: local.id, message: "Chaptarr already has this." }, by);
+      return save_(hcBook, format, { status: "downloaded", chaptarr_book_id: local.id, message: `Chaptarr already has this.${note}` }, by);
     }
     if (!local.monitored) await c.monitor([local.id]);
     if (searchNow) await c.search([local.id]);
-    return save(
+    return save_(
       hcBook,
       format,
       {
         status: "requested",
         chaptarr_book_id: local.id,
-        message: local.monitored ? "Chaptarr already wanted this; searching again." : "Chaptarr had this unmonitored; now monitored and searching.",
+        message: `${local.monitored ? "Chaptarr already wanted this; searching again." : "Chaptarr had this unmonitored; now monitored and searching."}${note}`,
       },
       by,
     );
   }
   if (!found) {
-    return save(hcBook, format, { status: "failed", message: `Chaptarr couldn't find hc:${hcBook.id} in its metadata.` }, by);
+    return save_(hcBook, format, { status: "failed", message: `Chaptarr couldn't find hc:${hcBook.id} in its metadata.` }, by);
   }
-  if (choice.problem) return save(hcBook, format, { status: "failed", message: choice.problem }, by);
+  if (choice.problem) return save_(hcBook, format, { status: "failed", message: choice.problem }, by);
 
-  const { status, data } = await c.add(addBody(found, format, choice, searchNow, tagIds), format);
+  const editionIndex = edition ? findEdition(found.editions, edition) : -1;
+  const editionNote = !edition
+    ? ""
+    : editionIndex >= 0
+      ? " Using the edition you picked."
+      : " Chaptarr doesn't list the edition you picked, so it may grab a different one.";
+  const { status, data } = await c.add(addBody(found, format, choice, searchNow, tagIds, editionIndex), format);
   if (status === 201 || status === 200) {
     const id = (data as { id?: number } | null)?.id ?? null;
-    return save(hcBook, format, { status: "requested", chaptarr_book_id: id, message: searchNow ? "Added to Chaptarr and searching." : "Added to Chaptarr." }, by);
+    return save_(
+      hcBook,
+      format,
+      { status: "requested", chaptarr_book_id: id, message: `${searchNow ? "Added to Chaptarr and searching." : "Added to Chaptarr."}${editionNote}` },
+      by,
+    );
   }
   if (status === 202) {
     const d = data as { pendingId?: number; message?: string } | null;
-    return save(
+    return save_(
       hcBook,
       format,
       { status: "pending", pending_id: d?.pendingId ?? null, message: d?.message || "Chaptarr is importing the author first; the book follows." },
@@ -338,7 +393,7 @@ async function requestOne(
     const names = (d?.candidates ?? [])
       .map((x) => (x.title && x.authorName && x.title !== x.authorName ? `${x.title} by ${x.authorName}` : (x.title ?? x.authorName ?? "")))
       .filter(Boolean);
-    return save(
+    return save_(
       hcBook,
       format,
       { status: "failed", message: `${d?.message || "Chaptarr matched more than one book or author."}${names.length ? ` (${names.join("; ")})` : ""}` },
@@ -366,7 +421,7 @@ export function forgetRequest(id: number, userId: number, admin: boolean) {
 export async function retryRequest(id: number, userId: number) {
   const r = db.prepare("SELECT * FROM requests WHERE id = ?").get(id) as unknown as RequestRow | undefined;
   if (!r) throw new Error("That request is gone.");
-  return requestBook(r.hc_book_id, r.format, userId);
+  return requestBook(r.hc_book_id, r.format, userId, r.edition_id ? { [r.format]: r.edition_id } : {});
 }
 
 let refreshing: Promise<void> | null = null;

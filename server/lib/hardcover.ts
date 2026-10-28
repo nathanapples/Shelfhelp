@@ -315,3 +315,99 @@ export async function testHardcover(token: string) {
   const me = await hardcover(token).me.get();
   return { username: (me as { username?: string }).username ?? "unknown" };
 }
+
+/** One edition of a book, for picking the exact version to request. */
+export interface HcEdition {
+  id: number;
+  format: "audiobook" | "ebook" | "print";
+  title: string | null;
+  narrators: string[];
+  publisher: string | null;
+  language: string | null;
+  releaseDate: string | null;
+  audioSeconds: number | null;
+  pages: number | null;
+  asin: string | null;
+  isbn13: string | null;
+  isbn10: string | null;
+  editionFormat: string | null;
+  coverUrl: string | null;
+  readers: number;
+}
+
+const editionCache = new Map<number, { at: number; editions: HcEdition[] }>();
+
+/** Every edition of a book on Hardcover, most read first. Cached for an hour. */
+export async function bookEditions(bookId: number): Promise<HcEdition[]> {
+  const hit = editionCache.get(bookId);
+  if (hit && Date.now() - hit.at < 3600_000) return hit.editions;
+  type Row = {
+    id: number;
+    title?: string | null;
+    asin?: string | null;
+    isbn_13?: string | null;
+    isbn_10?: string | null;
+    audio_seconds?: number | null;
+    pages?: number | null;
+    release_date?: string | null;
+    edition_format?: string | null;
+    reading_format_id?: number | null;
+    users_count?: number | null;
+    publisher?: { name?: string | null } | null;
+    language?: { language?: string | null } | null;
+    image?: { url?: string | null } | null;
+    contributions?: { contribution?: string | null; author?: { name?: string | null } | null }[] | null;
+  };
+  const full = `query BookEditions($bookId: Int!) {
+    editions(where: { book_id: { _eq: $bookId } }, order_by: { users_count: desc_nulls_last }, limit: 100) {
+      id title asin isbn_13 isbn_10 audio_seconds pages release_date edition_format reading_format_id users_count
+      publisher { name } language { language } image { url }
+      contributions { contribution author { name } }
+    }
+  }`;
+  // If Hardcover ever renames one of the extra fields, fall back to the basics.
+  const basic = `query BookEditionsBasic($bookId: Int!) {
+    editions(where: { book_id: { _eq: $bookId } }, order_by: { users_count: desc_nulls_last }, limit: 100) {
+      id title asin isbn_13 isbn_10 audio_seconds pages release_date edition_format reading_format_id users_count
+    }
+  }`;
+  const hc = hardcover();
+  const data = await hc
+    .graphql<{ editions: Row[] }>(full, { bookId })
+    .catch(() => hc.graphql<{ editions: Row[] }>(basic, { bookId }));
+  const editions = (data.editions ?? []).map((e): HcEdition => {
+    const fmt = (e.edition_format ?? "").toLowerCase();
+    const format: HcEdition["format"] =
+      e.reading_format_id === 2 || e.audio_seconds || /audio/.test(fmt)
+        ? "audiobook"
+        : e.reading_format_id === 4 || /kindle|e-?book|epub|digital/.test(fmt)
+          ? "ebook"
+          : "print";
+    return {
+      id: e.id,
+      format,
+      title: e.title ?? null,
+      narrators: [
+        ...new Set(
+          (e.contributions ?? [])
+            .filter((c) => /narrat|read by|reader/i.test(c.contribution ?? ""))
+            .map((c) => c.author?.name)
+            .filter((n): n is string => !!n),
+        ),
+      ],
+      publisher: e.publisher?.name ?? null,
+      language: e.language?.language ?? null,
+      releaseDate: e.release_date ?? null,
+      audioSeconds: e.audio_seconds ?? null,
+      pages: e.pages ?? null,
+      asin: e.asin ?? null,
+      isbn13: e.isbn_13 ?? null,
+      isbn10: e.isbn_10 ?? null,
+      editionFormat: e.edition_format ?? null,
+      coverUrl: e.image?.url ?? null,
+      readers: e.users_count ?? 0,
+    };
+  });
+  editionCache.set(bookId, { at: Date.now(), editions });
+  return editions;
+}

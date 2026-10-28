@@ -6,11 +6,13 @@ import { jobStarted, useApi, useJobs } from "../lib/hooks";
 import { Cover, Empty, ErrorBlock, LoadingBlock, Modal, PageTitle, Spinner } from "../components/ui";
 import { useToast } from "../components/toast";
 
-const SEGMENTS: { key: "synced" | "waiting" | "issues" | "under"; label: string; bar: string; text: string; tab: string }[] = [
-  { key: "synced", label: "In sync", bar: "bg-green-500", text: "text-green-400", tab: "synced" },
-  { key: "waiting", label: "Waiting", bar: "bg-indigo-500", text: "text-indigo-400", tab: "waiting" },
-  { key: "issues", label: "Issues", bar: "bg-yellow-500", text: "text-yellow-400", tab: "issues" },
-  { key: "under", label: "Under min", bar: "bg-sky-600", text: "text-sky-400", tab: "issues" },
+const SEGMENTS: { key: "synced" | "waiting" | "issues" | "under" | "dnf"; label: string; bar: string; text: string; tab: string; inBar: boolean }[] = [
+  { key: "synced", label: "In sync", bar: "bg-green-500", text: "text-green-400", tab: "synced", inBar: true },
+  { key: "waiting", label: "Waiting", bar: "bg-indigo-500", text: "text-indigo-400", tab: "waiting", inBar: true },
+  { key: "issues", label: "Issues", bar: "bg-yellow-500", text: "text-yellow-400", tab: "issues", inBar: true },
+  // Books under the minimum and Did Not Finish books are shown but left out of the in sync percentage.
+  { key: "under", label: "Under min", bar: "bg-sky-600", text: "text-sky-400", tab: "issues", inBar: false },
+  { key: "dnf", label: "DNF", bar: "bg-orange-500", text: "text-orange-400", tab: "issues", inBar: false },
 ];
 
 const pct = (n: number, total: number) => (total ? Math.round((n / total) * 100) : 0);
@@ -29,7 +31,7 @@ function UserCard({ user, onChecked }: { user: ReadingUser; onChecked: () => voi
   const navigate = useNavigate();
   const toast = useToast();
   const c = user.counts;
-  const barTotal = c.synced + c.waiting + c.issues + c.under;
+  const barTotal = c.synced + c.waiting + c.issues;
   const go = (tab?: string) => navigate(`/reading/${user.id}${tab ? `?tab=${tab}` : ""}`);
 
   const check = async (e: React.MouseEvent) => {
@@ -98,9 +100,9 @@ function UserCard({ user, onChecked }: { user: ReadingUser; onChecked: () => voi
 
       <div className="border-t border-gray-700 px-4 pb-4 pt-4 sm:px-5">
         <div className="flex h-2.5 overflow-hidden rounded-full bg-gray-700">
-          {SEGMENTS.map((s) => (c[s.key] ? <div key={s.key} className={s.bar} style={{ width: `${pct(c[s.key], barTotal)}%` }} /> : null))}
+          {SEGMENTS.filter((s) => s.inBar).map((s) => (c[s.key] ? <div key={s.key} className={s.bar} style={{ width: `${pct(c[s.key], barTotal)}%` }} /> : null))}
         </div>
-        <div className="mt-3 grid grid-cols-4 gap-2">
+        <div className="mt-3 grid grid-cols-5 gap-1 sm:gap-2">
           {SEGMENTS.map((s) => (
             <Link
               key={s.key}
@@ -136,7 +138,6 @@ function UserCard({ user, onChecked }: { user: ReadingUser; onChecked: () => voi
             <span className="truncate">
               {c.listening} listening, {c.finished} finished
               {lastRun ? ` · checked ${timeAgo(new Date(lastRun.finishedAt).toISOString())}` : ""}
-              {c.dnf ? ` · ${c.dnf} did not finish` : ""}
             </span>
           )}
         </div>

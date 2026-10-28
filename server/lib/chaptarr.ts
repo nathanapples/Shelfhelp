@@ -72,7 +72,48 @@ export interface ChaptarrBook {
   localEbookBooks?: LocalInstance[] | null;
   remoteCover?: string | null;
   narrator?: string | null;
+  editions?: ChaptarrEdition[] | null;
   [k: string]: unknown;
+}
+
+export interface ChaptarrEdition {
+  id?: number;
+  foreignEditionId?: string | null;
+  title?: string | null;
+  isbn13?: string | null;
+  asin?: string | null;
+  monitored?: boolean;
+  [k: string]: unknown;
+}
+
+/** The edition you asked for, as Shelfhelp knows it from Hardcover. */
+export interface WantedEdition {
+  id: number;
+  asin?: string | null;
+  isbn13?: string | null;
+  isbn10?: string | null;
+}
+
+const digits = (s: string | null | undefined) => (s ?? "").replace(/[^0-9X]/gi, "").toUpperCase();
+
+/** Which of Chaptarr's editions is the Hardcover edition you picked: by Hardcover id, then ASIN, then ISBN. */
+export function findEdition(editions: ChaptarrEdition[] | null | undefined, want: WantedEdition): number {
+  const list = editions ?? [];
+  const byId = list.findIndex((e) => {
+    const m = (e.foreignEditionId ?? "").match(/^hc:(?:edition:)?(\d+)$/i);
+    return !!m && Number(m[1]) === want.id;
+  });
+  if (byId >= 0) return byId;
+  const asin = digits(want.asin);
+  if (asin) {
+    const i = list.findIndex((e) => digits(e.asin) === asin || digits(e.foreignEditionId?.replace(/^az:/i, "")) === asin);
+    if (i >= 0) return i;
+  }
+  for (const code of [digits(want.isbn13), digits(want.isbn10)].filter(Boolean)) {
+    const i = list.findIndex((e) => digits(e.isbn13) === code || digits(e.foreignEditionId?.replace(/^isbn:/i, "")) === code);
+    if (i >= 0) return i;
+  }
+  return -1;
 }
 
 export interface QueueRecord {
@@ -287,7 +328,14 @@ const cap = (f: Format) => (f === "audiobook" ? "Audiobook" : "Ebook");
  * Builds the add body from a lookup result: this format only, this one book
  * monitored, nothing else by the author, and a search right away if wanted.
  */
-export function addBody(found: ChaptarrBook, format: Format, choice: FormatChoice, searchNow: boolean, tagIds: number[] = []): ChaptarrBook {
+export function addBody(
+  found: ChaptarrBook,
+  format: Format,
+  choice: FormatChoice,
+  searchNow: boolean,
+  tagIds: number[] = [],
+  editionIndex = -1,
+): ChaptarrBook {
   const other: Format = format === "audiobook" ? "ebook" : "audiobook";
   const author: Record<string, unknown> = { ...(found.author ?? {}) };
   author[`${format}RootFolderPath`] = choice.rootFolderPath;
@@ -309,8 +357,12 @@ export function addBody(found: ChaptarrBook, format: Format, choice: FormatChoic
     author.tags = tagIds;
   }
   author.addOptions = { monitor: "specificBook", [`${format}Monitor`]: "specificBook", searchForMissingBooks: false };
+  // A picked edition is the only one monitored, so Chaptarr uses it.
+  const editions =
+    editionIndex >= 0 && found.editions ? found.editions.map((e, i) => ({ ...e, monitored: i === editionIndex })) : found.editions;
   return {
     ...found,
+    ...(editions ? { editions } : {}),
     id: 0,
     mediaType: format,
     monitored: true,

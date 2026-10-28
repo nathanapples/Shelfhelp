@@ -2,6 +2,14 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.8.0 (2026-10-28)
+
+- Library: tabs for each Audiobookshelf library (for example Audiobooks), so you can look at just one. The counts and filters follow the tab, and your pick is remembered.
+- Requests: "Advanced: pick a specific edition" in the book popup lists the book's editions from Hardcover (narrator, publisher, year, length, ASIN or ISBN). The picked edition is the one Chaptarr is asked for. If Chaptarr doesn't list it, or already has the book, Chaptarr keeps its own pick and the request says so. The edition shows on the Requests page and is kept when you retry.
+- Requests page: click a book's cover or title to open the same popup as Discover.
+- The Issues tab now sits above Reading.
+- Reading: books under the minimum no longer count against the in sync percentage, and each reader's card shows how many books are Did Not Finish.
+
 ## 0.7.1 (2026-10-28)
 
 - Shelfhelp no longer touches Audiobookshelf tags at all, including the one-time cleanup of the old "Requested by" tags. Remove any leftovers in Audiobookshelf yourself.

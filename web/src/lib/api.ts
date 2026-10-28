@@ -164,6 +164,29 @@ export interface BookRequest {
   requestedAt: string;
   updatedAt: string;
   checkedAt: string | null;
+  /** The exact Hardcover edition asked for, if any. */
+  editionId?: number | null;
+  edition?: string | null;
+}
+
+/** One edition of a book on Hardcover. */
+export interface HcEdition {
+  id: number;
+  format: "audiobook" | "ebook" | "print";
+  title: string | null;
+  narrators: string[];
+  publisher: string | null;
+  language: string | null;
+  releaseDate: string | null;
+  audioSeconds: number | null;
+  pages: number | null;
+  asin: string | null;
+  isbn13: string | null;
+  isbn10: string | null;
+  editionFormat: string | null;
+  coverUrl: string | null;
+  readers: number;
+  label: string;
 }
 
 export interface RequestOutcome {
@@ -476,6 +499,8 @@ export interface LinkRow {
 export interface LinkPage {
   total: number;
   counts: LinkCounts;
+  /** Books per Audiobookshelf library id. */
+  libraries?: Record<string, number>;
   rows: LinkRow[];
 }
 

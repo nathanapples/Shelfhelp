@@ -929,7 +929,7 @@ export default function ReadingPage() {
               sub={`${c.listening - countOf("under") - dnf.filter((b) => !b.isFinished).length} listening, ${c.finished - dnf.filter((b) => b.isFinished).length} finished`}
               onClick={() => setTab("all")}
             />
-            <Stat label="In sync" value={countOf("synced")} sub={`of ${c.matched - dnf.length} matched`} accent="text-green-400" onClick={() => setTab("synced")} />
+            <Stat label="In sync" value={countOf("synced")} sub={`of ${c.matched - dnf.length - data.books.filter((b) => b.matchStatus === "matched" && cardState(b).key === "under").length} matched`} accent="text-green-400" onClick={() => setTab("synced")} />
             <Stat
               label="Waiting"
               value={waiting}

@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import { Abs, AbsError } from "./lib/abs.js";
 import { db, json } from "./lib/db.js";
 import { config } from "./lib/config.js";
-import { fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
+import { bookEditions, fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
 import { getItems, refreshLibrary, searchLibrary } from "./lib/library.js";
 import { cleanIssuer, getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } from "./lib/settings.js";
 import { decide, getList, hardcoverUrl, isRunning, pushCollection, rematch, runningLists, statusCounts, syncAll, syncList, type ListRow } from "./lib/sync.js";
@@ -14,7 +14,7 @@ import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
 import { BUILTINS, defaultRows, discoverRow, listRow, resetRows, rowInfo, rowsFor, saveRows } from "./lib/discover.js";
 import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
 import { ISSUE_KINDS, addComment, createIssue, deleteIssue, issueCounts, issueDetail, listIssues, setIssueStatus } from "./lib/issues.js";
-import { canSeeRequest, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
+import { canSeeRequest, editionLabel, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
 import { requestRecoveryLink, useRecoveryLink, cloudflareProblem, cloudflareUser, endSession, createSession, oidcCallback, oidcDiscovery, oidcRedirectUri, oidcStart, passwordMatches, viewer, type Viewer } from "./lib/auth.js";
 import { OWNER_ID, absUsers, allUsers, asReader, getUser, readerById, readers, resolveOwner, updateUser, userForAbs, userView, type Reader } from "./lib/users.js";
 import { decideItem, history, myShelfStatus, readingUsers, readingRunning, rematchItem, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
@@ -514,6 +514,17 @@ export async function routes(app: FastifyInstance) {
     }
   });
 
+  /** A book's editions on Hardcover, for requesting a specific one. */
+  app.get<{ Querystring: { book: string } }>("/api/hardcover/editions", async (req, reply) => {
+    try {
+      const id = Number(req.query.book);
+      if (!id) return reply.code(400).send({ error: "Which book?" });
+      return (await bookEditions(id)).map((e) => ({ ...e, label: editionLabel(e) }));
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
   /** One Hardcover book from a link, slug or id, with what Shelfhelp knows about it. */
   app.get<{ Querystring: { ref: string } }>("/api/hardcover/book", async (req, reply) => {
     try {
@@ -571,8 +582,8 @@ export async function routes(app: FastifyInstance) {
   });
 
   // Library links: every Audiobookshelf book matched to Hardcover
-  app.get<{ Querystring: { status?: string; q?: string; offset?: string } }>("/api/library/links", async (req) =>
-    linkView({ status: req.query.status, q: req.query.q, offset: Number(req.query.offset) || 0 }),
+  app.get<{ Querystring: { status?: string; q?: string; offset?: string; library?: string } }>("/api/library/links", async (req) =>
+    linkView({ status: req.query.status, q: req.query.q, libraryId: req.query.library || null, offset: Number(req.query.offset) || 0 }),
   );
 
   app.post<{ Body: { force?: boolean } }>("/api/library/link", async (req, reply) => {
@@ -820,16 +831,21 @@ export async function routes(app: FastifyInstance) {
     return myRequests(req);
   });
 
-  app.post<{ Body: { hcBookId: number; format?: "audiobook" | "ebook" | "both" } }>("/api/requests", async (req, reply) => {
+  app.post<{ Body: { hcBookId: number; format?: "audiobook" | "ebook" | "both"; editions?: { audiobook?: number | null; ebook?: number | null } } }>(
+    "/api/requests",
+    async (req, reply) => {
     try {
       const id = Number(req.body?.hcBookId);
       if (!id) return reply.code(400).send({ error: "Which book?" });
       const format = req.body.format && ["audiobook", "ebook", "both"].includes(req.body.format) ? req.body.format : getSettings().requestFormat;
-      return { outcomes: await requestBook(id, format, req.viewer.user.id) };
+      const e = req.body.editions ?? {};
+      const editions = { audiobook: Number(e.audiobook) || null, ebook: Number(e.ebook) || null };
+      return { outcomes: await requestBook(id, format, req.viewer.user.id, editions) };
     } catch (err) {
       return fail(reply, err);
     }
-  });
+  },
+  );
 
   app.post<{ Params: { id: string } }>("/api/requests/:id/retry", async (req, reply) => {
     try {

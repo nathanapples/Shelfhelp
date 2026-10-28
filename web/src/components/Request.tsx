@@ -5,6 +5,7 @@ import {
   ArrowDownTrayIcon,
   ArrowTopRightOnSquareIcon,
   BookOpenIcon,
+  ChevronDownIcon,
   CheckCircleIcon,
   ClockIcon,
   ExclamationTriangleIcon,
@@ -12,7 +13,7 @@ import {
   SpeakerWaveIcon,
 } from "@heroicons/react/24/outline";
 import { IssueThread, ReportIssue } from "./Issues";
-import { api, duration, type Issue, type Similar, type Format, type RequestFormat, type RequestMap, type RequestOutcome, type RequestStatus } from "../lib/api";
+import { api, duration, type HcEdition, type Issue, type Similar, type Format, type RequestFormat, type RequestMap, type RequestOutcome, type RequestStatus } from "../lib/api";
 import { Cover, Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
 
@@ -66,6 +67,74 @@ export interface RequestableBook {
   ratingsCount?: number | null;
 }
 
+/** Advanced: pick the exact edition (narrator, publisher...) to request for one format. */
+function EditionPicker({
+  format,
+  editions,
+  value,
+  onChange,
+}: {
+  format: Format;
+  editions: HcEdition[];
+  value: number | null;
+  onChange: (id: number | null) => void;
+}) {
+  const [all, setAll] = useState(false);
+  const list = editions.filter((e) => e.format === format);
+  const shown = all ? list : list.slice(0, 6);
+  if (!list.length) return <p className="text-xs text-gray-500">Hardcover doesn't list any {format === "audiobook" ? "audiobook" : "ebook"} editions.</p>;
+  const row = (id: number | null, title: string, detail: string | null, cover: string | null) => (
+    <label
+      key={id ?? "any"}
+      className={`flex cursor-pointer items-center gap-3 rounded-lg p-2 ring-1 transition ${
+        value === id ? "bg-indigo-900/30 ring-indigo-500" : "bg-gray-900/40 ring-gray-700 hover:bg-gray-700/40"
+      }`}
+    >
+      <input type="radio" className="sr-only" checked={value === id} onChange={() => onChange(id)} />
+      {id === null ? (
+        <span className="flex h-12 w-9 flex-shrink-0 items-center justify-center rounded bg-gray-700 text-[10px] font-semibold uppercase text-gray-300">Any</span>
+      ) : (
+        <Cover src={cover} alt="" className="h-12 w-9 flex-shrink-0 rounded" />
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-white">{title}</span>
+        {detail && <span className="block truncate text-xs text-gray-400">{detail}</span>}
+      </span>
+      <span className={`h-4 w-4 flex-shrink-0 rounded-full ring-2 ${value === id ? "bg-indigo-500 ring-indigo-300" : "ring-gray-500"}`} />
+    </label>
+  );
+  return (
+    <div className="space-y-1.5">
+      {row(null, "Any edition", "Chaptarr picks", null)}
+      {shown.map((e) => {
+        const main =
+          format === "audiobook"
+            ? e.narrators.length
+              ? `Narrated by ${e.narrators.join(", ")}`
+              : (e.publisher ?? e.title ?? "Unknown narrator")
+            : (e.publisher ?? e.editionFormat ?? e.title ?? "Ebook");
+        const detail = [
+          format === "audiobook" && e.narrators.length ? e.publisher : null,
+          format === "ebook" && e.publisher ? e.editionFormat : null,
+          e.releaseDate?.slice(0, 4),
+          format === "audiobook" ? duration(e.audioSeconds) : e.pages ? `${e.pages} pages` : null,
+          e.language && !/^english$/i.test(e.language) ? e.language : null,
+          e.asin ? `ASIN ${e.asin}` : e.isbn13 ? `ISBN ${e.isbn13}` : null,
+          e.readers ? `${e.readers.toLocaleString()} readers` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        return row(e.id, main, detail || null, e.coverUrl);
+      })}
+      {list.length > shown.length && (
+        <button type="button" className="text-xs font-medium text-indigo-400 hover:underline" onClick={() => setAll(true)}>
+          Show all {list.length} editions
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Format choice, current request status and the Request button. */
 export function RequestControls({
   book,
@@ -82,6 +151,26 @@ export function RequestControls({
   const [format, setFormat] = useState<RequestFormat>(defaultFormat);
   const [busy, setBusy] = useState(false);
   const [outcomes, setOutcomes] = useState<RequestOutcome[] | null>(null);
+  const [advanced, setAdvanced] = useState(false);
+  const [editions, setEditions] = useState<HcEdition[] | null>(null);
+  const [editionError, setEditionError] = useState<string | null>(null);
+  const [picked, setPicked] = useState<Partial<Record<Format, number | null>>>({});
+  useEffect(() => {
+    setAdvanced(false);
+    setEditions(null);
+    setEditionError(null);
+    setPicked({});
+  }, [book.id]);
+  useEffect(() => {
+    if (!advanced || editions) return;
+    let alive = true;
+    api<HcEdition[]>(`/hardcover/editions?book=${book.id}`)
+      .then((e) => alive && setEditions(e))
+      .catch((e) => alive && setEditionError((e as Error).message));
+    return () => {
+      alive = false;
+    };
+  }, [advanced, editions, book.id]);
   const existing = book.requests ?? {};
   const wanted: Format[] = format === "both" ? ["audiobook", "ebook"] : [format];
   const already = wanted.filter((f) => existing[f] && existing[f]!.status !== "failed");
@@ -101,7 +190,8 @@ export function RequestControls({
   const send = async () => {
     setBusy(true);
     try {
-      const r = await api<{ outcomes: RequestOutcome[] }>("/requests", { method: "POST", body: { hcBookId: book.id, format } });
+      const chosen = advanced ? Object.fromEntries(wanted.map((f) => [f, picked[f] ?? null])) : {};
+      const r = await api<{ outcomes: RequestOutcome[] }>("/requests", { method: "POST", body: { hcBookId: book.id, format, editions: chosen } });
       setOutcomes(r.outcomes);
       const failed = r.outcomes.filter((o) => o.status === "failed");
       if (failed.length) toast(`Request failed: ${failed[0].message}`, "error");
@@ -163,6 +253,36 @@ export function RequestControls({
           {busy ? <Spinner className="h-4 w-4 text-white" /> : <ArrowDownTrayIcon className="h-4 w-4" />}
           {busy ? "Requesting..." : already.length ? "Request again" : "Request"}
         </button>
+      </div>
+      <div>
+        <button
+          type="button"
+          className="flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-white"
+          onClick={() => setAdvanced((a) => !a)}
+          aria-expanded={advanced}
+        >
+          <ChevronDownIcon className={`h-3.5 w-3.5 transition ${advanced ? "rotate-180" : ""}`} />
+          Advanced: pick a specific edition
+        </button>
+        {advanced && (
+          <div className="mt-2 space-y-3 rounded-lg bg-gray-900/40 p-3 ring-1 ring-gray-700">
+            {editionError ? (
+              <p className="text-sm text-red-300">{editionError}</p>
+            ) : !editions ? (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <Spinner className="h-4 w-4" /> Loading editions from Hardcover...
+              </div>
+            ) : (
+              wanted.map((f) => (
+                <div key={f}>
+                  <h5 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">{formatLabel[f]} edition</h5>
+                  <EditionPicker format={f} editions={editions} value={picked[f] ?? null} onChange={(id) => setPicked((p) => ({ ...p, [f]: id }))} />
+                </div>
+              ))
+            )}
+            <p className="text-xs text-gray-500">Chaptarr is asked for this edition. If it doesn't list it, it picks its own.</p>
+          </div>
+        )}
       </div>
       {book.absItemId && wanted.includes("audiobook") && (
         <p className="text-xs text-yellow-300">This audiobook is already in Audiobookshelf. See below.</p>

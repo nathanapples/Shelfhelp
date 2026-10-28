@@ -194,6 +194,7 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
     return { user_books: e ? [{ ...entryJson(e), edition: null }] : [] };
   }
   if (q.includes("query GetEditionsForBook")) return { editions: [edition(Number(v.bookId))] };
+  if (q.includes("query BookEditions")) return { editions: mockEditions(Number(v.bookId)) };
   if (q.includes("query DiscoverTopRated") || q.includes("query DiscoverAudio") || q.includes("query DiscoverAuthors")) {
     let picked = books.map((_, i) => listBooks(i, 1)[0].book);
     if (q.includes("DiscoverTopRated")) picked = picked.sort((a, b) => b.rating - a.rating).slice(0, 8);
@@ -324,9 +325,14 @@ http
 
 // Audiobookshelf
 const collections = new Map<string, { id: string; libraryId: string; name: string; description: string | null; books: string[] }>();
+// A second library, so the Library page can be split by library.
+const kidsItems: (typeof items)[number][] = [
+  { id: "lk_1", title: "Charlotte's Web", authorName: "E. B. White" } as (typeof items)[number],
+  { id: "lk_2", title: "Matilda", authorName: "Roald Dahl" } as (typeof items)[number],
+];
 const itemJson = (i: (typeof items)[number]) => ({
   id: i.id,
-  libraryId: "lib_audio",
+  libraryId: i.id.startsWith("lk_") ? "lib_kids" : "lib_audio",
   mediaType: "book",
   updatedAt: 1,
   addedAt: Date.now() - items.indexOf(i) * 86400_000,
@@ -407,6 +413,7 @@ http
       }
       if (p === "/api/libraries") return send(200, { libraries: [{ id: "lib_audio", name: "Audiobooks", mediaType: "book" }, { id: "lib_kids", name: "Kids", mediaType: "book" }, { id: "lib_pod", name: "Podcasts", mediaType: "podcast" }] });
       if ((m = p.match(/^\/api\/libraries\/([^/]+)\/items$/))) {
+        if (m[1] === "lib_kids") return send(200, { results: kidsItems.map(itemJson), total: kidsItems.length });
         if (m[1] !== "lib_audio") return send(200, { results: [], total: 0 });
         const page = Number(url.searchParams.get("page") ?? 0);
         const limit = Number(url.searchParams.get("limit") ?? 0) || items.length;
@@ -475,6 +482,19 @@ const cPending = new Map<number, { hc: number; mediaType: "audiobook" | "ebook";
 const cAdds: unknown[] = [];
 const cCommands: unknown[] = [];
 
+/** Hardcover editions for the edition picker: two audiobooks with different narrators, an ebook and a print copy. */
+function mockEditions(bookId: number) {
+  const b = books.find((x) => x.id === bookId);
+  if (!b) return [];
+  const who = (name: string, contribution: string | null) => ({ contribution, author: { name } });
+  return [
+    { id: 90000 + bookId * 10 + 1, title: b.title, asin: `B0${bookId}AUD1`, isbn_13: null, isbn_10: null, audio_seconds: 58000, pages: null, release_date: "2021-05-04", edition_format: "Audible Audio", reading_format_id: 2, users_count: 900, publisher: { name: "Audible Studios" }, language: { language: "English" }, image: { url: `${HC}/cover/${bookId}.svg` }, contributions: [who(b.author, null), who("Ray Porter", "Narrator")] },
+    { id: 90000 + bookId * 10 + 2, title: b.title, asin: `B0${bookId}AUD2`, isbn_13: null, isbn_10: null, audio_seconds: 61000, pages: null, release_date: "2023-02-01", edition_format: "Audiobook", reading_format_id: 2, users_count: 120, publisher: { name: "Penguin Audio" }, language: { language: "English" }, image: null, contributions: [who(b.author, null), who("Jane Reader", "Narrator"), who("Sam Voice", "Narrator")] },
+    { id: 90000 + bookId * 10 + 3, title: b.title, asin: null, isbn_13: `978000${bookId}0003`, isbn_10: null, audio_seconds: null, pages: 480, release_date: "2021-05-04", edition_format: "Kindle Edition", reading_format_id: 4, users_count: 300, publisher: { name: "Ballantine" }, language: { language: "English" }, image: null, contributions: [who(b.author, null)] },
+    { id: 90000 + bookId * 10 + 4, title: b.title, asin: null, isbn_13: `978000${bookId}0004`, isbn_10: null, audio_seconds: null, pages: 496, release_date: "2021-05-04", edition_format: "Hardcover", reading_format_id: 1, users_count: 2000, publisher: { name: "Ballantine" }, language: { language: "English" }, image: null, contributions: [who(b.author, null)] },
+  ];
+}
+
 function cResource(b: MockBook, mediaType: "audiobook" | "ebook") {
   const local = (t: string) => cRows.filter((r) => r.hc === b.id && r.mediaType === t).map((r) => ({ id: r.id, title: b.title, mediaType: t, monitored: r.monitored, hasFiles: r.hasFiles }));
   const own = cRows.find((r) => r.hc === b.id && r.mediaType === mediaType);
@@ -492,7 +512,14 @@ function cResource(b: MockBook, mediaType: "audiobook" | "ebook") {
     narrator: mediaType === "audiobook" ? "Ray Porter" : null,
     authorId: own ? authorIdOf(b.author) : 0,
     author: { id: own ? authorIdOf(b.author) : 0, authorName: b.author, foreignAuthorId: `hc:${2000 + b.id}`, audiobookRootFolderPath: null, ebookRootFolderPath: null },
-    editions: [{ id: 0, foreignEditionId: `hc:edition:${b.id}${mediaType === "audiobook" ? 1 : 2}`, title: b.title, monitored: true }],
+    // Chaptarr lists the first audiobook edition by Hardcover id, the second only by ASIN, and the ebook by ISBN.
+    editions:
+      mediaType === "audiobook"
+        ? [
+            { id: 0, foreignEditionId: `hc:edition:${90000 + b.id * 10 + 1}`, title: b.title, asin: `B0${b.id}AUD1`, monitored: true },
+            { id: 0, foreignEditionId: `az:B0${b.id}AUD2`, title: b.title, asin: `B0${b.id}AUD2`, monitored: false },
+          ]
+        : [{ id: 0, foreignEditionId: `isbn:978000${b.id}0003`, title: b.title, isbn13: `978000${b.id}0003`, monitored: true }],
     localAudiobookBooks: local("audiobook"),
     localEbookBooks: local("ebook"),
     statistics: { bookFileCount: own?.hasFiles ? 1 : 0 },
@@ -559,7 +586,7 @@ http
       if (p === "/api/v1/book" && req.method === "POST") {
         const mt = url.searchParams.get("mediaType") as "audiobook" | "ebook";
         cAdds.push({ mediaType: mt, body });
-        console.log(`[chaptarr] add ${mt}: ${body?.title} author=${body?.author?.foreignAuthorId} root=${body?.author?.[`${mt}RootFolderPath`]} q=${body?.author?.[`${mt}QualityProfileId`]} m=${body?.author?.[`${mt}MetadataProfileId`]} search=${body?.addOptions?.searchForNewBook} monitor=${body?.author?.addOptions?.monitor}`);
+        console.log(`[chaptarr] add ${mt}: ${body?.title} author=${body?.author?.foreignAuthorId} root=${body?.author?.[`${mt}RootFolderPath`]} q=${body?.author?.[`${mt}QualityProfileId`]} m=${body?.author?.[`${mt}MetadataProfileId`]} search=${body?.addOptions?.searchForNewBook} monitor=${body?.author?.addOptions?.monitor} edition=${(body?.editions ?? []).filter((e: { monitored?: boolean }) => e.monitored).map((e: { foreignEditionId?: string }) => e.foreignEditionId).join(",")}`);
         if (!/^hc:\d+$/.test(body?.foreignBookId ?? "")) return send(400, [{ propertyName: "foreignBookId", errorMessage: "foreignBookId requires a provider prefix." }]);
         if (!body?.author?.[`${mt}RootFolderPath`] || !body?.author?.[`${mt}QualityProfileId`])
           return send(400, "No media type is configured (audiobook/ebook). Configure at least one root folder + quality profile for this instance.");

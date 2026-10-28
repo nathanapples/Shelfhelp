@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 process.env.CONFIG_DIR = mkdtempSync(path.join(tmpdir(), "shelfhelp-test-"));
-const { chooseFor, addBody, localOf, errorText } = await import("../server/lib/chaptarr.ts");
+const { chooseFor, addBody, localOf, errorText, findEdition } = await import("../server/lib/chaptarr.ts");
 const { parseHardcoverRef } = await import("../server/lib/requests.ts");
 const { getSettings } = await import("../server/lib/settings.ts");
 
@@ -192,4 +192,26 @@ test("issues: only open issues take comments from readers; anyone reopens", asyn
   const after = issueDetail(id);
   assert.equal(after.status, "open");
   assert.deepEqual(after.thread.slice(-2).map((c) => c.event ?? c.body), ["reopened", "Still skips at 2h"]);
+});
+
+test("a picked edition is found by Hardcover id, then ASIN, then ISBN", () => {
+  const editions = [
+    { foreignEditionId: "hc:edition:501", asin: "B01" },
+    { foreignEditionId: "az:B0XYZ", asin: null },
+    { foreignEditionId: "isbn:9780000000003", isbn13: "978-0-00-000000-3" },
+  ];
+  assert.equal(findEdition(editions, { id: 501 }), 0);
+  assert.equal(findEdition(editions, { id: 9, asin: "b0xyz" }), 1);
+  assert.equal(findEdition(editions, { id: 9, isbn13: "9780000000003" }), 2);
+  assert.equal(findEdition(editions, { id: 9, asin: "nope" }), -1);
+  assert.equal(findEdition(null, { id: 501 }), -1);
+});
+
+test("only the picked edition is monitored in the add body", () => {
+  const found = { id: 0, title: "X", foreignBookId: "hc:1", author: { foreignAuthorId: "hc:2" }, editions: [{ foreignEditionId: "a", monitored: true }, { foreignEditionId: "b", monitored: false }] };
+  const choice = { rootFolderPath: "/audiobooks", qualityProfileId: 1, metadataProfileId: 2, problem: null };
+  const picked = addBody(found, "audiobook", choice, true, [], 1);
+  assert.deepEqual(picked.editions!.map((e) => e.monitored), [false, true]);
+  const any = addBody(found, "audiobook", choice, true);
+  assert.deepEqual(any.editions!.map((e) => e.monitored), [true, false]);
 });

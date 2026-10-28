@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowPathIcon, ArrowRightIcon, EyeSlashIcon, LinkIcon, LinkSlashIcon, MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { api, duration, sentences, type HcBookRef, type LinkPage, type LinkRow, type LinkStatus, type SearchHit, type Status } from "../lib/api";
-import { jobStarted, useApi, useDebounced, useJobs } from "../lib/hooks";
+import { jobStarted, useApi, useDebounced, useJobs, useStoredState } from "../lib/hooks";
 import { Cover, Empty, ErrorBlock, LoadingBlock, Modal, PageTitle, Spinner } from "../components/ui";
 import { useToast } from "../components/toast";
 import { HcRow } from "./Reading";
@@ -169,13 +169,17 @@ function LinkModal({ row, onClose, onChanged }: { row: LinkRow | null; onClose: 
 export default function LibraryPage({ status }: { status: Status }) {
   const toast = useToast();
   const [filter, setFilter] = useState<LinkStatus | "all">("all");
+  const [library, setLibrary] = useStoredState<string>("library.lib", "all");
+  const { data: libs } = useApi<{ id: string; name: string }[]>("/abs/libraries");
   const [q, setQ] = useState("");
   const dq = useDebounced(q);
   const [limit, setLimit] = useState(1);
   const jobs = useJobs();
   const job = jobs?.running.find((j) => j.id === "library") ?? null;
   const last = jobs?.last.library ?? null;
-  const path = `/library/links?status=${filter}&q=${encodeURIComponent(dq)}`;
+  const libKnown = library === "all" || !libs || libs.some((l) => l.id === library);
+  const lib = libKnown ? library : "all";
+  const path = `/library/links?status=${filter}&q=${encodeURIComponent(dq)}${lib !== "all" ? `&library=${encodeURIComponent(lib)}` : ""}`;
   const { data, error, loading, reload } = useApi<LinkPage>(path, { poll: job ? 5000 : false });
   const [more, setMore] = useState<LinkRow[]>([]);
   const [open, setOpen] = useState<LinkRow | null>(null);
@@ -234,6 +238,25 @@ export default function LibraryPage({ status }: { status: Status }) {
         Every Audiobookshelf book linked to its Hardcover book, so search and Discover can tell you what you already have. Runs after each sync, and
         only looks up books that are new or changed. Matches here, in Reading and in Collections are shared.
       </p>
+      {libs && libs.length > 1 && (
+        <div className="mb-4 flex max-w-5xl gap-1 overflow-x-auto border-b border-gray-700">
+          {[{ id: "all", name: "All libraries" }, ...libs].map((l) => {
+            const n = l.id === "all" ? undefined : data?.libraries?.[l.id];
+            return (
+              <button
+                key={l.id}
+                onClick={() => setLibrary(l.id)}
+                className={`-mb-px flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-semibold transition ${
+                  lib === l.id ? "border-indigo-500 text-white" : "border-transparent text-gray-400 hover:border-gray-500 hover:text-gray-200"
+                }`}
+              >
+                {l.name}
+                {n !== undefined && <span className="rounded-full bg-gray-700 px-1.5 text-xs font-medium text-gray-300">{n}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {c && total > 0 && (
         <div className="mb-5 max-w-3xl">
           <div className="flex h-2 overflow-hidden rounded-full bg-gray-700">
