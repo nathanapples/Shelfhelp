@@ -13,6 +13,7 @@ import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
 import { BUILTINS, defaultRows, discoverRow, listRow, resetRows, rowInfo, rowsFor, saveRows } from "./lib/discover.js";
 import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
+import { ISSUE_KINDS, addComment, createIssue, deleteIssue, issueCounts, issueDetail, listIssues, setIssueStatus } from "./lib/issues.js";
 import { canSeeRequest, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
 import { requestRecoveryLink, useRecoveryLink, cloudflareProblem, cloudflareUser, endSession, createSession, oidcCallback, oidcDiscovery, oidcRedirectUri, oidcStart, passwordMatches, viewer, type Viewer } from "./lib/auth.js";
 import { OWNER_ID, absUsers, allUsers, asReader, getUser, readerById, readers, resolveOwner, updateUser, userForAbs, userView, type Reader } from "./lib/users.js";
@@ -34,6 +35,7 @@ const USER_ROUTES: [string, RegExp][] = [
   ["GET", /^\/api\/library\/similar$/],
   ["GET", /^\/api\/(jobs|counts)$/],
   ["*", /^\/api\/requests(\/.*)?$/],
+  ["*", /^\/api\/issues(\/.*)?$/],
   ["*", /^\/api\/reading(\/.*)?$/],
   ["*", /^\/api\/me(\/.*)?$/],
 ];
@@ -749,6 +751,52 @@ export async function routes(app: FastifyInstance) {
     }
   });
 
+  // Issues: anyone reports and comments; admins resolve, reopen and delete.
+  app.get<{ Querystring: { status?: "open" | "resolved" | "all"; book?: string } }>("/api/issues", async (req) => ({
+    issues: listIssues(req.query.status ?? "open", Number(req.query.book) || undefined),
+    counts: issueCounts(),
+    kinds: ISSUE_KINDS,
+  }));
+
+  app.get<{ Params: { id: string } }>("/api/issues/:id", async (req, reply) => {
+    try {
+      return issueDetail(Number(req.params.id));
+    } catch (err) {
+      return fail(reply, err, 404);
+    }
+  });
+
+  app.post<{ Body: { hcBookId: number; kind: string; body: string } }>("/api/issues", async (req, reply) => {
+    try {
+      return await createIssue(req.viewer.user.id, Number(req.body?.hcBookId), req.body?.kind, req.body?.body);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.post<{ Params: { id: string }; Body: { body: string } }>("/api/issues/:id/comments", async (req, reply) => {
+    try {
+      return addComment(Number(req.params.id), req.viewer.user.id, req.body?.body);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.put<{ Params: { id: string }; Body: { status: "open" | "resolved" } }>("/api/issues/:id", async (req, reply) => {
+    if (!isAdmin(req)) return reply.code(403).send({ error: "Only an admin can resolve or reopen issues." });
+    try {
+      return setIssueStatus(Number(req.params.id), req.viewer.user.id, req.body?.status === "resolved" ? "resolved" : "open");
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/issues/:id", async (req, reply) => {
+    if (!isAdmin(req)) return reply.code(403).send({ error: "Only an admin can delete issues." });
+    deleteIssue(Number(req.params.id));
+    return { ok: true };
+  });
+
   // Requests
   const myRequests = (req: FastifyRequest) => {
     const scope = isAdmin(req) ? undefined : req.viewer.user.id;
@@ -921,7 +969,7 @@ export async function routes(app: FastifyInstance) {
       .all() as { status: string; n: number }[];
     const c = requestCounts(isAdmin(req) ? undefined : req.viewer.user.id);
     const openRequests = (c.pending ?? 0) + (c.requested ?? 0) + (c.downloading ?? 0) + (c.downloaded ?? 0);
-    return { ...Object.fromEntries(r.map((x) => [x.status, x.n])), requests: openRequests };
+    return { ...Object.fromEntries(r.map((x) => [x.status, x.n])), requests: openRequests, issues: issueCounts().open };
   });
 
   app.post<{ Body: { hcBookId: number; libraryId: string; action: "match" | "ignore" | "missing" | "reset"; absItemId?: string } }>(

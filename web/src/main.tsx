@@ -20,6 +20,7 @@ import RequestsPage from "./pages/Requests";
 import DiscoverPage from "./pages/Discover";
 import LibraryPage from "./pages/Library";
 import AccountPage from "./pages/Account";
+import IssuesPage from "./pages/Issues";
 
 function App() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -45,6 +46,7 @@ function App() {
         <Route path="/search" element={<SearchPage status={status} />} />
         <Route path="/requests" element={<RequestsPage status={status} />} />
         <Route path="/account" element={<AccountPage status={status} onChanged={load} />} />
+        <Route path="/issues" element={<IssuesPage status={status} />} />
         {admin && (
           <>
             <Route path="/collections" element={<ListsPage status={status} />} />

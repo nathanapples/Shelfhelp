@@ -11,7 +11,8 @@ import {
   MagnifyingGlassIcon,
   SpeakerWaveIcon,
 } from "@heroicons/react/24/outline";
-import { api, duration, type Similar, type Format, type RequestFormat, type RequestMap, type RequestOutcome, type RequestStatus } from "../lib/api";
+import { IssueThread, ReportIssue } from "./Issues";
+import { api, duration, type Issue, type Similar, type Format, type RequestFormat, type RequestMap, type RequestOutcome, type RequestStatus } from "../lib/api";
 import { Cover, Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
 
@@ -336,6 +337,55 @@ export function InLibrary({
   );
 }
 
+/** Open issues for a book, and a way to report one. */
+function BookIssues({ book, admin }: { book: RequestableBook; admin: boolean }) {
+  const [issues, setIssues] = useState<Issue[] | null>(null);
+  const [reporting, setReporting] = useState(false);
+  const [openId, setOpenId] = useState<number | null>(null);
+  const load = () => {
+    api<{ issues: Issue[] }>(`/issues?status=open&book=${book.id}`)
+      .then((d) => setIssues(d.issues))
+      .catch(() => setIssues([]));
+  };
+  useEffect(load, [book.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="mt-5">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold uppercase tracking-wide text-gray-400">Issues</h4>
+        <button className="btn btn-sm btn-default" onClick={() => setReporting(true)}>
+          <ExclamationTriangleIcon className="h-4 w-4" /> Report an issue
+        </button>
+      </div>
+      {issues && issues.length > 0 && (
+        <ul className="mt-2 space-y-2">
+          {issues.map((i) => (
+            <li key={i.id}>
+              <button className="flex w-full items-center gap-2 rounded-lg bg-yellow-900/20 p-2 text-left text-sm ring-1 ring-yellow-800 hover:bg-yellow-900/30" onClick={() => setOpenId(i.id)}>
+                <span className="badge badge-warning flex-shrink-0">{i.kindLabel}</span>
+                <span className="min-w-0 flex-1 truncate text-gray-200">{i.summary}</span>
+                <span className="flex-shrink-0 text-xs text-gray-400">{i.comments} comments</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {issues?.length === 0 && <p className="mt-1 text-sm text-gray-500">No open issues.</p>}
+      {reporting && (
+        <ReportIssue
+          book={book}
+          onClose={() => setReporting(false)}
+          onReported={(i) => {
+            setReporting(false);
+            load();
+            setOpenId(i.id);
+          }}
+        />
+      )}
+      {openId !== null && <IssueThread id={openId} admin={admin} onClose={() => setOpenId(null)} onChanged={load} />}
+    </div>
+  );
+}
+
 /** Book details with the request controls, opened from search results. */
 export function RequestModal({
   book,
@@ -405,6 +455,7 @@ export function RequestModal({
       </div>
       <div className="mt-6 border-t border-gray-700 pt-4">
         <InLibrary book={book} admin={admin} onOwned={setOwned} />
+        <BookIssues book={book} admin={admin} />
       </div>
     </Modal>
   );

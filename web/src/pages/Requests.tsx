@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowPathIcon, ArrowTopRightOnSquareIcon, InboxArrowDownIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { api, timeAgo, type BookRequest, type RequestStatus, type Status } from "../lib/api";
-import { useApi } from "../lib/hooks";
+import { useApi, useStoredState } from "../lib/hooks";
 import { RequestBadge, formatLabel } from "../components/Request";
 import { Cover, Empty, ErrorBlock, LoadingBlock, PageTitle, Spinner } from "../components/ui";
 import { useToast } from "../components/toast";
@@ -91,62 +91,43 @@ function RequestRow({ r, onChanged, showWho }: { r: BookRequest; onChanged: () =
 }
 
 type FormatFilter = "all" | "audiobook" | "ebook";
-
-function Chip({ active, onClick, children, count }: { active: boolean; onClick: () => void; children: React.ReactNode; count?: number }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ring-1 transition ${
-        active ? "bg-indigo-600 text-white ring-indigo-500" : "bg-gray-800 text-gray-300 ring-gray-600 hover:bg-gray-700"
-      }`}
-    >
-      {children}
-      {count !== undefined && <span className={`rounded-full px-1.5 text-xs ${active ? "bg-indigo-400/40" : "bg-gray-700"}`}>{count}</span>}
-    </button>
-  );
-}
+const TABS = ["failed", "open", "available", "all"] as const;
+const FORMATS = ["all", "audiobook", "ebook"] as const;
 
 export default function RequestsPage({ status }: { status: Status }) {
-  const toast = useToast();
-  const { data, error, loading, reload, setData } = useApi<{ requests: BookRequest[]; counts: Partial<Record<RequestStatus, number>>; all?: boolean }>("/requests", {
+  const { data, error, loading, reload } = useApi<{ requests: BookRequest[]; counts: Partial<Record<RequestStatus, number>>; all?: boolean }>("/requests", {
     poll: 15000,
   });
-  const [filter, setFilter] = useState<Tab>("all");
-  const [format, setFormat] = useState<FormatFilter>("all");
-  const [checking, setChecking] = useState(false);
-
-  const check = async () => {
-    setChecking(true);
-    try {
-      setData(await api("/requests/refresh", { method: "POST" }));
-    } catch (e) {
-      toast((e as Error).message, "error");
-    } finally {
-      setChecking(false);
-    }
-  };
+  const [filter, setFilter] = useStoredState<Tab>("requests.status", "failed", TABS);
+  const [format, setFormat] = useStoredState<FormatFilter>("requests.format", "all", FORMATS);
 
   const all = (data?.requests ?? []).filter((r) => format === "all" || r.format === format);
   const count = (t: Tab) => all.filter((r) => inTab(t, r)).length;
   const rows = all.filter((r) => inTab(filter, r));
+  const label: Record<Tab, string> = { failed: "Failed", open: "In progress", available: "Available", all: "All requests" };
 
   return (
     <div>
       <PageTitle
         extra={
-          status.configured.chaptarr && (
-            <button className="btn btn-default" onClick={check} disabled={checking}>
-              <ArrowPathIcon className={`h-5 w-5 ${checking ? "animate-spin" : ""}`} /> {checking ? "Checking..." : "Check Chaptarr"}
-            </button>
-          )
+          <>
+            <select className="input w-auto" value={filter} onChange={(e) => setFilter(e.target.value as Tab)} aria-label="Show">
+              {TABS.map((t) => (
+                <option key={t} value={t}>
+                  {label[t]} ({count(t)})
+                </option>
+              ))}
+            </select>
+            <select className="input w-auto" value={format} onChange={(e) => setFormat(e.target.value as FormatFilter)} aria-label="Format">
+              <option value="all">Any format</option>
+              <option value="audiobook">Audiobooks</option>
+              <option value="ebook">Ebooks</option>
+            </select>
+          </>
         }
       >
         Requests
       </PageTitle>
-      <p className="-mt-3 mb-5 max-w-3xl text-sm text-gray-400">
-        Books you've asked Chaptarr for. To request one, search for it or paste a Hardcover link into the search bar. Audiobooks become Available once
-        they show up in Audiobookshelf.
-      </p>
 
       {!status.requestsEnabled && (
         <div className="mb-6 rounded-lg bg-yellow-900/20 p-4 text-sm text-yellow-200 ring-1 ring-yellow-800">
@@ -158,38 +139,11 @@ export default function RequestsPage({ status }: { status: Status }) {
         </div>
       )}
 
-      <div className="mb-5 flex flex-wrap items-center gap-2">
-        {(
-          [
-            ["all", "All"],
-            ["open", "In progress"],
-            ["available", "Available"],
-            ["failed", "Failed"],
-          ] as const
-        ).map(([id, label]) => (
-          <Chip key={id} active={filter === id} onClick={() => setFilter(id)} count={count(id)}>
-            {label}
-          </Chip>
-        ))}
-        <span className="mx-1 hidden h-5 w-px bg-gray-600 sm:block" />
-        {(
-          [
-            ["all", "Any format"],
-            ["audiobook", "Audiobooks"],
-            ["ebook", "Ebooks"],
-          ] as const
-        ).map(([id, label]) => (
-          <Chip key={id} active={format === id} onClick={() => setFormat(id)}>
-            {label}
-          </Chip>
-        ))}
-      </div>
-
       {loading && <LoadingBlock />}
       {error && <ErrorBlock message={error} />}
       {data && rows.length === 0 && (
-        <Empty icon={<InboxArrowDownIcon className="h-16 w-16" />} title={data.requests.length ? "Nothing matches" : "No requests yet"}>
-          {data.requests.length ? "Try another filter." : "Search for a book or paste a Hardcover link in the search bar to request it."}
+        <Empty icon={<InboxArrowDownIcon className="h-16 w-16" />} title={data.requests.length ? `Nothing ${filter === "all" ? "here" : label[filter].toLowerCase()}` : "No requests yet"}>
+          {data.requests.length ? "Pick another view above." : "Search for a book or paste a Hardcover link in the search bar to request it."}
         </Empty>
       )}
       <ul className="max-w-4xl space-y-3">

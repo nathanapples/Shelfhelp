@@ -155,3 +155,21 @@ test("Not the same book: no matcher links them again", async () => {
   assert.equal(inLibrary([77]).has(77), false);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM item_overrides WHERE abs_item_id = 'wrongly'").get()!.n, 0);
 });
+
+test("issues: report, comment, resolve, reopen", async () => {
+  const { db } = await import("../server/lib/db.ts");
+  const { addComment, issueCounts, issueDetail, listIssues, setIssueStatus } = await import("../server/lib/issues.ts");
+  db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (9, 'sage', 'user')").run();
+  const r = db.prepare("INSERT INTO issues (hc_book_id, title, kind, created_by) VALUES (110, 'The Way of Kings', 'audio', 9)").run();
+  const id = Number(r.lastInsertRowid);
+  db.prepare("INSERT INTO issue_comments (issue_id, user_id, body) VALUES (?, 9, 'Skips at 3h')").run(id);
+  addComment(id, 1, "Looking");
+  assert.equal(listIssues("open", 110)[0].comments, 2);
+  setIssueStatus(id, 1, "resolved");
+  assert.equal(issueDetail(id).status, "resolved");
+  assert.equal(issueDetail(id).thread.at(-1)!.event, "resolved");
+  assert.equal(listIssues("open", 110).length, 0);
+  setIssueStatus(id, 1, "open");
+  assert.equal(issueCounts().open >= 1, true);
+  assert.throws(() => addComment(id, 9, "   "));
+});

@@ -500,3 +500,33 @@ export interface ReadingUser {
   nowListening: { title: string; progress: number; coverUrl: string } | null;
   covers: string[];
 }
+
+export interface Issue {
+  id: number;
+  hcBookId: number;
+  absItemId: string | null;
+  title: string;
+  authors: string[];
+  slug: string | null;
+  hcUrl: string | null;
+  coverUrl: string | null;
+  kind: string;
+  kindLabel: string;
+  status: "open" | "resolved";
+  createdBy: string;
+  createdById: number;
+  createdAt: string;
+  updatedAt: string;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  comments: number;
+  lastCommentAt: string | null;
+  summary: string;
+}
+
+export interface IssueDetail extends Issue {
+  thread: { id: number; userId: number; author: string; admin: boolean; body: string; event: string | null; createdAt: string }[];
+}
+
+/** SQLite times are UTC without a zone; make them parse as UTC. */
+export const utc = (t: string) => (/[zZ]|[+-]\d\d:?\d\d$/.test(t) ? t : `${t.replace(" ", "T")}Z`);

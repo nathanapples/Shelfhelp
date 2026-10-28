@@ -51,6 +51,10 @@ The home page. Rows of trending books, new releases, the highest rated new books
 
 Customize sets which rows you see and in what order. Admins can save their rows as everyone's default; anyone can pick their own.
 
+## Issues
+
+Anyone can report a problem with a book from its popup, choosing a kind (audio, missing chapters, wrong book, details or cover, something else) and saying what's wrong. Everyone can see and comment on issues on the Issues page; admins resolve, reopen and delete them.
+
 ## Library
 
 Links every Audiobookshelf book to its Hardcover book, using the same matching as Reading and Collections. It runs after each sync and only looks up books that are new or changed, paced to stay inside Hardcover's rate limit. Discover, search and the book popup use these links to tell you what you already have. An ASIN or ISBN match only counts when the titles agree, so a mislabeled ASIN can't hide a book you don't own. Books that need a look are under Check, and you can link any book by hand.

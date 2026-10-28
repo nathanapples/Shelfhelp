@@ -368,6 +368,35 @@ const migrations: string[] = [
   -- A person's own Discover rows (JSON). Empty uses the defaults.
   ALTER TABLE users ADD COLUMN discover_rows TEXT;
   `,
+  `
+  -- Problems people report with a book, and the conversation about them.
+  CREATE TABLE issues (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    hc_book_id   INTEGER NOT NULL,
+    abs_item_id  TEXT,
+    title        TEXT NOT NULL,
+    authors      TEXT,
+    slug         TEXT,
+    cover_url    TEXT,
+    kind         TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'open',
+    created_by   INTEGER NOT NULL,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_by  INTEGER,
+    resolved_at  TEXT
+  );
+  CREATE INDEX issues_book ON issues(hc_book_id);
+  CREATE TABLE issue_comments (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id   INTEGER NOT NULL,
+    user_id    INTEGER NOT NULL,
+    body       TEXT NOT NULL,
+    event      TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX issue_comments_issue ON issue_comments(issue_id);
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

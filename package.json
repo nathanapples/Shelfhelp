@@ -1,6 +1,6 @@
 {
   "name": "shelfhelp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Sync Hardcover lists into Audiobookshelf collections, with a Seerr-style web UI",
   "scripts": {
     "dev:server": "tsx watch server/index.ts",

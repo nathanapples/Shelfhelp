@@ -86,3 +86,28 @@ export function useJobs() {
 
 /** Tell the progress indicators to look right away. */
 export const jobStarted = () => window.dispatchEvent(new Event("shelfhelp:job-started"));
+
+/** State remembered in this browser, so a page opens where you left it. */
+export function useStoredState<T extends string>(key: string, fallback: T, allowed?: readonly T[]): [T, (v: T) => void] {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const v = localStorage.getItem(`shelfhelp.${key}`) as T | null;
+      if (v && (!allowed || allowed.includes(v))) return v;
+    } catch {
+      /* private mode */
+    }
+    return fallback;
+  });
+  const set = useCallback(
+    (v: T) => {
+      setValue(v);
+      try {
+        localStorage.setItem(`shelfhelp.${key}`, v);
+      } catch {
+        /* private mode */
+      }
+    },
+    [key],
+  );
+  return [value, set];
+}
