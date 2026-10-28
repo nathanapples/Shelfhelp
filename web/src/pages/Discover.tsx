@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { AdjustmentsHorizontalIcon, ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
-import { isAdmin, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type SearchHit, type Status } from "../lib/api";
+import { AdjustmentsHorizontalIcon, ChevronLeftIcon, ChevronRightIcon, TagIcon } from "@heroicons/react/24/outline";
+import { isAdmin, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type RequestOutcome, type SearchHit, type Status } from "../lib/api";
 import { CustomizeDiscover } from "../components/CustomizeDiscover";
 import { useApi } from "../lib/hooks";
 import { BookCard } from "../components/BookCard";
@@ -9,6 +9,45 @@ import { BookTile } from "../components/BookTile";
 import { RequestModal } from "../components/Request";
 import { Spinner } from "../components/ui";
 import { withOutcomes } from "./Search";
+
+/** Discover posters: about a third smaller than search results. */
+const SMALL = "w-[6.5rem] sm:w-28 md:w-32";
+
+/**
+ * After a request finishes: update the book's poster, and the popup only if
+ * it's still open on that book (so closing it while waiting keeps it closed).
+ */
+export function afterRequest<T extends { book: SearchHit; replace?: (b: SearchHit) => void }>(
+  requested: T | null,
+  setOpen: (f: (cur: T | null) => T | null) => void,
+  outcomes: RequestOutcome[],
+) {
+  if (!requested) return;
+  const next = withOutcomes(requested.book, outcomes);
+  requested.replace?.(next);
+  setOpen((cur) => (cur && cur.book.id === next.id ? { ...cur, book: withOutcomes(cur.book, outcomes) } : cur));
+}
+
+/** Genre chips that open the genre's page. */
+export function GenreStrip({ genres }: { genres: DiscoverRowInfo[] }) {
+  if (!genres.length) return null;
+  return (
+    <div className="hide-scrollbar -mx-4 mb-6 mt-4 flex gap-2 overflow-x-auto px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+      <span className="flex flex-shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        <TagIcon className="h-4 w-4" /> Genres
+      </span>
+      {genres.map((g) => (
+        <Link
+          key={g.key}
+          to={`/discover/${g.key}`}
+          className="flex-shrink-0 whitespace-nowrap rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-200 ring-1 ring-gray-600 transition hover:bg-gray-700 hover:text-white"
+        >
+          {g.title.replace(/^Top /, "")}
+        </Link>
+      ))}
+    </div>
+  );
+}
 
 function Shelf({
   row,
@@ -32,42 +71,52 @@ function Shelf({
       <div className="mb-3 flex items-end justify-between gap-3">
         <div className="min-w-0">
           <h2 className="truncate text-xl font-bold text-white sm:text-2xl">
-            {row.key === "requests" ? (
-              <Link to="/requests" className="hover:text-indigo-300">
-                {row.title} ›
-              </Link>
-            ) : row.kind === "list" && row.owner && row.slug ? (
-              <a href={`https://hardcover.app/@${row.owner}/lists/${row.slug}`} target="_blank" rel="noreferrer" className="hover:text-indigo-300">
-                {row.title} ›
-              </a>
-            ) : (
-              row.title
-            )}
+            <Link to={row.key === "requests" ? "/requests" : `/discover/${row.key}`} className="hover:text-indigo-300">
+              {row.title} ›
+            </Link>
           </h2>
           <p className="truncate text-sm text-gray-400">{row.subtitle}</p>
         </div>
-        <div className="hidden flex-shrink-0 gap-1 sm:flex">
-          <button className="rounded-full p-1.5 text-gray-400 ring-1 ring-gray-700 hover:bg-gray-700 hover:text-white" onClick={() => scroll(-1)} aria-label="Scroll left">
+        <div className="flex flex-shrink-0 items-center gap-1">
+          <Link to={row.key === "requests" ? "/requests" : `/discover/${row.key}`} className="mr-1 whitespace-nowrap text-sm font-medium text-indigo-400 hover:text-indigo-300">
+            See all
+          </Link>
+          <button className="hidden rounded-full p-1.5 text-gray-400 ring-1 ring-gray-700 hover:bg-gray-700 hover:text-white sm:block" onClick={() => scroll(-1)} aria-label="Scroll left">
             <ChevronLeftIcon className="h-5 w-5" />
           </button>
-          <button className="rounded-full p-1.5 text-gray-400 ring-1 ring-gray-700 hover:bg-gray-700 hover:text-white" onClick={() => scroll(1)} aria-label="Scroll right">
+          <button className="hidden rounded-full p-1.5 text-gray-400 ring-1 ring-gray-700 hover:bg-gray-700 hover:text-white sm:block" onClick={() => scroll(1)} aria-label="Scroll right">
             <ChevronRightIcon className="h-5 w-5" />
           </button>
         </div>
       </div>
       {loading && (
-        <div className="flex h-56 items-center justify-center">
+        <div className="flex h-40 items-center justify-center">
           <Spinner />
         </div>
       )}
       {error && <p className="rounded-lg bg-red-900/20 p-3 text-sm text-red-300 ring-1 ring-red-900">{error}</p>}
-      <div ref={scroller} className="hide-scrollbar -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 pb-4 pt-2 sm:-mx-6 sm:scroll-px-6 sm:gap-4 sm:px-6 lg:-mx-8 lg:scroll-px-8 lg:px-8">
+      <div ref={scroller} className="hide-scrollbar -mx-4 flex snap-x scroll-px-4 gap-2.5 overflow-x-auto px-4 pb-4 pt-2 sm:-mx-6 sm:scroll-px-6 sm:gap-3 sm:px-6 lg:-mx-8 lg:scroll-px-8 lg:px-8">
         {data?.map((b, i) => (
           <div key={`${b.id}-${b.absItemId ?? i}`} className="snap-start">
             {row.key === "added" && !b.id ? (
-              <BookCard book={{ ...b, status: "matched" }} pill="Added" fit="contain" note={b.addedAt ? `Added ${new Date(b.addedAt).toLocaleDateString()}` : null} />
+              <BookCard
+                book={{ ...b, status: "matched" }}
+                pill="Added"
+                fit="contain"
+                size="sm"
+                width={SMALL}
+                note={b.addedAt ? `Added ${new Date(b.addedAt).toLocaleDateString()}` : null}
+              />
             ) : (
-              <BookTile book={b} status={status} onOpen={() => onOpen(b, replace)} pill={row.key === "added" ? "Added" : undefined} fit={row.key === "added" ? "contain" : undefined} />
+              <BookTile
+                book={b}
+                status={status}
+                size="sm"
+                width={SMALL}
+                onOpen={() => onOpen(b, replace)}
+                pill={row.key === "added" ? "Added" : undefined}
+                fit={row.key === "added" ? "contain" : undefined}
+              />
             )}
           </div>
         ))}
@@ -102,6 +151,7 @@ export default function DiscoverPage({ status }: { status: Status }) {
           <AdjustmentsHorizontalIcon className="h-4 w-4" /> Customize
         </button>
       </div>
+      <GenreStrip genres={config?.genres ?? []} />
       {shown.map((r) => (
         <Shelf key={r.key} row={r} status={status} version={r.key === "requests" ? version : 0} onOpen={(book, replace) => setOpen({ book, replace })} />
       ))}
@@ -118,10 +168,7 @@ export default function DiscoverPage({ status }: { status: Status }) {
         defaultFormat={status.requestFormat}
         onClose={() => setOpen(null)}
         onDone={(o) => {
-          if (!open) return;
-          const next = withOutcomes(open.book, o);
-          open.replace(next);
-          setOpen({ ...open, book: next });
+          afterRequest(open, setOpen, o);
           setVersion((v) => v + 1);
         }}
       />

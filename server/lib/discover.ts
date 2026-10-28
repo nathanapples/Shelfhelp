@@ -9,7 +9,7 @@ import { inLibrary, requestsFor, summarizeBook, type HcSummary } from "./request
 import { myShelfStatus } from "./reading.js";
 import { recentlyAdded } from "./linking.js";
 import { getSettings, saveSettings } from "./settings.js";
-import { getUser, updateUser } from "./users.js";
+import { getUser, toReader, updateUser } from "./users.js";
 
 export type BuiltinId =
   | "trending"
@@ -22,7 +22,8 @@ export type BuiltinId =
   | "audio"
   | "added"
   | "soon"
-  | "requests";
+  | "requests"
+  | "foryou";
 
 export const BUILTINS: Record<BuiltinId, { title: string; subtitle: string }> = {
   trending: { title: "Trending this month", subtitle: "What Hardcover readers are picking up" },
@@ -36,14 +37,43 @@ export const BUILTINS: Record<BuiltinId, { title: string; subtitle: string }> = 
   added: { title: "Recently added", subtitle: "Newest in Audiobookshelf" },
   soon: { title: "Coming soon", subtitle: "Releasing in the next two months" },
   requests: { title: "Your recent requests", subtitle: "What you've asked for" },
+  foryou: { title: "Recommended for you", subtitle: "From your vibes on Hardcover, not in Audiobookshelf yet" },
 };
+
+/** Genres to browse. Hardcover's genre tags are matched ignoring case, spaces and dashes. */
+export const GENRES: { slug: string; name: string }[] = [
+  ["fantasy", "Fantasy"],
+  ["science-fiction", "Science Fiction"],
+  ["mystery", "Mystery"],
+  ["thriller", "Thriller"],
+  ["romance", "Romance"],
+  ["horror", "Horror"],
+  ["historical-fiction", "Historical Fiction"],
+  ["literary-fiction", "Literary Fiction"],
+  ["young-adult", "Young Adult"],
+  ["nonfiction", "Nonfiction"],
+  ["biography", "Biography"],
+  ["history", "History"],
+  ["self-help", "Self Help"],
+  ["humor", "Humor"],
+  ["classics", "Classics"],
+].map(([slug, name]) => ({ slug, name }));
+const genreBySlug = new Map(GENRES.map((g) => [g.slug, g]));
 
 export type RowConfig =
   | { key: string; kind: "builtin"; id: BuiltinId }
-  | { key: string; kind: "list"; listId: number; title: string; owner?: string | null; slug?: string | null };
+  | { key: string; kind: "list"; listId: number; title: string; owner?: string | null; slug?: string | null }
+  | { key: string; kind: "genre"; genre: string };
+
+const genreRow = (slug: string): RowConfig => ({ key: `genre-${slug}`, kind: "genre", genre: slug });
 
 const builtin = (id: BuiltinId): RowConfig => ({ key: id, kind: "builtin", id });
-export const STARTER_ROWS: RowConfig[] = (["trending", "want", "new", "added", "authors", "toprated", "soon", "requests"] as BuiltinId[]).map(builtin);
+export const STARTER_ROWS: RowConfig[] = [
+  ...(["trending", "foryou", "want", "new", "added", "authors"] as BuiltinId[]).map(builtin),
+  genreRow("fantasy"),
+  genreRow("science-fiction"),
+  ...(["toprated", "soon", "requests"] as BuiltinId[]).map(builtin),
+];
 
 function valid(rows: unknown): RowConfig[] | null {
   if (!Array.isArray(rows)) return null;
@@ -54,7 +84,8 @@ function valid(rows: unknown): RowConfig[] | null {
     if (r.kind === "builtin" && r.id in BUILTINS) out.push(builtin(r.id));
     else if (r.kind === "list" && Number(r.listId) > 0) {
       out.push({ key: `list-${Number(r.listId)}`, kind: "list", listId: Number(r.listId), title: String(r.title || "Hardcover list"), owner: r.owner ?? null, slug: r.slug ?? null });
-    } else continue;
+    } else if (r.kind === "genre" && genreBySlug.has(r.genre)) out.push(genreRow(r.genre));
+    else continue;
     seen.add(out[out.length - 1].key);
   }
   return out;
@@ -84,7 +115,25 @@ export function resetRows(userId: number) {
 
 export function rowInfo(r: RowConfig) {
   if (r.kind === "builtin") return { ...r, ...BUILTINS[r.id] };
+  if (r.kind === "genre") return { ...r, title: `Top ${genreBySlug.get(r.genre)!.name}`, subtitle: `The most-read ${genreBySlug.get(r.genre)!.name.toLowerCase()} books on Hardcover` };
   return { ...r, subtitle: r.owner ? `A Hardcover list by @${r.owner}` : "A Hardcover list" };
+}
+
+export const genreRows = () => GENRES.map((g) => rowInfo(genreRow(g.slug)));
+
+/** Title and subtitle for any row key, for its own page. */
+export async function rowInfoFor(key: string, userId: number) {
+  const mine = rowsFor(userId).rows.find((r) => r.key === key) ?? defaultRows().find((r) => r.key === key);
+  if (mine) return rowInfo(mine);
+  if (key in BUILTINS) return rowInfo(builtin(key as BuiltinId));
+  const g = key.match(/^genre-(.+)$/);
+  if (g && genreBySlug.has(g[1])) return rowInfo(genreRow(g[1]));
+  const l = key.match(/^list-(\d+)$/);
+  if (l) {
+    const { info } = await fetchList(Number(l[1]));
+    return rowInfo({ key, kind: "list", listId: info.id, title: info.name, slug: info.slug, owner: null });
+  }
+  throw new Error("No such row");
 }
 
 /** Turns a pasted Hardcover list link (or id) into a row. */
@@ -98,6 +147,9 @@ export async function listRow(ref: string): Promise<RowConfig> {
 // ---------------------------------------------------------------------------
 
 const TTL = 6 * 3600_000;
+/** Books in a row on Discover, and on the row's own page. */
+export const ROW = 20;
+export const PAGE = 60;
 const cache = new Map<string, { at: number; books: HcSummary[] }>();
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const daysFromNow = (n: number) => day(new Date(Date.now() + n * 86400_000));
@@ -121,7 +173,7 @@ function annotate(books: HcSummary[], userId: number) {
 const BOOK_FIELDS = `id slug title subtitle releaseYear: release_year rating ratingsCount: ratings_count usersCount: users_count
   audioSeconds: audio_seconds cachedImage: cached_image cachedContributors: cached_contributors cachedFeaturedSeries: cached_featured_series`;
 
-async function query(name: string, where: string, order: string, vars: Record<string, unknown>, limit = 20) {
+async function query(name: string, where: string, order: string, vars: Record<string, unknown>, limit = ROW) {
   const data = await hardcover().graphql<{ books: object[] }>(
     `query ${name}(${Object.keys(vars)
       .map((k) => `$${k}: ${Array.isArray(vars[k]) ? "[String!]!" : "date!"}`)
@@ -160,73 +212,140 @@ function fromList(b: ListBook): HcSummary {
   };
 }
 
-/** One row's books. `key` is a built-in id or list-<id>. */
-export async function discoverRow(key: string, userId: number) {
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** The most-read books Hardcover tags with a genre. Search can only match words, so hits are checked for the exact genre. */
+async function genreBooks(name: string, limit: number): Promise<HcSummary[]> {
+  const want = norm(name);
+  const exact: HcSummary[] = [];
+  const loose: HcSummary[] = [];
+  const perPage = 50;
+  for (let page = 1; page <= 4 && exact.length < limit; page++) {
+    const res = await hardcover().search.books(name, { fields: "genres", weights: "1", typos: "0", sort: "users_count:desc", perPage, page });
+    for (const h of res.hits) {
+      const book: HcSummary = {
+        id: Number(h.id),
+        slug: h.slug ?? null,
+        title: h.title ?? "Untitled",
+        subtitle: h.subtitle ?? null,
+        authors: h.authorNames ?? [],
+        coverUrl: h.image?.url ?? null,
+        releaseYear: h.releaseYear ?? null,
+        seriesName: h.seriesNames?.[0] ?? null,
+        seriesPosition: h.featuredSeriesPosition ?? null,
+        hasAudiobook: h.hasAudiobook ?? null,
+        rating: h.rating ?? null,
+        ratingsCount: h.ratingsCount ?? null,
+      };
+      ((h.genres ?? []).some((g) => norm(g) === want) ? exact : loose).push(book);
+    }
+    if (res.hits.length < perPage) break;
+  }
+  // Older search results may not carry genres; then trust the search.
+  return (exact.length >= Math.min(8, limit) ? exact : [...exact, ...loose]).slice(0, limit);
+}
+
+/** Books from the reader's Hardcover vibes, taking turns between vibes. Needs their own Hardcover token. */
+async function vibeBooks(userId: number, limit: number): Promise<HcSummary[]> {
+  const u = getUser(userId);
+  const token = u ? toReader(u).hardcoverToken : "";
+  if (!token) return [];
+  const hc = hardcover(token);
+  const vibes = (await hc.vibes.mine({ limit: 10 })).items.slice(0, 6);
+  const lists = await Promise.all(vibes.map((v) => hc.vibes.books(v.id, { limit }).then((b) => b.items.map(summarizeBook)).catch(() => [] as HcSummary[])));
+  const out: HcSummary[] = [];
+  const seen = new Set<number>();
+  for (let i = 0; out.length < limit * 2 && lists.some((l) => i < l.length); i++) {
+    for (const l of lists) {
+      const b = l[i];
+      if (b && !seen.has(b.id)) {
+        seen.add(b.id);
+        out.push(b);
+      }
+    }
+  }
+  return out;
+}
+
+/** One row's books. `key` is a built-in id, list-<id> or genre-<slug>. `limit` is bigger on the row's own page. */
+export async function discoverRow(key: string, userId: number, limit = ROW) {
   const hc = () => hardcover();
+  const L = limit;
   const list = key.match(/^list-(\d+)$/);
   if (list) {
     const id = Number(list[1]);
-    return annotate(await cached(key, async () => (await fetchList(id)).books.slice(0, 30).map(fromList)), userId);
+    return annotate(await cached(key, async () => (await fetchList(id)).books.map(fromList)), userId).slice(0, limit === ROW ? 30 : 200);
+  }
+  const genre = key.match(/^genre-(.+)$/);
+  if (genre) {
+    const g = genreBySlug.get(genre[1]);
+    if (!g) throw new Error("No such row");
+    return annotate(await cached(`${key}:${L}`, () => genreBooks(g.name, L)), userId);
   }
   switch (key as BuiltinId) {
+    case "foryou":
+      return annotate(await cached(`foryou:${userId}:${L}`, () => vibeBooks(userId, L)), userId)
+        .filter((b) => !b.absItemId)
+        .slice(0, L);
     case "trending":
-      return annotate(await cached(key, async () => (await hc().books.trending({ duration: "month", limit: 20 })).items.map(summarizeBook)), userId);
+      return annotate(await cached(`${key}:${L}`, async () => (await hc().books.trending({ duration: "month", limit: L })).items.map(summarizeBook)), userId);
     case "week":
-      return annotate(await cached(key, async () => (await hc().books.trending({ duration: "week", limit: 20 })).items.map(summarizeBook)), userId);
+      return annotate(await cached(`${key}:${L}`, async () => (await hc().books.trending({ duration: "week", limit: L })).items.map(summarizeBook)), userId);
     case "year":
-      return annotate(await cached(key, async () => (await hc().books.trending({ duration: "one_year", limit: 20 })).items.map(summarizeBook)), userId);
+      return annotate(await cached(`${key}:${L}`, async () => (await hc().books.trending({ duration: "one_year", limit: L })).items.map(summarizeBook)), userId);
     case "new":
-      return annotate(await cached(key, async () => (await hc().books.released({ from: daysFromNow(-30), to: daysFromNow(0), limit: 20 })).items.map(summarizeBook)), userId);
+      return annotate(await cached(`${key}:${L}`, async () => (await hc().books.released({ from: daysFromNow(-30), to: daysFromNow(0), limit: L })).items.map(summarizeBook)), userId);
     case "soon":
-      return annotate(await cached(key, async () => (await hc().books.released({ from: daysFromNow(1), to: daysFromNow(60), limit: 20 })).items.map(summarizeBook)), userId);
+      return annotate(await cached(`${key}:${L}`, async () => (await hc().books.released({ from: daysFromNow(1), to: daysFromNow(60), limit: L })).items.map(summarizeBook)), userId);
     case "toprated":
       return annotate(
-        await cached(key, () =>
+        await cached(`${key}:${L}`, () =>
           query(
             "DiscoverTopRated",
             "release_date: { _gte: $from, _lte: $to }, ratings_count: { _gte: 25 }",
             "[{ rating: desc_nulls_last }, { ratings_count: desc }]",
             { from: daysFromNow(-365), to: daysFromNow(0) },
+            L,
           ),
         ),
         userId,
       );
     case "audio":
       return annotate(
-        await cached(key, () =>
-          query("DiscoverAudio", "release_date: { _gte: $from }, audio_seconds: { _gt: 0 }", "[{ users_count: desc_nulls_last }]", { from: daysFromNow(-730) }),
+        await cached(`${key}:${L}`, () =>
+          query("DiscoverAudio", "release_date: { _gte: $from }, audio_seconds: { _gt: 0 }", "[{ users_count: desc_nulls_last }]", { from: daysFromNow(-730) }, L),
         ),
         userId,
       );
     case "authors": {
       const names = libraryAuthors();
       if (!names.length) return [];
-      const books = await cached(`authors:${names.join("|")}`, () =>
+      const books = await cached(`authors:${L}:${names.join("|")}`, () =>
         query(
           "DiscoverAuthors",
           "release_date: { _gte: $from, _lte: $to }, contributions: { author: { name: { _in: $names } } }",
           "[{ release_date: desc }]",
           { from: daysFromNow(-365), to: daysFromNow(180), names },
-          40,
+          L * 2,
         ),
       );
       // Only books you don't already have.
       return annotate(books, userId)
         .filter((b) => !b.absItemId)
-        .slice(0, 20);
+        .slice(0, L);
     }
     case "want": {
       const ids = (
         db.prepare("SELECT book_id FROM hc_library WHERE user_id = ? AND status = 1 ORDER BY refreshed_at DESC").all(userId) as { book_id: number }[]
       ).map((r) => r.book_id);
       const have = inLibrary(ids);
-      const missing = ids.filter((i) => !have.has(i)).slice(0, 40);
+      const missing = ids.filter((i) => !have.has(i)).slice(0, L * 2);
       if (!missing.length) return [];
       const books = await cached(`want:${missing.join(",")}`, async () => (await hc().books.getMany(missing)).map(summarizeBook));
-      return annotate(books, userId).slice(0, 20);
+      return annotate(books, userId).slice(0, L);
     }
     case "added":
-      return recentlyAdded(20).map((r) => ({
+      return recentlyAdded(L).map((r) => ({
         id: r.hcBook?.id ?? 0,
         slug: r.hcBook?.slug ?? null,
         title: r.title,
@@ -246,9 +365,9 @@ export async function discoverRow(key: string, userId: number) {
       const rows = db
         .prepare(
           `SELECT r.hc_book_id, MAX(r.requested_at) AS at, r.title, r.authors, r.slug, r.cover_url, r.release_year FROM requests r
-           JOIN request_users ru ON ru.request_id = r.id WHERE ru.user_id = ? GROUP BY r.hc_book_id ORDER BY at DESC LIMIT 20`,
+           JOIN request_users ru ON ru.request_id = r.id WHERE ru.user_id = ? GROUP BY r.hc_book_id ORDER BY at DESC LIMIT ?`,
         )
-        .all(userId) as { hc_book_id: number; title: string; authors: string; slug: string | null; cover_url: string | null; release_year: number | null }[];
+        .all(userId, L) as { hc_book_id: number; title: string; authors: string; slug: string | null; cover_url: string | null; release_year: number | null }[];
       return annotate(
         rows.map((r) => ({
           id: r.hc_book_id,

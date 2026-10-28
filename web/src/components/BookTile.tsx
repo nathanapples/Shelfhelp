@@ -10,6 +10,7 @@ export function BookTile({
   width,
   pill,
   fit,
+  size,
 }: {
   book: SearchHit;
   status: Status;
@@ -17,6 +18,7 @@ export function BookTile({
   width?: string;
   pill?: string;
   fit?: "cover" | "contain";
+  size?: "sm" | "md";
 }) {
   const req = topRequest(book.requests);
   const meta = req ? requestMeta[req] : null;
@@ -25,6 +27,7 @@ export function BookTile({
       width={width}
       pill={pill}
       fit={fit}
+      size={size}
       book={{ ...book, status: book.absItemId ? "matched" : null }}
       actionLabel={book.absItemId ? "In your library" : status.requestsEnabled && (!req || req === "failed") ? "Request" : "Details"}
       note={!book.absItemId && meta ? meta.label : null}

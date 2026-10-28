@@ -11,7 +11,7 @@ import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
-import { BUILTINS, defaultRows, discoverRow, listRow, resetRows, rowInfo, rowsFor, saveRows } from "./lib/discover.js";
+import { BUILTINS, PAGE, defaultRows, discoverRow, genreRows, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
 import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
 import { ISSUE_KINDS, addComment, createIssue, deleteIssue, issueCounts, issueDetail, listIssues, setIssueStatus } from "./lib/issues.js";
 import { canSeeRequest, editionLabel, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
@@ -551,7 +551,10 @@ export async function routes(app: FastifyInstance) {
       rows: rows.filter((r) => chaptarr || r.key !== "requests").map(rowInfo),
       custom,
       defaults: defaultRows().map(rowInfo),
-      builtins: Object.entries(BUILTINS).map(([id, b]) => ({ key: id, kind: "builtin", id, ...b })),
+      builtins: Object.entries(BUILTINS)
+        .filter(([id]) => chaptarr || id !== "requests")
+        .map(([id, b]) => ({ key: id, kind: "builtin", id, ...b })),
+      genres: genreRows(),
     };
   });
 
@@ -573,8 +576,13 @@ export async function routes(app: FastifyInstance) {
     }
   });
 
-  app.get<{ Params: { row: string } }>("/api/discover/:row", async (req, reply) => {
+  /** One row's books. With ?full=1, a bigger set and the row's title, for the row's own page. */
+  app.get<{ Params: { row: string }; Querystring: { full?: string } }>("/api/discover/:row", async (req, reply) => {
     try {
+      if (req.query.full === "1") {
+        const [info, books] = await Promise.all([rowInfoFor(req.params.row, req.viewer.user.id), discoverRow(req.params.row, req.viewer.user.id, PAGE)]);
+        return { info, books };
+      }
       return await discoverRow(req.params.row, req.viewer.user.id);
     } catch (err) {
       return fail(reply, err);

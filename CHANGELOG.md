@@ -2,6 +2,14 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.9.0 (2026-10-28)
+
+- Discover: posters are about a third smaller, so more fit on screen.
+- Every Discover row links to its own page (tap the title or See all) with a bigger set of its books, up to 60 (200 for Hardcover lists).
+- New "Recommended for you" row: books from your vibes on Hardcover that aren't in Audiobookshelf yet. It uses your own Hardcover account, and stays empty until Hardcover has made your vibes (open them once on hardcover.app).
+- Genres: a row of genre chips at the top of Discover opens the most-read books on Hardcover in that genre (Fantasy, Science Fiction, Mystery, Thriller, Romance, Horror and more). Genres can also be added as Discover rows in Customize. New installs get Recommended for you, Top Fantasy and Top Science Fiction rows by default.
+- Requesting a book and closing its popup before the answer comes back no longer opens the popup again. The message still shows.
+
 ## 0.8.0 (2026-10-28)
 
 - Library: tabs for each Audiobookshelf library (for example Audiobooks), so you can look at just one. The counts and filters follow the tab, and your pick is remembered.

@@ -47,7 +47,8 @@ export default function SearchPage({ status }: { status: Status }) {
           if (!open) return;
           const next = withOutcomes(open, o);
           setData((d) => d?.map((h) => (h.id === next.id ? next : h)) ?? d);
-          setOpen(next);
+          // Only refresh the popup if it's still open on this book.
+          setOpen((cur) => (cur && cur.id === next.id ? next : cur));
         }}
       />
     </div>

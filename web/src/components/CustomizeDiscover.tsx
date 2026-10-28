@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowDownIcon, ArrowUpIcon, PlusIcon, RectangleStackIcon, SparklesIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon, RectangleStackIcon, SparklesIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { api, type DiscoverConfig, type DiscoverRowInfo, type HcList } from "../lib/api";
 import { Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
@@ -103,7 +103,13 @@ export function CustomizeDiscover({
       <ul className="divide-y divide-gray-700 overflow-hidden rounded-lg bg-gray-900/40 ring-1 ring-gray-700">
         {rows.map((r, i) => (
           <li key={r.key} className="flex items-center gap-3 px-3 py-2">
-            {r.kind === "list" ? <RectangleStackIcon className="h-5 w-5 flex-shrink-0 text-indigo-400" /> : <SparklesIcon className="h-5 w-5 flex-shrink-0 text-purple-400" />}
+            {r.kind === "list" ? (
+              <RectangleStackIcon className="h-5 w-5 flex-shrink-0 text-indigo-400" />
+            ) : r.kind === "genre" ? (
+              <TagIcon className="h-5 w-5 flex-shrink-0 text-pink-400" />
+            ) : (
+              <SparklesIcon className="h-5 w-5 flex-shrink-0 text-purple-400" />
+            )}
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium text-white">{r.title}</div>
               <div className="truncate text-xs text-gray-500">{r.subtitle}</div>
@@ -134,6 +140,22 @@ export function CustomizeDiscover({
               className="flex items-center gap-1 rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-200 ring-1 ring-gray-600 hover:bg-gray-700"
             >
               <PlusIcon className="h-4 w-4" /> {b.title}
+            </button>
+          ))}
+      </div>
+
+      <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Add a genre</h4>
+      <div className="flex flex-wrap gap-2">
+        {(config.genres ?? [])
+          .filter((g) => !has(g.key))
+          .map((g) => (
+            <button
+              key={g.key}
+              onClick={() => setRows([...rows, g])}
+              title={g.subtitle}
+              className="flex items-center gap-1 rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-200 ring-1 ring-gray-600 hover:bg-gray-700"
+            >
+              <PlusIcon className="h-4 w-4" /> {g.title.replace(/^Top /, "")}
             </button>
           ))}
       </div>

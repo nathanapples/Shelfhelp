@@ -434,8 +434,9 @@ export interface JobsData {
 
 export interface DiscoverRowInfo {
   key: string;
-  kind: "builtin" | "list";
+  kind: "builtin" | "list" | "genre";
   id?: string;
+  genre?: string;
   listId?: number;
   owner?: string | null;
   slug?: string | null;
@@ -448,6 +449,7 @@ export interface DiscoverConfig {
   custom: boolean;
   defaults: DiscoverRowInfo[];
   builtins: DiscoverRowInfo[];
+  genres: DiscoverRowInfo[];
 }
 
 export interface DiscoverBook extends SearchHit {

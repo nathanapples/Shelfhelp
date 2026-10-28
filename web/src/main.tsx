@@ -18,6 +18,7 @@ import ReadingUsersPage from "./pages/ReadingUsers";
 import LoginPage from "./pages/Login";
 import RequestsPage from "./pages/Requests";
 import DiscoverPage from "./pages/Discover";
+import DiscoverRowPage from "./pages/DiscoverRow";
 import LibraryPage from "./pages/Library";
 import AccountPage from "./pages/Account";
 import IssuesPage from "./pages/Issues";
@@ -41,6 +42,7 @@ function App() {
     <Layout status={status}>
       <Routes>
         <Route path="/" element={<DiscoverPage status={status} />} />
+        <Route path="/discover/:key" element={<DiscoverRowPage status={status} />} />
         <Route path="/reading" element={<ReadingUsersPage status={status} />} />
         <Route path="/reading/:userId" element={<ReadingPage />} />
         <Route path="/search" element={<SearchPage status={status} />} />

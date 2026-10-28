@@ -195,7 +195,8 @@ export default function RequestsPage({ status }: { status: Status }) {
         defaultFormat={status.requestFormat}
         onClose={() => setOpen(null)}
         onDone={(o) => {
-          setOpen((b) => (b ? withOutcomes(b, o) : b));
+          const id = o[0]?.request.hcBookId;
+          setOpen((b) => (b && b.id === id ? withOutcomes(b, o) : b));
           reload();
         }}
       />

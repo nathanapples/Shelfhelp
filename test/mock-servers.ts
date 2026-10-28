@@ -134,7 +134,9 @@ for (const [bookId, status] of [[104, 3], [101, 1]] as const) {
   if (status === 3) setStatus(e, 3, "2025-06-01");
 }
 const entryJson = (e: MockEntry) => ({ id: e.id, bookId: e.bookId, statusId: e.statusId, editionId: e.editionId, userId: 1, userBookReads: e.reads });
-const hit = (b: MockBook) => ({ document: { id: String(b.id), title: b.title, slug: b.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"), author_names: [b.author], image: { url: `${HC}/cover/${b.id}.svg` }, series_names: b.series ? [b.series[0]] : [], featured_series_position: b.series?.[1] ?? null, release_year: 2010 } });
+const genresOf = (b: MockBook) =>
+  b.author === "Brandon Sanderson" ? ["Fantasy", "Fiction"] : b.author === "Blake Crouch" ? ["Thriller", "Science Fiction"] : b.id === 113 ? ["Urban Fantasy"] : ["Science Fiction", "Fiction"];
+const hit = (b: MockBook) => ({ document: { genres: genresOf(b), users_count: 1000 - b.id, has_audiobook: true, id: String(b.id), title: b.title, slug: b.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"), author_names: [b.author], image: { url: `${HC}/cover/${b.id}.svg` }, series_names: b.series ? [b.series[0]] : [], featured_series_position: b.series?.[1] ?? null, release_year: 2010 } });
 
 function hardcover(body: { query: string; variables?: Record<string, unknown> }, token = "") {
   const q = body.query;
@@ -229,6 +231,22 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
         })
         .filter(Boolean),
     };
+  }
+  if (q.includes("query Search") && v.fields === "genres") {
+    const want = String(v.query).toLowerCase();
+    const found = books.filter((b) => genresOf(b).some((g) => g.toLowerCase().includes(want)) || (want === "fantasy" && b.id === 113));
+    const page = Number(v.page ?? 1);
+    const per = Number(v.per_page ?? v.perPage ?? 25);
+    const slice = found.slice((page - 1) * per, page * per);
+    return { search: { ids: slice.map((b) => b.id), results: { hits: slice.map(hit), found: found.length }, query: v.query, queryType: "book", page, perPage: per, error: null } };
+  }
+  if (q.includes("query GetVibesForUser")) {
+    const vibe = (id: number, title: string) => ({ id, slug: title.toLowerCase().replace(/\W+/g, "-"), title, description: null, vibeType: "system", resultType: "books", privacySettingId: 1, featured: false, likesCount: 0 });
+    return { vibes: [vibe(1, "Your next favorite"), vibe(2, "Hidden gems")] };
+  }
+  if (q.includes("query GetVibeBookIds")) {
+    const ids = Number(v.id) === 1 ? [108, 112, 114, 111, 101] : [115, 109, 117, 112];
+    return { vibes_by_pk: { id: Number(v.id), updatedAt: "2026-10-01T00:00:00Z", booksGeneratedAt: "2026-10-02T00:00:00Z", cachedBookIds: ids } };
   }
   if (q.includes("query Search")) {
     const words = String(v.query).toLowerCase().split(/\W+/).filter((w) => w.length > 3);
