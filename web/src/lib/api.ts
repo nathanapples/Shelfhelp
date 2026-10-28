@@ -129,8 +129,8 @@ export interface Settings {
   requestsEnabled: boolean;
   requestFormat: RequestFormat;
   requestSearchNow: boolean;
-  requestTagAbs: boolean;
-  requestTagFormat: string;
+  chaptarrTagRequests: boolean;
+  chaptarrTagFormat: string;
   chaptarrAudiobookRoot: string;
   chaptarrEbookRoot: string;
   chaptarrAudiobookQuality: number;

@@ -490,12 +490,24 @@ function cResource(b: MockBook, mediaType: "audiobook" | "ebook") {
     grabbed: own?.grabbed ?? false,
     remoteCover: `${HC}/cover/${b.id}.svg`,
     narrator: mediaType === "audiobook" ? "Ray Porter" : null,
-    author: { id: 0, authorName: b.author, foreignAuthorId: `hc:${2000 + b.id}`, audiobookRootFolderPath: null, ebookRootFolderPath: null },
+    authorId: own ? authorIdOf(b.author) : 0,
+    author: { id: own ? authorIdOf(b.author) : 0, authorName: b.author, foreignAuthorId: `hc:${2000 + b.id}`, audiobookRootFolderPath: null, ebookRootFolderPath: null },
     editions: [{ id: 0, foreignEditionId: `hc:edition:${b.id}${mediaType === "audiobook" ? 1 : 2}`, title: b.title, monitored: true }],
     localAudiobookBooks: local("audiobook"),
     localEbookBooks: local("ebook"),
     statistics: { bookFileCount: own?.hasFiles ? 1 : 0 },
   };
+}
+
+// Chaptarr tags live on authors, per format.
+const cTags: { id: number; label: string }[] = [];
+const cAuthors = new Map<string, { id: number; authorName: string; audiobookTags: number[]; ebookTags: number[] }>();
+function authorIdOf(name: string, tags?: { audiobook?: number[]; ebook?: number[] }) {
+  let a = cAuthors.get(name);
+  if (!a) cAuthors.set(name, (a = { id: 500 + cAuthors.size, authorName: name, audiobookTags: [], ebookTags: [] }));
+  if (tags?.audiobook) a.audiobookTags = [...new Set([...a.audiobookTags, ...tags.audiobook])];
+  if (tags?.ebook) a.ebookTags = [...new Set([...a.ebookTags, ...tags.ebook])];
+  return a.id;
 }
 
 http
@@ -558,11 +570,32 @@ http
           cPending.set(pid, { hc, mediaType: mt, lookups: 0 });
           return send(202, { pendingId: pid, message: "Author import queued; the book will be added and searched when the author finishes importing." });
         }
+        authorIdOf(books.find((b) => b.id === hc)!.author, { audiobook: body.author.audiobookTags, ebook: body.author.ebookTags });
         const row: CRow = { id: cNextId++, hc, mediaType: mt, monitored: true, hasFiles: false, grabbed: false, checks: 0 };
         cRows.push(row);
         return send(201, cResource(books.find((b) => b.id === hc)!, mt));
       }
+      if (p === "/api/v1/tag" && req.method === "GET") return send(200, cTags);
+      if (p === "/api/v1/tag" && req.method === "POST") {
+        const label = String(body?.label ?? "").toLowerCase();
+        if (!label) return send(400, [{ propertyName: "Label", errorMessage: "'Label' must not be empty." }]);
+        const t = cTags.find((x) => x.label === label) ?? { id: cTags.length + 1, label };
+        if (!cTags.includes(t)) cTags.push(t);
+        console.log(`[chaptarr] tag ${t.id} ${t.label}`);
+        return send(201, t);
+      }
       let mm: RegExpMatchArray | null;
+      if ((mm = p.match(/^\/api\/v1\/author\/(\d+)$/))) {
+        const a = [...cAuthors.values()].find((x) => x.id === Number(mm![1]));
+        if (!a) return send(404, { message: "NotFound" });
+        if (req.method === "PUT") {
+          a.audiobookTags = body.audiobookTags ?? a.audiobookTags;
+          a.ebookTags = body.ebookTags ?? a.ebookTags;
+          console.log(`[chaptarr] author ${a.authorName} tags audiobook=${JSON.stringify(a.audiobookTags)} ebook=${JSON.stringify(a.ebookTags)}`);
+          return send(202, { id: a.id });
+        }
+        return send(200, { ...a, tags: [...new Set([...a.audiobookTags, ...a.ebookTags])], monitored: true });
+      }
       if ((mm = p.match(/^\/api\/v1\/book\/(\d+)$/))) {
         const row = cRows.find((r) => r.id === Number(mm![1]));
         if (!row) return send(404, { message: "NotFound" });
@@ -593,7 +626,7 @@ http
         const records = cRows.filter((r) => r.grabbed).map((r) => ({ bookId: r.id, status: "downloading", size: 400e6, sizeleft: 100e6, timeleft: "00:04:10" }));
         return send(200, { page: 1, pageSize: 500, totalRecords: records.length, records });
       }
-      if (p === "/test/chaptarr") return send(200, { rows: cRows, adds: cAdds, commands: cCommands, pending: [...cPending] });
+      if (p === "/test/chaptarr") return send(200, { rows: cRows, adds: cAdds, commands: cCommands, pending: [...cPending], tags: cTags, authors: [...cAuthors.values()] });
       send(404, { message: "NotFound" });
     });
   })

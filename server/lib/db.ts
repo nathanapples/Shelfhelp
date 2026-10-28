@@ -397,6 +397,11 @@ const migrations: string[] = [
   );
   CREATE INDEX issue_comments_issue ON issue_comments(issue_id);
   `,
+  `
+  -- Requesters are tagged in Chaptarr now, not in Audiobookshelf. The old
+  -- tagged_at/tag columns mark Audiobookshelf tags still to be taken off.
+  ALTER TABLE request_users ADD COLUMN chaptarr_tagged_at TEXT;
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

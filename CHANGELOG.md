@@ -2,6 +2,11 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.7.0 (2026-10-28)
+
+- Requests are tagged in Chaptarr, not Audiobookshelf. Shelfhelp no longer writes tags to Audiobookshelf, and it removes the "Requested by" tags it added before (only those exact tags; your own tags stay).
+- Chaptarr gets a tag per requester (their username by default), like Seerr does in Sonarr and Radarr. Chaptarr keeps tags on authors, per format, so the tag goes on the requested book's author. Turn it off or change the tag in Settings, Chaptarr.
+
 ## 0.6.1 (2026-10-28)
 
 - Issues: readers can comment only while an issue is open, and anyone can reopen a resolved issue (with a comment if they like). Admins can comment any time and resolve with a comment in one step.

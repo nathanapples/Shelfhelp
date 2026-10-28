@@ -68,7 +68,7 @@ Connect [Chaptarr](https://github.com/Chaptarr/chaptarr) in Settings, Chaptarr, 
 - A book Chaptarr already has but isn't monitoring is switched on and searched; one it already downloaded is just marked Downloaded.
 - Root folder and profiles default to whatever the root folder is set to in Chaptarr; you can pick others per format.
 - Requests move through Requested, Downloading and Downloaded. Audiobooks become Available once they show up in Audiobookshelf. Shelfhelp checks every few minutes.
-- When a requested book shows up in Audiobookshelf, it's tagged with who asked for it ("Requested by sage"). The wording is a setting.
+- Each request tags the book's author in Chaptarr with who asked for it (for example `sage`), like Seerr does in Sonarr and Radarr. Chaptarr keeps tags on authors, not single books. Nothing is written to your files or to Audiobookshelf.
 - Collections can come from requests too: one person's or everyone's, filled in as the books arrive.
 - The Chaptarr tab has a read-only lookup tester that shows exactly what Chaptarr returns, for checking the connection without adding anything.
 

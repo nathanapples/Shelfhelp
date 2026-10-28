@@ -290,19 +290,19 @@ export function ChaptarrSettings({
       </div>
       <div className="form-row">
         <label>
-          Tag in Audiobookshelf
+          Tag requests in Chaptarr
           <span className="label-tip">
-            When a requested book shows up in Audiobookshelf, add a tag saying who asked for it, like Seerr does in Sonarr and Radarr. {"{user}"} is
-            their Audiobookshelf username.
+            Tag the author of each requested book in Chaptarr with who asked for it, like Seerr does in Sonarr and Radarr. Chaptarr keeps tags on
+            authors, not single books. {"{user}"} is their username. Nothing is written to your files or to Audiobookshelf.
           </span>
         </label>
         <div className="form-input-area space-y-2 sm:pt-2">
-          <Toggle checked={s.requestTagAbs} onChange={(v) => set("requestTagAbs", v)} />
-          {s.requestTagAbs && (
+          <Toggle checked={s.chaptarrTagRequests} onChange={(v) => set("chaptarrTagRequests", v)} />
+          {s.chaptarrTagRequests && (
             <>
-              <input className="input max-w-xs" value={s.requestTagFormat} onChange={(e) => set("requestTagFormat", e.target.value)} placeholder="Requested by {user}" />
+              <input className="input max-w-xs" value={s.chaptarrTagFormat} onChange={(e) => set("chaptarrTagFormat", e.target.value)} placeholder="{user}" />
               <p className="text-xs text-gray-400">
-                Looks like: <span className="badge badge-dark">{(s.requestTagFormat || "Requested by {user}").replace(/\{user\}/g, "nathan")}</span>
+                Looks like: <span className="badge badge-dark">{(s.chaptarrTagFormat || "{user}").replace(/\{user\}/g, "nathan").toLowerCase()}</span>
               </p>
             </>
           )}

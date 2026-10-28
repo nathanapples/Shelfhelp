@@ -264,10 +264,15 @@ export async function requestBook(hcBookId: number, format: RequestFormat, userI
   if (!hcBook) throw new Error(`Hardcover has no book ${hcBookId}.`);
   const [roots, quality, metadata] = await Promise.all([c.rootFolders(), c.qualityProfiles(), c.metadataProfiles()]);
   const out: RequestOutcome[] = [];
+  // New authors get the requester's tag as they're added; existing ones are
+  // tagged by tagInChaptarr below.
+  let tagIds: number[] = [];
+  const label = s.chaptarrTagRequests ? requesterLabel(userId) : null;
+  if (label) tagIds = await c.ensureTag(label).then((id) => [id]).catch(() => []);
   for (const f of formatsFor(format)) {
     let row: RequestRow;
     try {
-      row = await requestOne(c, hcBook, f, chooseFor(f, s, roots, quality, metadata), s.requestSearchNow, by);
+      row = await requestOne(c, hcBook, f, chooseFor(f, s, roots, quality, metadata), s.requestSearchNow, by, tagIds);
     } catch (err) {
       const message = (err as Error).message;
       row = save(hcBook, f, { status: "failed", message }, by);
@@ -277,7 +282,7 @@ export async function requestBook(hcBookId: number, format: RequestFormat, userI
     log(row.status === "failed" ? "warn" : "info", row.status === "failed" ? `Request for ${label} failed: ${row.message}` : `Requested ${label}: ${row.message}`);
     out.push({ format: f, status: row.status, message: row.message ?? "", request: requestView(row) });
   }
-  // Check on it soon: it may already be in Audiobookshelf, and needs tagging.
+  // Check on it soon: it may already be in Audiobookshelf, and the author needs tagging.
   setTimeout(() => refreshRequests(0).catch(() => {}), 2000).unref();
   return out;
 }
@@ -289,6 +294,7 @@ async function requestOne(
   choice: ReturnType<typeof chooseFor>,
   searchNow: boolean,
   by: string,
+  tagIds: number[] = [],
 ): Promise<RequestRow> {
   const { found, local } = await findIn(c, hcBook.id, format);
   if (local) {
@@ -313,7 +319,7 @@ async function requestOne(
   }
   if (choice.problem) return save(hcBook, format, { status: "failed", message: choice.problem }, by);
 
-  const { status, data } = await c.add(addBody(found, format, choice, searchNow), format);
+  const { status, data } = await c.add(addBody(found, format, choice, searchNow, tagIds), format);
   if (status === 201 || status === 200) {
     const id = (data as { id?: number } | null)?.id ?? null;
     return save(hcBook, format, { status: "requested", chaptarr_book_id: id, message: searchNow ? "Added to Chaptarr and searching." : "Added to Chaptarr." }, by);
@@ -382,7 +388,8 @@ export function refreshRequests(minAgeMs = 30_000): Promise<void> {
 async function doRefresh() {
   const open = (db.prepare(`SELECT * FROM requests WHERE status IN (${OPEN.map(() => "?").join(",")})`).all(...OPEN) as unknown as RequestRow[]);
   if (!open.length) {
-    await tagRequesters();
+    await tagInChaptarr();
+    await untagAbs();
     return;
   }
   const s = getSettings();
@@ -447,7 +454,8 @@ async function doRefresh() {
   }
 
   const arrived = await markAvailable(s.absUrl && s.absToken ? true : false);
-  await tagRequesters();
+  await tagInChaptarr();
+  await untagAbs();
   // Collections made from requests pick up books as they arrive.
   if (arrived) {
     const { syncList } = await import("./sync.js");
@@ -493,43 +501,93 @@ async function markAvailable(absReady: boolean) {
   return newlyAvailable;
 }
 
-/** The Audiobookshelf tag for a requester, from the format in Settings. */
-export function requesterTag(username: string, format = getSettings().requestTagFormat) {
-  return (format || "Requested by {user}").replace(/\{user\}/g, username).trim();
+/** The Chaptarr tag for a requester, from the format in Settings. */
+export function requesterTag(username: string, format = getSettings().chaptarrTagFormat) {
+  return (format || "{user}").replace(/\{user\}/g, username).trim().toLowerCase();
+}
+
+function requesterLabel(userId: number): string | null {
+  const u = db.prepare("SELECT COALESCE(username, display_name, email) AS name FROM users WHERE id = ?").get(userId) as { name: string | null } | undefined;
+  return u?.name ? requesterTag(u.name) : null;
 }
 
 /**
- * Tags requested books that are in Audiobookshelf with who asked for them,
- * like Seerr tags requests in Sonarr and Radarr. Each requester is tagged
- * once; tags you remove in Audiobookshelf aren't put back.
+ * Tags the author of each requested book in Chaptarr with who asked for it,
+ * like Seerr tags requests in Sonarr and Radarr. Chaptarr keeps tags on
+ * authors (per format), not on single books. Each requester is tagged once;
+ * a tag you remove in Chaptarr isn't put back.
  */
-export async function tagRequesters() {
+export async function tagInChaptarr() {
   const s = getSettings();
-  if (!s.requestTagAbs || !s.absUrl || !s.absToken) return;
+  if (!s.chaptarrTagRequests || !s.chaptarrUrl || !s.chaptarrApiKey) return;
   const todo = db
     .prepare(
-      `SELECT ru.request_id, ru.user_id, r.abs_item_id, COALESCE(u.username, u.display_name, u.email) AS name
-       FROM request_users ru JOIN requests r ON r.id = ru.request_id JOIN users u ON u.id = ru.user_id
-       WHERE r.status = 'available' AND r.abs_item_id IS NOT NULL AND ru.tagged_at IS NULL`,
+      `SELECT ru.request_id, ru.user_id, r.chaptarr_book_id, r.format FROM request_users ru JOIN requests r ON r.id = ru.request_id
+       WHERE r.chaptarr_book_id IS NOT NULL AND r.status != 'failed' AND ru.chaptarr_tagged_at IS NULL`,
     )
-    .all() as { request_id: number; user_id: number; abs_item_id: string; name: string | null }[];
+    .all() as { request_id: number; user_id: number; chaptarr_book_id: number; format: Format }[];
   if (!todo.length) return;
+  const c = new Chaptarr(undefined, undefined, s);
+  const tagIds = new Map<string, number>();
+  for (const t of todo) {
+    try {
+      const label = requesterLabel(t.user_id);
+      if (label) {
+        if (!tagIds.has(label)) tagIds.set(label, await c.ensureTag(label));
+        const book = await c.book(t.chaptarr_book_id);
+        const authorId = book.authorId ?? book.author?.id;
+        if (!authorId) continue;
+        if (await c.tagAuthor(authorId, t.format, tagIds.get(label)!)) {
+          log("info", `Tagged ${book.author?.authorName ?? "an author"} in Chaptarr with "${label}"`);
+        }
+      }
+      db.prepare("UPDATE request_users SET chaptarr_tagged_at = ? WHERE request_id = ? AND user_id = ?").run(new Date().toISOString(), t.request_id, t.user_id);
+    } catch (err) {
+      // The book is gone from Chaptarr: nothing to tag.
+      if (err instanceof ChaptarrError && err.status === 404) {
+        db.prepare("UPDATE request_users SET chaptarr_tagged_at = ? WHERE request_id = ? AND user_id = ?").run(new Date().toISOString(), t.request_id, t.user_id);
+        continue;
+      }
+      log("warn", `Couldn't tag a requested author in Chaptarr: ${(err as Error).message}`);
+    }
+  }
+}
+
+/**
+ * Takes off the "Requested by" tags older versions of Shelfhelp put on
+ * Audiobookshelf items. Only the exact tag Shelfhelp added is removed.
+ */
+export async function untagAbs() {
+  const s = getSettings();
+  if (!s.absUrl || !s.absToken) return;
+  const rows = db
+    .prepare(
+      `SELECT ru.request_id, ru.user_id, ru.tag, r.abs_item_id FROM request_users ru JOIN requests r ON r.id = ru.request_id
+       WHERE ru.tagged_at IS NOT NULL`,
+    )
+    .all() as { request_id: number; user_id: number; tag: string | null; abs_item_id: string | null }[];
+  if (!rows.length) return;
   const abs = new Abs();
-  const byItem = new Map<string, typeof todo>();
-  for (const t of todo) byItem.set(t.abs_item_id, [...(byItem.get(t.abs_item_id) ?? []), t]);
-  for (const [itemId, rows] of byItem) {
+  const done = (r: (typeof rows)[number]) =>
+    db.prepare("UPDATE request_users SET tagged_at = NULL, tag = NULL WHERE request_id = ? AND user_id = ?").run(r.request_id, r.user_id);
+  const byItem = new Map<string, typeof rows>();
+  for (const r of rows) {
+    if (!r.abs_item_id || !r.tag) done(r);
+    else byItem.set(r.abs_item_id, [...(byItem.get(r.abs_item_id) ?? []), r]);
+  }
+  for (const [itemId, list] of byItem) {
     try {
       const tags = await abs.itemTags(itemId);
-      const want = rows.filter((r) => r.name).map((r) => requesterTag(r.name!));
-      const next = [...new Set([...tags, ...want])];
-      if (next.length !== tags.length) await abs.setItemTags(itemId, next);
-      const now = new Date().toISOString();
-      for (const r of rows) {
-        db.prepare("UPDATE request_users SET tagged_at = ?, tag = ? WHERE request_id = ? AND user_id = ?").run(now, r.name ? requesterTag(r.name) : null, r.request_id, r.user_id);
+      const drop = new Set(list.map((r) => r.tag));
+      const next = tags.filter((t) => !drop.has(t));
+      if (next.length !== tags.length) {
+        await abs.setItemTags(itemId, next);
+        log("info", `Removed ${[...drop].join(", ")} from a book in Audiobookshelf`);
       }
-      if (next.length !== tags.length) log("info", `Tagged a requested book in Audiobookshelf: ${want.join(", ")}`);
+      list.forEach(done);
     } catch (err) {
-      log("warn", `Couldn't tag a requested book in Audiobookshelf: ${(err as Error).message}`);
+      if ((err as { status?: number }).status === 404) list.forEach(done);
+      else log("warn", `Couldn't remove an old request tag in Audiobookshelf: ${(err as Error).message}`);
     }
   }
 }
@@ -596,12 +654,17 @@ let timer: NodeJS.Timeout | null = null;
 /** Checks open requests every few minutes while there are any. */
 export function startRequestWatcher(everyMs = 5 * 60_000) {
   if (timer) return;
+  // Clean up and catch up shortly after starting.
+  setTimeout(() => refreshRequests(0).catch(() => {}), 10_000).unref();
   timer = setInterval(() => {
     const open = db.prepare(`SELECT COUNT(*) AS n FROM requests WHERE status IN (${OPEN.map(() => "?").join(",")})`).get(...OPEN) as { n: number };
-    const untagged = db
-      .prepare("SELECT COUNT(*) AS n FROM request_users ru JOIN requests r ON r.id = ru.request_id WHERE r.status = 'available' AND ru.tagged_at IS NULL")
+    const chores = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM request_users ru JOIN requests r ON r.id = ru.request_id
+         WHERE ru.tagged_at IS NOT NULL OR (ru.chaptarr_tagged_at IS NULL AND r.chaptarr_book_id IS NOT NULL AND r.status != 'failed')`,
+      )
       .get() as { n: number };
-    if (open.n || (untagged.n && getSettings().requestTagAbs)) refreshRequests(0);
+    if (open.n || chores.n) refreshRequests(0);
   }, everyMs);
   timer.unref();
 }

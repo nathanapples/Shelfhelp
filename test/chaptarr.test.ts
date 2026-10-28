@@ -65,6 +65,10 @@ test("the add body asks for this book only, in this format only", () => {
   assert.equal(a.qualityProfileId, undefined);
   assert.equal((a.addOptions as Record<string, unknown>).monitor, "specificBook");
   assert.equal((a.addOptions as Record<string, unknown>).searchForMissingBooks, false);
+  assert.equal(a.audiobookTags, undefined, "no tags unless asked");
+  const tagged = addBody(found, "audiobook", { rootFolderPath: "/audiobooks", qualityProfileId: 1, metadataProfileId: 2, problem: null }, true, [4]).author as Record<string, unknown>;
+  assert.deepEqual(tagged.audiobookTags, [4]);
+  assert.deepEqual(tagged.ebookTags, []);
 });
 
 test("finds the copy Chaptarr already has", () => {
@@ -109,8 +113,8 @@ test("an ASIN link counts as owned unless the linker rejected it", async () => {
 test("requester tags and request collections", async () => {
   const { db } = await import("../server/lib/db.ts");
   const { requesterTag, requestSource } = await import("../server/lib/requests.ts");
-  assert.equal(requesterTag("sage", "Requested by {user}"), "Requested by sage");
-  assert.equal(requesterTag("sage", "{user}"), "sage");
+  assert.equal(requesterTag("Sage", "{user}"), "sage");
+  assert.equal(requesterTag("Sage", "req-{user}"), "req-sage");
   db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (7, 'sage', 'user')").run();
   const now = new Date().toISOString();
   db.prepare(

@@ -66,6 +66,7 @@ export interface ChaptarrBook {
   grabbed?: boolean;
   hasFiles?: boolean;
   statistics?: { bookFileCount?: number } | null;
+  authorId?: number;
   author?: { id?: number; authorName?: string; foreignAuthorId?: string; [k: string]: unknown } | null;
   localAudiobookBooks?: LocalInstance[] | null;
   localEbookBooks?: LocalInstance[] | null;
@@ -185,6 +186,39 @@ export class Chaptarr {
     if (status >= 400) throw new ChaptarrError(errorText(data, status), status, data);
   }
 
+  tags() {
+    return this.get<{ id: number; label: string }[]>("/api/v1/tag");
+  }
+
+  /** The id of a tag, made if it doesn't exist. Chaptarr lowercases labels. */
+  async ensureTag(label: string): Promise<number> {
+    const want = label.toLowerCase();
+    const found = (await this.tags()).find((t) => t.label.toLowerCase() === want);
+    if (found) return found.id;
+    const { status, data } = await this.request<{ id: number }>("POST", "/api/v1/tag", { label: want });
+    if (status >= 400 || !data?.id) throw new ChaptarrError(errorText(data, status), status, data);
+    return data.id;
+  }
+
+  author(id: number) {
+    return this.get<Record<string, unknown> & { id: number; authorName?: string }>(`/api/v1/author/${id}`);
+  }
+
+  /** Adds a tag to an author for one format. Returns false if it was already there. */
+  async tagAuthor(authorId: number, format: Format, tagId: number): Promise<boolean> {
+    const a = await this.author(authorId);
+    const key = `${format}Tags`;
+    const have = new Set<number>(((a[key] as number[] | null) ?? (a.tags as number[] | null) ?? []).map(Number));
+    if (have.has(tagId)) return false;
+    have.add(tagId);
+    const other = format === "audiobook" ? "ebookTags" : "audiobookTags";
+    const body = { ...a, [key]: [...have], [other]: (a[other] as number[] | null) ?? [] };
+    body.tags = [...new Set([...(body.audiobookTags as number[]), ...(body.ebookTags as number[])])];
+    const { status, data } = await this.request("PUT", `/api/v1/author/${authorId}`, body);
+    if (status >= 400) throw new ChaptarrError(errorText(data, status), status, data);
+    return true;
+  }
+
   async queue(): Promise<QueueRecord[]> {
     const data = await this.get<{ records?: QueueRecord[] } | QueueRecord[]>("/api/v1/queue?pageSize=500");
     return Array.isArray(data) ? data : (data?.records ?? []);
@@ -253,7 +287,7 @@ const cap = (f: Format) => (f === "audiobook" ? "Audiobook" : "Ebook");
  * Builds the add body from a lookup result: this format only, this one book
  * monitored, nothing else by the author, and a search right away if wanted.
  */
-export function addBody(found: ChaptarrBook, format: Format, choice: FormatChoice, searchNow: boolean): ChaptarrBook {
+export function addBody(found: ChaptarrBook, format: Format, choice: FormatChoice, searchNow: boolean, tagIds: number[] = []): ChaptarrBook {
   const other: Format = format === "audiobook" ? "ebook" : "audiobook";
   const author: Record<string, unknown> = { ...(found.author ?? {}) };
   author[`${format}RootFolderPath`] = choice.rootFolderPath;
@@ -268,6 +302,12 @@ export function addBody(found: ChaptarrBook, format: Format, choice: FormatChoic
   }
   for (const k of ["rootFolderPath", "qualityProfileId", "metadataProfileId"]) delete author[k];
   author.monitored = true;
+  if (tagIds.length) {
+    // Tags in Chaptarr live on the author, per format.
+    author[`${format}Tags`] = tagIds;
+    author[`${other}Tags`] = [];
+    author.tags = tagIds;
+  }
   author.addOptions = { monitor: "specificBook", [`${format}Monitor`]: "specificBook", searchForMissingBooks: false };
   return {
     ...found,
