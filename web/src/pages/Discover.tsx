@@ -176,6 +176,14 @@ export default function DiscoverPage({ status }: { status: Status }) {
 
   return (
     <div className="pt-2">
+      {config?.needsHardcover && (
+        <div className="mb-5 rounded-xl bg-indigo-900/20 p-4 text-sm text-indigo-100 ring-1 ring-indigo-800">
+          Connect your Hardcover account to see Top picks for you, your Want to Read and series to pick up where you left off.{" "}
+          <Link to="/account" className="font-semibold underline">
+            Open My account
+          </Link>
+        </div>
+      )}
       {shown.map((r) => (
         <Shelf key={r.key} row={r} status={status} version={r.key === "requests" ? version : 0} onOpen={(book, replace) => setOpen({ book, replace })} />
       ))}
@@ -200,6 +208,7 @@ export default function DiscoverPage({ status }: { status: Status }) {
       )}
       <RequestModal
         admin={isAdmin(status)}
+        hardcover={!!status.user?.hasHardcover}
         book={open?.book ?? null}
         enabled={status.requestsEnabled}
         defaultFormat={status.requestFormat}

@@ -15,9 +15,10 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
   const [params, setParams] = useSearchParams();
   // Genre and mood pages can show the top books of all time, this year or this month.
   const isTag = /^(genre|mood)-/.test(key);
-  const range = isTag && ["year", "month"].includes(params.get("range") ?? "") ? (params.get("range") as "year" | "month") : "all";
+  const asked = params.get("range");
+  const range: "all" | "year" | "month" = !isTag ? "all" : asked === "all" || asked === "year" ? asked : "month";
   const { data, error, loading, setData } = useApi<{ info: DiscoverRowInfo; books: DiscoverBook[] }>(
-    `/discover/${encodeURIComponent(key)}?full=1${range !== "all" ? `&range=${range}` : ""}`,
+    `/discover/${encodeURIComponent(key)}?full=1${isTag ? `&range=${range}` : ""}`,
   );
   const [open, setOpen] = useState<{ book: SearchHit; replace: (b: SearchHit) => void } | null>(null);
   const info = data?.info;
@@ -49,9 +50,9 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
         <div className="mb-5 inline-flex overflow-hidden rounded-md ring-1 ring-gray-600" role="radiogroup" aria-label="Time range">
           {(
             [
-              ["all", "All time"],
-              ["year", "This year"],
               ["month", "This month"],
+              ["year", "This year"],
+              ["all", "All time"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -59,7 +60,7 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
               type="button"
               role="radio"
               aria-checked={range === id}
-              onClick={() => setParams(id === "all" ? {} : { range: id }, { replace: true })}
+              onClick={() => setParams(id === "month" ? {} : { range: id }, { replace: true })}
               className={`px-3 py-1.5 text-sm font-medium transition ${range === id ? "bg-indigo-600 text-white" : "bg-gray-800 text-gray-300 hover:bg-gray-700"}`}
             >
               {label}
@@ -99,6 +100,7 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
       </ul>
       <RequestModal
         admin={isAdmin(status)}
+        hardcover={!!status.user?.hasHardcover}
         book={open?.book ?? null}
         enabled={status.requestsEnabled}
         defaultFormat={status.requestFormat}

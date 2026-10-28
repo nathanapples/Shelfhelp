@@ -412,3 +412,47 @@ export async function bookEditions(bookId: number): Promise<HcEdition[]> {
   editionCache.set(bookId, { at: Date.now(), editions });
   return editions;
 }
+
+const descriptions = new Map<number, { at: number; text: string | null }>();
+
+/** A book's description from Hardcover. Cached for a day. */
+export async function bookDescription(bookId: number): Promise<string | null> {
+  const hit = descriptions.get(bookId);
+  if (hit && Date.now() - hit.at < 24 * 3600_000) return hit.text;
+  const book = (await hardcover().books.get(bookId)) as { description?: string | null } | null;
+  const text = book?.description?.trim() || null;
+  descriptions.set(bookId, { at: Date.now(), text });
+  return text;
+}
+
+const SHELF_NAMES: Record<number, string> = { 1: "Want to Read", 2: "Currently Reading", 3: "Read", 4: "Paused", 5: "Did Not Finish" };
+
+/**
+ * Adds a book to someone's Want to Read shelf on Hardcover, with their own
+ * token. A book already on one of their shelves is left where it is.
+ */
+export async function addToWantToRead(userId: number, bookId: number) {
+  const { readerById } = await import("./users.js");
+  const { db } = await import("./db.js");
+  const token = readerById(userId)?.hardcoverToken;
+  if (!token) throw new Error("Connect Hardcover in My account first.");
+  const hc = hardcover(token);
+  const existing = (await hc.library.forBook(bookId)) as { id: number; statusId?: number | null } | null;
+  let entryId: number;
+  let status = 1;
+  let added = false;
+  if (existing) {
+    entryId = existing.id;
+    status = existing.statusId ?? 1;
+  } else {
+    const entry = (await hc.library.add(bookId)) as { id: number };
+    entryId = entry.id;
+    added = true;
+  }
+  // Keep Shelfhelp's copy of the shelves current so the book shows its shelf right away.
+  db.prepare(
+    `INSERT INTO hc_library (user_id, book_id, entry_id, status, progress, refreshed_at) VALUES (?, ?, ?, ?, NULL, ?)
+     ON CONFLICT(user_id, book_id) DO UPDATE SET entry_id = excluded.entry_id, status = excluded.status, refreshed_at = excluded.refreshed_at`,
+  ).run(userId, bookId, entryId, status, new Date().toISOString());
+  return { added, status, statusName: SHELF_NAMES[status] ?? "On a shelf" };
+}

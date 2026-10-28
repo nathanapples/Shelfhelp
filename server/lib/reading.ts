@@ -580,6 +580,23 @@ function currentProgress(entry: Entry): number | null {
   return open?.progress != null ? Math.round(open.progress * 10) / 10 : null;
 }
 
+/**
+ * Re-reads a reader's Hardcover shelves into Shelfhelp, without syncing any
+ * reading. Discover's personal rows use these, even with reading sync off.
+ * Skips if they were read in the last `maxAgeMs`.
+ */
+export async function refreshShelves(userId: number, maxAgeMs = 0) {
+  const r = readerById(userId);
+  if (!r?.hardcoverToken) return;
+  if (maxAgeMs > 0) {
+    const last = db.prepare("SELECT MAX(refreshed_at) AS at FROM hc_library WHERE user_id = ?").get(userId) as { at: string | null };
+    const done = db.prepare("SELECT 1 FROM users WHERE id = ? AND shelves_at IS NOT NULL AND shelves_at > ?").get(userId, new Date(Date.now() - maxAgeMs).toISOString());
+    if (done || (last.at && Date.now() - Date.parse(last.at) < maxAgeMs)) return;
+  }
+  await asReader(r, () => hardcoverLibrary());
+  db.prepare("UPDATE users SET shelves_at = ? WHERE id = ?").run(new Date().toISOString(), userId);
+}
+
 /** Your whole Hardcover library, by book id. Paged, about one request per 100 books. */
 async function hardcoverLibrary(): Promise<Map<number, Entry>> {
   const hc = hcFor();

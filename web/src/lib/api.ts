@@ -447,6 +447,10 @@ export interface DiscoverRowInfo {
 
 export interface DiscoverConfig {
   rows: DiscoverRowInfo[];
+  /** Every row, including personal ones hidden until you connect Hardcover (for Customize). */
+  allRows?: DiscoverRowInfo[];
+  /** Personal rows are hidden because you haven't connected Hardcover. */
+  needsHardcover?: boolean;
   custom: boolean;
   defaults: DiscoverRowInfo[];
   builtins: DiscoverRowInfo[];

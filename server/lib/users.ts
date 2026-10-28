@@ -30,6 +30,7 @@ export interface UserRow {
   last_login_at: string | null;
   discover_rows: string | null;
   want_list_at: string | null;
+  shelves_at: string | null;
 }
 
 export interface Reader {
@@ -153,7 +154,7 @@ export async function userForAbs(a: AbsUser): Promise<UserRow> {
     return getUser(found.id)!;
   }
   const r = db
-    .prepare("INSERT INTO users (abs_user_id, username, email, role, reading_enabled) VALUES (?, ?, ?, ?, 1)")
+    .prepare("INSERT INTO users (abs_user_id, username, email, role, reading_enabled) VALUES (?, ?, ?, ?, 0)")
     .run(a.id, a.username, a.email, role);
   return getUser(Number(r.lastInsertRowid))!;
 }

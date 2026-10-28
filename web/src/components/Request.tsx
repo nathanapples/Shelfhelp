@@ -13,6 +13,7 @@ import {
   SpeakerWaveIcon,
 } from "@heroicons/react/24/outline";
 import { IssueThread, ReportIssue } from "./Issues";
+import { WantIcon, useWantToRead } from "./WantToRead";
 import { api, duration, type HcEdition, type Issue, type Similar, type Format, type RequestFormat, type RequestMap, type RequestOutcome, type RequestStatus } from "../lib/api";
 import { Cover, Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
@@ -506,6 +507,47 @@ function BookIssues({ book, admin }: { book: RequestableBook; admin: boolean }) 
   );
 }
 
+/** The book's Hardcover description, small and cut off after a few lines (tap More for the rest). */
+function Description({ bookId }: { bookId: number }) {
+  const [text, setText] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setText(null);
+    setOpen(false);
+    api<{ description: string | null }>(`/hardcover/description?id=${bookId}`)
+      .then((d) => alive && setText(d.description))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [bookId]);
+  if (!text) return null;
+  const long = text.length > 220;
+  return (
+    <div className="mt-3 text-xs leading-relaxed text-gray-300 sm:text-sm">
+      <p className={`whitespace-pre-line ${open ? "" : "line-clamp-3"}`}>{text}</p>
+      {long && (
+        <button type="button" className="mt-0.5 text-xs font-medium text-indigo-400 hover:underline" onClick={() => setOpen((o) => !o)}>
+          {open ? "Less" : "More"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Which of your Hardcover shelves the book is on, or a Want to Read button. */
+function ShelfBadge({ book, hardcover }: { book: RequestableBook; hardcover: boolean }) {
+  const want = useWantToRead(book.id, book.title, book.mine);
+  if (want.onShelf) return <span className="badge badge-dark">Hardcover: {want.onShelf}</span>;
+  if (!hardcover) return null;
+  return (
+    <button type="button" onClick={want.add} disabled={want.busy} className="badge badge-dark inline-flex items-center gap-1 hover:text-white">
+      {want.busy ? <Spinner className="h-3.5 w-3.5" /> : <WantIcon className="h-3.5 w-3.5" />} Want to Read
+    </button>
+  );
+}
+
 /** Book details with the request controls, opened from search results. */
 export function RequestModal({
   book,
@@ -514,8 +556,11 @@ export function RequestModal({
   onClose,
   onDone,
   admin = false,
+  hardcover = false,
 }: {
   admin?: boolean;
+  /** You've connected Hardcover, so Want to Read can be offered. */
+  hardcover?: boolean;
   book: RequestableBook | null;
   enabled: boolean;
   defaultFormat: RequestFormat;
@@ -561,13 +606,14 @@ export function RequestModal({
           )}
           <div className="mt-3 flex flex-wrap gap-2">
             {shown.absItemId && <span className="badge badge-success">In Audiobookshelf</span>}
-            {book.mine && <span className="badge badge-dark">Hardcover: {book.mine.statusName}</span>}
+            <ShelfBadge book={book} hardcover={hardcover} />
             {hcUrl && (
               <a href={hcUrl} target="_blank" rel="noreferrer" className="badge badge-dark inline-flex items-center gap-1 hover:text-white">
                 Hardcover <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
               </a>
             )}
           </div>
+          <Description bookId={book.id} />
           <div className="mt-5">
             <RequestControls book={shown} enabled={enabled} defaultFormat={defaultFormat} onDone={onDone} />
           </div>

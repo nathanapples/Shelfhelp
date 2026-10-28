@@ -2,6 +2,17 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.14.0 (2026-10-28)
+
+- Discover is personal for every reader: Top picks for you, From your Want to Read and Pick up where you left off use each person's own Hardcover account, and New from authors you listen to uses their own listening when Shelfhelp has it. People who haven't connected Hardcover don't see those rows, and Discover shows a line asking them to connect it in My account.
+- Each reader's Hardcover shelves are read for Discover even with reading sync off (every few hours, and right after they connect Hardcover).
+- Connecting Hardcover no longer turns on reading sync. New readers start with it off, and My account has a Reading sync switch to turn it on.
+- Want to Read: books on Discover (and in search) have a Want to Read button on hover, and the book popup has one too. It adds the book to your own Hardcover Want to Read shelf. Books already on one of your shelves show that shelf instead.
+- The book popup shows the book's Hardcover description, small and cut off after three lines, with More to read the rest.
+- Genre and mood pages open on This month (then This year and All time). Genre and mood rows on Discover show this month too, falling back to all time when too few books are trending.
+- Customize this page: drag rows by the handle to reorder them (works with touch too) instead of the up and down buttons.
+- Fixed: readers who aren't admins couldn't load editions in "Advanced: pick a specific edition".
+
 ## 0.13.0 (2026-10-28)
 
 - Genre and mood pages have an All time / This year / This month switch. All time is the most-read books with that genre or mood. This year and This month are Hardcover's trending books for that period that have the genre or mood.

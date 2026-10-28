@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowRightOnRectangleIcon, CheckCircleIcon } from "@heroicons/react/24/outline";
 import { api, timeAgo, type Status, type UserView } from "../lib/api";
 import { useApi } from "../lib/hooks";
-import { ErrorBlock, LoadingBlock, PageTitle, Spinner } from "../components/ui";
+import { ErrorBlock, LoadingBlock, PageTitle, Spinner, Toggle } from "../components/ui";
 import { useToast } from "../components/toast";
 
 const VIA: Record<string, string> = {
@@ -19,6 +19,17 @@ export default function AccountPage({ status, onChanged }: { status: Status; onC
   const { data: me, error, loading, reload } = useApi<UserView & { hardcoverUser: string | null }>("/me");
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
+  const { data: reading, setData: setReading } = useApi<{ enabled: boolean }>("/reading/settings");
+  const setReadingSync = async (enabled: boolean) => {
+    try {
+      await api("/reading/settings", { method: "PUT", body: { enabled } });
+      setReading((r) => (r ? { ...r, enabled } : r));
+      toast(enabled ? "Reading sync is on. Your listening is checked now." : "Reading sync is off");
+      onChanged();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
 
   const save = async (value: string | null) => {
     setBusy(true);
@@ -125,6 +136,17 @@ export default function AccountPage({ status, onChanged }: { status: Status; onC
           )}
         </div>
         {me.isOwner && <p className="mt-2 text-xs text-gray-500">As the owner, this is also the Hardcover token Shelfhelp uses for collections.</p>}
+        {me.hasHardcover && reading && (
+          <div className="mt-5 flex items-start justify-between gap-4 border-t border-gray-700 pt-4">
+            <div>
+              <div className="font-medium text-white">Reading sync</div>
+              <p className="text-sm text-gray-400">
+                Send your Audiobookshelf listening progress to Hardcover. It stays off until you turn it on.
+              </p>
+            </div>
+            <Toggle checked={reading.enabled} onChange={setReadingSync} />
+          </div>
+        )}
       </section>
     </div>
   );

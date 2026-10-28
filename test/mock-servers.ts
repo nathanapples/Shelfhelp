@@ -193,6 +193,10 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
     console.log(`[hc] removed read ${v.id}`);
     return { delete_user_book_read: { id: v.id, error: null } };
   }
+  if (/query GetBook\(/.test(q)) {
+    const i = books.findIndex((b) => b.id === Number(v.id));
+    return { books_by_pk: i < 0 ? null : { ...listBooks(i, 1)[0].book, description: `${books[i].title} is a mock description. `.repeat(8).trim(), headline: null, releaseDate: "2020-01-01" } };
+  }
   if (q.includes("query GetUserBookForBook")) {
     const e = userBooks.get(Number(v.bookId));
     return { user_books: e ? [{ ...entryJson(e), edition: null }] : [] };

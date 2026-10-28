@@ -1,8 +1,52 @@
 import { useEffect, useState } from "react";
-import { ArrowDownIcon, ArrowUpIcon, FaceSmileIcon, PlusIcon, RectangleStackIcon, SparklesIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent, type Modifier } from "@dnd-kit/core";
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { Bars3Icon, FaceSmileIcon, PlusIcon, RectangleStackIcon, SparklesIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { api, type DiscoverConfig, type DiscoverRowInfo, type HcList } from "../lib/api";
 import { Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
+
+/** Rows only move up and down. */
+const restrictToVerticalAxis: Modifier = ({ transform }) => ({ ...transform, x: 0 });
+
+/** One row in the list, dragged by its handle. */
+function SortableRow({ row: r, onRemove }: { row: DiscoverRowInfo; onRemove: () => void }) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: r.key });
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={`relative flex items-center gap-3 px-3 py-2 ${isDragging ? "z-10 bg-gray-700 shadow-lg ring-1 ring-indigo-500" : "bg-transparent"}`}
+    >
+      <button
+        ref={setActivatorNodeRef}
+        {...attributes}
+        {...listeners}
+        className="-ml-1 cursor-grab touch-none rounded p-1 text-gray-500 hover:bg-gray-700 hover:text-white active:cursor-grabbing"
+        aria-label={`Drag to move ${r.title}`}
+      >
+        <Bars3Icon className="h-5 w-5" />
+      </button>
+      {r.kind === "list" ? (
+        <RectangleStackIcon className="h-5 w-5 flex-shrink-0 text-indigo-400" />
+      ) : r.kind === "genre" ? (
+        <TagIcon className="h-5 w-5 flex-shrink-0 text-pink-400" />
+      ) : r.kind === "mood" ? (
+        <FaceSmileIcon className="h-5 w-5 flex-shrink-0 text-amber-400" />
+      ) : (
+        <SparklesIcon className="h-5 w-5 flex-shrink-0 text-purple-400" />
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-white">{r.title}</div>
+        <div className="truncate text-xs text-gray-500">{r.subtitle}</div>
+      </div>
+      <button className="btn btn-sm btn-ghost" onClick={onRemove} aria-label={`Remove ${r.title}`}>
+        <XMarkIcon className="h-4 w-4" />
+      </button>
+    </li>
+  );
+}
 
 /** Pick, order and add rows for Discover. Admins can save them as everyone's default. */
 export function CustomizeDiscover({
@@ -17,7 +61,7 @@ export function CustomizeDiscover({
   onSaved: () => void;
 }) {
   const toast = useToast();
-  const [rows, setRows] = useState<DiscoverRowInfo[]>(config.rows);
+  const [rows, setRows] = useState<DiscoverRowInfo[]>(config.allRows ?? config.rows);
   const [ref, setRef] = useState("");
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -28,11 +72,17 @@ export function CustomizeDiscover({
   }, [admin]);
 
   const has = (key: string) => rows.some((r) => r.key === key);
-  const move = (i: number, d: number) => {
-    const next = rows.slice();
-    const [r] = next.splice(i, 1);
-    next.splice(i + d, 0, r);
-    setRows(next);
+  // Mouse drags start after a few pixels; touch drags after a short press, so the list still scrolls.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const from = rows.findIndex((r) => r.key === active.id);
+    const to = rows.findIndex((r) => r.key === over.id);
+    if (from >= 0 && to >= 0) setRows(arrayMove(rows, from, to));
   };
   const addList = async (input: string) => {
     if (!input.trim()) return;
@@ -100,35 +150,17 @@ export function CustomizeDiscover({
       }
     >
       <h4 className="mb-2 mt-3 text-sm font-semibold uppercase tracking-wider text-gray-400">Your rows</h4>
-      <ul className="divide-y divide-gray-700 overflow-hidden rounded-lg bg-gray-900/40 ring-1 ring-gray-700">
-        {rows.map((r, i) => (
-          <li key={r.key} className="flex items-center gap-3 px-3 py-2">
-            {r.kind === "list" ? (
-              <RectangleStackIcon className="h-5 w-5 flex-shrink-0 text-indigo-400" />
-            ) : r.kind === "genre" ? (
-              <TagIcon className="h-5 w-5 flex-shrink-0 text-pink-400" />
-            ) : r.kind === "mood" ? (
-              <FaceSmileIcon className="h-5 w-5 flex-shrink-0 text-amber-400" />
-            ) : (
-              <SparklesIcon className="h-5 w-5 flex-shrink-0 text-purple-400" />
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium text-white">{r.title}</div>
-              <div className="truncate text-xs text-gray-500">{r.subtitle}</div>
-            </div>
-            <button className="btn btn-sm btn-ghost" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up">
-              <ArrowUpIcon className="h-4 w-4" />
-            </button>
-            <button className="btn btn-sm btn-ghost" onClick={() => move(i, 1)} disabled={i === rows.length - 1} aria-label="Move down">
-              <ArrowDownIcon className="h-4 w-4" />
-            </button>
-            <button className="btn btn-sm btn-ghost" onClick={() => setRows(rows.filter((x) => x.key !== r.key))} aria-label={`Remove ${r.title}`}>
-              <XMarkIcon className="h-4 w-4" />
-            </button>
-          </li>
-        ))}
-        {rows.length === 0 && <li className="px-3 py-4 text-sm text-gray-500">No rows. Add some below.</li>}
-      </ul>
+      <p className="-mt-1 mb-2 text-xs text-gray-500">Drag rows by the handle to reorder them.</p>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis]} onDragEnd={onDragEnd}>
+        <SortableContext items={rows.map((r) => r.key)} strategy={verticalListSortingStrategy}>
+          <ul className="divide-y divide-gray-700 overflow-hidden rounded-lg bg-gray-900/40 ring-1 ring-gray-700">
+            {rows.map((r) => (
+              <SortableRow key={r.key} row={r} onRemove={() => setRows(rows.filter((x) => x.key !== r.key))} />
+            ))}
+            {rows.length === 0 && <li className="px-3 py-4 text-sm text-gray-500">No rows. Add some below.</li>}
+          </ul>
+        </SortableContext>
+      </DndContext>
 
       <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Add a row</h4>
       <div className="flex flex-wrap gap-2">

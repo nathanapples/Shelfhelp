@@ -6,7 +6,7 @@
 import { db, json } from "./db.js";
 import { fetchList, hardcover, resolveList, type ListBook } from "./hardcover.js";
 import { inLibrary, requestsFor, summarizeBook, type HcSummary } from "./requests.js";
-import { myShelfStatus } from "./reading.js";
+import { myShelfStatus, refreshShelves } from "./reading.js";
 import { recentlyAdded } from "./linking.js";
 import { getSettings, saveSettings } from "./settings.js";
 import { getUser, toReader, updateUser } from "./users.js";
@@ -201,10 +201,17 @@ async function query(name: string, where: string, order: string, vars: Record<st
   return data.books.map(summarizeBook);
 }
 
-/** Authors with the most books in Audiobookshelf. */
-function libraryAuthors(limit = 40): string[] {
+/**
+ * Authors you listen to most: from your own listening when Shelfhelp has it
+ * (reading sync on), else the authors with the most books in Audiobookshelf.
+ */
+function libraryAuthors(userId: number, limit = 40): string[] {
   const counts = new Map<string, number>();
-  for (const r of db.prepare("SELECT authors FROM abs_items").all() as { authors: string }[]) {
+  const mine = db
+    .prepare("SELECT i.authors FROM reading r JOIN abs_items i ON i.id = r.abs_item_id WHERE r.user_id = ?")
+    .all(userId) as { authors: string }[];
+  const rows = mine.length ? mine : (db.prepare("SELECT authors FROM abs_items").all() as { authors: string }[]);
+  for (const r of rows) {
     for (const a of json<string[]>(r.authors, [])) counts.set(a, (counts.get(a) ?? 0) + 1);
   }
   return [...counts.entries()]
@@ -276,6 +283,15 @@ async function continueSeries(userId: number, limit: number): Promise<HcSummary[
     }),
   );
   return out.filter((b): b is HcSummary => !!b);
+}
+
+/** Rows built from the viewer's own Hardcover account. Hidden until they connect Hardcover. */
+export const PERSONAL = new Set(["foryou", "want", "continue"]);
+const SHELF_AGE = 6 * 3600_000;
+
+export function hasHardcover(userId: number) {
+  const u = getUser(userId);
+  return !!(u && toReader(u).hardcoverToken);
 }
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -389,7 +405,9 @@ async function vibeBooks(userId: number, limit: number): Promise<HcSummary[]> {
 }
 
 /** One row's books. `key` is a built-in id, list-<id>, genre-<slug> or mood-<slug>. `limit` is bigger on the row's own page. */
-export async function discoverRow(key: string, userId: number, limit = ROW, range: TagRange = "all") {
+export async function discoverRow(key: string, userId: number, limit = ROW, range: TagRange = "month") {
+  // Rows built from your own Hardcover account need your own token.
+  if (PERSONAL.has(key) && !hasHardcover(userId)) return [];
   const hc = () => hardcover();
   const L = limit;
   const list = key.match(/^list-(\d+)$/);
@@ -402,11 +420,16 @@ export async function discoverRow(key: string, userId: number, limit = ROW, rang
     const kind = tag[1] as TagKind;
     const g = tagBySlug[kind].get(tag[2]);
     if (!g) throw new Error("No such row");
-    if (range !== "all") return annotate(await cached(`${key}:${range}:${L}`, () => trendingTagBooks(kind, g.name, range, L)), userId);
+    if (range !== "all") {
+      const trending = await cached(`${key}:${range}:${L}`, () => trendingTagBooks(kind, g.name, range, L));
+      // A Discover row with too little trending falls back to all time; the page shows what it asked for.
+      if (trending.length >= 5 || L !== ROW) return annotate(trending, userId);
+    }
     return annotate(await cached(`${key}:${L}`, () => tagBooks(kind, g.name, L)), userId);
   }
   switch (key as BuiltinId) {
     case "continue":
+      await refreshShelves(userId, SHELF_AGE).catch(() => {});
       return annotate(await cached(`continue:${userId}:${L}`, () => continueSeries(userId, L)), userId);
     case "prompt": {
       const p = await loadFeaturedPrompt();
@@ -448,7 +471,7 @@ export async function discoverRow(key: string, userId: number, limit = ROW, rang
         userId,
       );
     case "authors": {
-      const names = libraryAuthors();
+      const names = libraryAuthors(userId);
       if (!names.length) return [];
       const books = await cached(`authors:${L}:${names.join("|")}`, () =>
         query(
@@ -465,6 +488,7 @@ export async function discoverRow(key: string, userId: number, limit = ROW, rang
         .slice(0, L);
     }
     case "want": {
+      await refreshShelves(userId, SHELF_AGE).catch(() => {});
       const ids = (
         db.prepare("SELECT book_id FROM hc_library WHERE user_id = ? AND status = 1 ORDER BY refreshed_at DESC").all(userId) as { book_id: number }[]
       ).map((r) => r.book_id);

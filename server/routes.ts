@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import { Abs, AbsError } from "./lib/abs.js";
 import { db, json } from "./lib/db.js";
 import { config } from "./lib/config.js";
-import { bookEditions, fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
+import { addToWantToRead, bookDescription, bookEditions, fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
 import { getItems, refreshLibrary, searchLibrary } from "./lib/library.js";
 import { cleanIssuer, getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } from "./lib/settings.js";
 import { ensureWantToRead } from "./lib/autolists.js";
@@ -12,13 +12,13 @@ import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
-import { BUILTINS, PAGE, isTagRange, defaultRows, loadFeaturedPrompt, discoverRow, tagRows, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
+import { BUILTINS, PAGE, PERSONAL, hasHardcover, isTagRange, defaultRows, loadFeaturedPrompt, discoverRow, tagRows, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
 import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
 import { ISSUE_KINDS, addComment, createIssue, deleteIssue, issueCounts, issueDetail, listIssues, setIssueStatus } from "./lib/issues.js";
 import { canSeeRequest, editionLabel, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
 import { requestRecoveryLink, useRecoveryLink, cloudflareProblem, cloudflareUser, endSession, createSession, oidcCallback, oidcDiscovery, oidcRedirectUri, oidcStart, passwordMatches, viewer, type Viewer } from "./lib/auth.js";
 import { OWNER_ID, absUsers, allUsers, asReader, getUser, readerById, readers, resolveOwner, updateUser, userForAbs, userView, type Reader } from "./lib/users.js";
-import { decideItem, history, myShelfStatus, readingUsers, readingRunning, rematchItem, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
+import { decideItem, history, myShelfStatus, refreshShelves, readingUsers, readingRunning, rematchItem, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
 
 const MASK = "••••••••";
 
@@ -28,10 +28,25 @@ declare module "fastify" {
   }
 }
 
+/**
+ * Someone just connected Hardcover. Reading sync stays off until they turn it
+ * on (a first connection turns it off); their shelves are read for Discover,
+ * and their Want to Read collection is made.
+ */
+function hardcoverConnected(userId: number, hadToken: boolean) {
+  if (!hadToken) updateUser(userId, { reading_enabled: 0 });
+  refreshShelves(userId)
+    .catch(() => {})
+    .finally(() => {
+      ensureWantToRead({ userId }).catch(() => {});
+      syncReading("Hardcover connected", { userId }).catch(() => {});
+    });
+}
+
 /** What someone who isn't an admin may use. Everything else is admin-only. */
 const USER_ROUTES: [string, RegExp][] = [
   ["*", /^\/api\/discover(\/[^/]+)?$/],
-  ["GET", /^\/api\/hardcover\/(search|book)$/],
+  ["GET", /^\/api\/hardcover\/(search|book|editions|description)$/],
   ["GET", /^\/api\/abs\/cover\/[^/]+$/],
   ["GET", /^\/api\/library\/similar$/],
   ["GET", /^\/api\/(jobs|counts)$/],
@@ -240,11 +255,11 @@ export async function routes(app: FastifyInstance) {
       if (token === undefined || token === MASK) return { ok: true };
       if (token) {
         const who = await testHardcover(token);
+        const had = !!readerById(u.id)?.hardcoverToken;
         // The owner's token is the one in Settings.
         if (u.id === OWNER_ID) saveSettings({ hardcoverToken: token });
         else updateUser(u.id, { hardcover_token: token });
-        syncReading("Hardcover connected", { userId: u.id }).catch(() => {});
-        ensureWantToRead({ userId: u.id }).catch(() => {});
+        hardcoverConnected(u.id, had);
         return { ok: true, hardcoverUser: who.username };
       }
       if (u.id !== OWNER_ID) updateUser(u.id, { hardcover_token: null });
@@ -277,10 +292,10 @@ export async function routes(app: FastifyInstance) {
       const u = await userForAbs(a);
       if (req.body.hardcoverToken) {
         await testHardcover(req.body.hardcoverToken);
+        const had = !!readerById(u.id)?.hardcoverToken;
         if (u.id === OWNER_ID) saveSettings({ hardcoverToken: req.body.hardcoverToken });
         else updateUser(u.id, { hardcover_token: req.body.hardcoverToken });
-        syncReading("reader added", { userId: u.id }).catch(() => {});
-        ensureWantToRead({ userId: u.id }).catch(() => {});
+        hardcoverConnected(u.id, had);
       }
       return userView(getUser(u.id)!);
     } catch (err) {
@@ -300,13 +315,11 @@ export async function routes(app: FastifyInstance) {
         if (b.readingEnabled !== undefined) updateUser(id, { reading_enabled: b.readingEnabled ? 1 : 0 });
         if (b.hardcoverToken !== undefined && b.hardcoverToken !== MASK) {
           if (b.hardcoverToken) await testHardcover(b.hardcoverToken);
+          const had = !!readerById(id)?.hardcoverToken;
           if (id === OWNER_ID) {
             if (b.hardcoverToken) saveSettings({ hardcoverToken: b.hardcoverToken });
           } else updateUser(id, { hardcover_token: b.hardcoverToken || null });
-          if (b.hardcoverToken) {
-            syncReading("Hardcover connected", { userId: id }).catch(() => {});
-            ensureWantToRead({ userId: id }).catch(() => {});
-          }
+          if (b.hardcoverToken) hardcoverConnected(id, had);
         }
         return userView(getUser(id)!);
       } catch (err) {
@@ -522,6 +535,28 @@ export async function routes(app: FastifyInstance) {
     }
   });
 
+  /** A book's description from Hardcover, for the book popup. */
+  app.get<{ Querystring: { id: string } }>("/api/hardcover/description", async (req, reply) => {
+    try {
+      const id = Number(req.query.id);
+      if (!id) return reply.code(400).send({ error: "Which book?" });
+      return { description: await bookDescription(id) };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  /** Puts a book on your own Hardcover Want to Read shelf (with your Hardcover account). */
+  app.post<{ Body: { hcBookId: number } }>("/api/me/want-to-read", async (req, reply) => {
+    try {
+      const id = Number(req.body?.hcBookId);
+      if (!id) return reply.code(400).send({ error: "Which book?" });
+      return await addToWantToRead(req.viewer.user.id, id);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
   /** A book's editions on Hardcover, for requesting a specific one. */
   app.get<{ Querystring: { book: string } }>("/api/hardcover/editions", async (req, reply) => {
     try {
@@ -557,8 +592,12 @@ export async function routes(app: FastifyInstance) {
     await loadFeaturedPrompt().catch(() => null);
     const { rows, custom } = rowsFor(req.viewer.user.id);
     const chaptarr = isConfigured().chaptarr;
+    const connected = hasHardcover(req.viewer.user.id);
     return {
-      rows: rows.filter((r) => chaptarr || r.key !== "requests").map(rowInfo),
+      // Personal rows need the viewer's own Hardcover account.
+      rows: rows.filter((r) => (chaptarr || r.key !== "requests") && (connected || !PERSONAL.has(r.key))).map(rowInfo),
+      needsHardcover: !connected && rows.some((r) => PERSONAL.has(r.key)),
+      allRows: rows.filter((r) => chaptarr || r.key !== "requests").map(rowInfo),
       custom,
       defaults: defaultRows().map(rowInfo),
       builtins: Object.entries(BUILTINS)
@@ -591,7 +630,7 @@ export async function routes(app: FastifyInstance) {
   app.get<{ Params: { row: string }; Querystring: { full?: string; range?: string } }>("/api/discover/:row", async (req, reply) => {
     try {
       if (req.query.full === "1") {
-        const [info, books] = await Promise.all([rowInfoFor(req.params.row, req.viewer.user.id), discoverRow(req.params.row, req.viewer.user.id, PAGE, isTagRange(req.query.range) ? req.query.range : "all")]);
+        const [info, books] = await Promise.all([rowInfoFor(req.params.row, req.viewer.user.id), discoverRow(req.params.row, req.viewer.user.id, PAGE, isTagRange(req.query.range) ? req.query.range : "month")]);
         return { info, books };
       }
       return await discoverRow(req.params.row, req.viewer.user.id);

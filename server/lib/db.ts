@@ -413,6 +413,10 @@ const migrations: string[] = [
   -- When Shelfhelp made the reader's Want to Read collection, so it's made only once.
   ALTER TABLE users ADD COLUMN want_list_at TEXT;
   `,
+  `
+  -- When a reader's Hardcover shelves were last read (also without reading sync).
+  ALTER TABLE users ADD COLUMN shelves_at TEXT;
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

@@ -39,6 +39,7 @@ export default function SearchPage({ status }: { status: Status }) {
       </ul>
       <RequestModal
         admin={isAdmin(status)}
+        hardcover={!!status.user?.hasHardcover}
         book={open}
         enabled={status.requestsEnabled}
         defaultFormat={status.requestFormat}
