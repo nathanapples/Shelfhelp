@@ -21,7 +21,7 @@ import { getSettings } from "./settings.js";
 import { log } from "./activity.js";
 import { OWNER_ID, getUser, matchAbsUser, resolveOwner, updateUser, userForAbs, type UserRow } from "./users.js";
 
-export type Via = "open" | "password" | "oidc" | "cloudflare";
+export type Via = "open" | "password" | "oidc" | "cloudflare" | "recovery";
 export interface Viewer {
   user: UserRow;
   via: Via;
@@ -97,7 +97,11 @@ export async function viewer(req: FastifyRequest): Promise<Viewer | null> {
   const session = sessionViewer(req);
   if (session) {
     // Sessions from another sign-in mode don't carry over, except the emergency password.
-    const ok = session.via === "password" || (s.authMode === "oidc" && session.via === "oidc") || (s.authMode === "none" && session.via === "open");
+    const ok =
+      session.via === "password" ||
+      session.via === "recovery" ||
+      (s.authMode === "oidc" && session.via === "oidc") ||
+      (s.authMode === "none" && session.via === "open");
     if (ok) return session;
   }
   if (s.authMode === "cloudflare") {
@@ -317,4 +321,37 @@ export async function cloudflareUser(req: FastifyRequest): Promise<UserRow | nul
     cfLastProblem = why;
     return null;
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// One-time sign-in link in the container log
+
+let recovery: { code: string; expires: number } | null = null;
+let lastRecovery = 0;
+
+/**
+ * Writes a one-time admin sign-in link to the container log. Only someone who
+ * can read the log (docker logs) can use it. One link at a time, 15 minutes,
+ * single use, at most one request a minute.
+ */
+export function requestRecoveryLink(req: FastifyRequest): "sent" | "wait" {
+  if (Date.now() - lastRecovery < 60_000) return "wait";
+  lastRecovery = Date.now();
+  const code = randomBytes(24).toString("base64url");
+  recovery = { code, expires: Date.now() + 15 * 60_000 };
+  const url = `${publicBase(req)}/api/auth/recovery/${code}`;
+  const line = "=".repeat(72);
+  console.log(`\n${line}\nShelfhelp: one-time admin sign-in link (works once, for 15 minutes):\n\n  ${url}\n\nIf you didn't ask for this, someone pressed "Can't sign in?" on the login page.\n${line}\n`);
+  log("warn", "A one-time sign-in link was written to the container log");
+  return "sent";
+}
+
+export function useRecoveryLink(code: string): boolean {
+  if (!recovery || recovery.expires < Date.now()) return false;
+  const a = Buffer.from(code);
+  const b = Buffer.from(recovery.code);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
+  recovery = null;
+  return true;
 }

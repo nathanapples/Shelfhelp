@@ -14,7 +14,7 @@ import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
 import { ROWS, discoverRow, type RowId } from "./lib/discover.js";
 import { applyDecision, linkLibrary, linkView, similarInLibrary } from "./lib/linking.js";
 import { canSeeRequest, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
-import { cloudflareProblem, cloudflareUser, endSession, createSession, oidcCallback, oidcDiscovery, oidcRedirectUri, oidcStart, passwordMatches, viewer, type Viewer } from "./lib/auth.js";
+import { requestRecoveryLink, useRecoveryLink, cloudflareProblem, cloudflareUser, endSession, createSession, oidcCallback, oidcDiscovery, oidcRedirectUri, oidcStart, passwordMatches, viewer, type Viewer } from "./lib/auth.js";
 import { OWNER_ID, absUsers, allUsers, asReader, getUser, readerById, readers, resolveOwner, updateUser, userForAbs, userView, type Reader } from "./lib/users.js";
 import { decideItem, history, myShelfStatus, readingUsers, readingRunning, rematchItem, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
 
@@ -188,6 +188,19 @@ export async function routes(app: FastifyInstance) {
     await resolveOwner();
     createSession(req, reply, OWNER_ID, "password");
     return { ok: true };
+  });
+
+  // Can't sign in: a one-time link goes to the container log.
+  app.post("/api/auth/recovery", async (req) => ({ result: requestRecoveryLink(req) }));
+
+  app.get<{ Params: { code: string } }>("/api/auth/recovery/:code", async (req, reply) => {
+    if (!useRecoveryLink(req.params.code)) {
+      return reply.redirect(`/?signin_error=${encodeURIComponent("That sign-in link has expired or was already used. Ask for a new one.")}`);
+    }
+    await resolveOwner();
+    createSession(req, reply, OWNER_ID, "recovery");
+    log("warn", "Signed in with a one-time link from the container log");
+    return reply.redirect("/settings?tab=users");
   });
 
   app.post("/api/auth/logout", async (req, reply) => {

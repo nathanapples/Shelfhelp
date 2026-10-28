@@ -201,7 +201,7 @@ export interface UserView {
   ownHardcoverToken: boolean;
   readingEnabled: boolean;
   lastLoginAt: string | null;
-  via?: "open" | "password" | "oidc" | "cloudflare";
+  via?: "open" | "password" | "oidc" | "cloudflare" | "recovery";
 }
 
 export interface Status {

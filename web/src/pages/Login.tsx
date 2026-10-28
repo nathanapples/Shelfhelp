@@ -10,6 +10,14 @@ export default function LoginPage({ status, onSignedIn }: { status: Status; onSi
   const [error, setError] = useState<string | null>(params.get("signin_error"));
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(status.authMode === "none");
+  const [recovery, setRecovery] = useState<"sent" | "wait" | null>(null);
+  const askRecovery = async () => {
+    try {
+      setRecovery((await api<{ result: "sent" | "wait" }>("/auth/recovery", { method: "POST" })).result);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,6 +80,22 @@ export default function LoginPage({ status, onSignedIn }: { status: Status; onSi
               </form>
             )}
           </>
+        )}
+        {status.authMode !== "none" && (
+          <div className="mt-6 border-t border-gray-700 pt-4 text-center text-xs text-gray-400">
+            {recovery === "sent" ? (
+              <p className="text-gray-300">
+                A one-time sign-in link is in the container log. Run <code className="text-white">docker logs shelfhelp</code> and open the link. It
+                works once, for 15 minutes.
+              </p>
+            ) : recovery === "wait" ? (
+              <p>A link was just made. Check the container log, or try again in a minute.</p>
+            ) : (
+              <button className="hover:text-gray-200" onClick={askRecovery}>
+                Can't sign in? Put a one-time link in the container log
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

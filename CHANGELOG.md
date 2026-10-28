@@ -2,6 +2,10 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.4.2 (2026-10-28)
+
+- "Can't sign in?" on the login page writes a one-time admin sign-in link to the container log (`docker logs shelfhelp`). It works once, for 15 minutes.
+
 ## 0.4.1 (2026-10-28)
 
 - Pocket ID: pasting the full `.well-known/openid-configuration` link as the issuer URL now works.

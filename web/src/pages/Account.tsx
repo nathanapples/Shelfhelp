@@ -11,6 +11,7 @@ const VIA: Record<string, string> = {
   password: "Admin password",
   oidc: "Pocket ID",
   cloudflare: "Cloudflare Access",
+  recovery: "One-time link from the container log",
 };
 
 export default function AccountPage({ status, onChanged }: { status: Status; onChanged: () => void }) {

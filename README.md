@@ -124,7 +124,7 @@ Pick how people sign in under Settings, Users:
 - **Pocket ID**: create an OIDC client in Pocket ID with the callback URL Settings shows (`https://<shelfhelp address>/api/auth/oidc/callback`; add one per address you use), then enter the issuer URL, client ID and secret. People are matched to their Audiobookshelf account by verified email, then username, the same way Audiobookshelf links Pocket ID accounts. Works behind Cloudflare Access too.
 - **Cloudflare Access**: put Shelfhelp behind a Cloudflare Access application and enter the team domain and AUD tag. Shelfhelp verifies the signed token Cloudflare adds to every request and matches the email to an Audiobookshelf account, so there's one login. It can only be turned on from a page opened through Cloudflare, as an admin, so you can't lock yourself out.
 
-With either provider, `APP_PASSWORD` still works as an emergency admin sign-in, and `AUTH_MODE=none` on the container turns sign-in off.
+If you can't sign in, press "Can't sign in?" on the login page: a one-time admin sign-in link appears in the container log (`docker logs shelfhelp`), good for 15 minutes. `APP_PASSWORD` also works as an emergency admin sign-in, and `AUTH_MODE=none` on the container turns sign-in off.
 
 ## Versions
 
