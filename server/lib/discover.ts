@@ -280,6 +280,60 @@ async function continueSeries(userId: number, limit: number): Promise<HcSummary[
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
+/** Time ranges on genre and mood pages. */
+export type TagRange = "all" | "year" | "month";
+export const isTagRange = (r: unknown): r is TagRange => r === "all" || r === "year" || r === "month";
+
+/** The tag names in a book's cached_tags for one category ("Genre", "Mood"). */
+function tagsOf(cached: unknown, category: string): string[] {
+  let v = cached;
+  if (typeof v === "string") {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      return [];
+    }
+  }
+  const list = (v as Record<string, unknown> | null)?.[category];
+  if (!Array.isArray(list)) return [];
+  return list.map((t) => (typeof t === "string" ? t : ((t as { tag?: string })?.tag ?? ""))).filter(Boolean);
+}
+
+/**
+ * Trending books with a genre or mood, for "This year" and "This month":
+ * Hardcover's trending list for that period (up to 500 books), kept in
+ * trending order and filtered by the books' genre or mood tags.
+ */
+async function trendingTagBooks(kind: TagKind, name: string, range: "year" | "month", limit: number): Promise<HcSummary[]> {
+  const hc = hardcover();
+  const duration = range === "year" ? "one_year" : "month";
+  const ids: number[] = [];
+  for (let offset = 0; offset < 500; offset += 100) {
+    const r = await hc.graphql<{ books_trending: { ids: (number | null)[] | null } | null }>(
+      `query TrendingTagIds($duration: TrendingDuration!, $limit: Int!, $offset: Int!) {
+         books_trending(duration: $duration, limit: $limit, offset: $offset) { ids }
+       }`,
+      { duration, limit: 100, offset },
+    );
+    const page = (r.books_trending?.ids ?? []).filter((x): x is number => typeof x === "number");
+    ids.push(...page);
+    if (page.length < 100) break;
+  }
+  if (!ids.length) return [];
+  const data = await hc.graphql<{ books: (object & { id: number; cachedTags?: unknown })[] }>(
+    `query TrendingTagBooks($ids: [Int!]!) { books(where: { id: { _in: $ids } }) { ${BOOK_FIELDS} cachedTags: cached_tags } }`,
+    { ids },
+  );
+  const want = norm(name);
+  const category = kind === "genre" ? "Genre" : "Mood";
+  const order = new Map(ids.map((id, i) => [id, i]));
+  return data.books
+    .filter((b) => tagsOf(b.cachedTags, category).some((t) => norm(t) === want))
+    .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+    .slice(0, limit)
+    .map(summarizeBook);
+}
+
 /** The most-read books Hardcover tags with a genre or mood. Search can only match words, so hits are checked for the exact tag. */
 async function tagBooks(kind: TagKind, name: string, limit: number): Promise<HcSummary[]> {
   const field = kind === "genre" ? "genres" : "moods";
@@ -335,7 +389,7 @@ async function vibeBooks(userId: number, limit: number): Promise<HcSummary[]> {
 }
 
 /** One row's books. `key` is a built-in id, list-<id>, genre-<slug> or mood-<slug>. `limit` is bigger on the row's own page. */
-export async function discoverRow(key: string, userId: number, limit = ROW) {
+export async function discoverRow(key: string, userId: number, limit = ROW, range: TagRange = "all") {
   const hc = () => hardcover();
   const L = limit;
   const list = key.match(/^list-(\d+)$/);
@@ -348,6 +402,7 @@ export async function discoverRow(key: string, userId: number, limit = ROW) {
     const kind = tag[1] as TagKind;
     const g = tagBySlug[kind].get(tag[2]);
     if (!g) throw new Error("No such row");
+    if (range !== "all") return annotate(await cached(`${key}:${range}:${L}`, () => trendingTagBooks(kind, g.name, range, L)), userId);
     return annotate(await cached(`${key}:${L}`, () => tagBooks(kind, g.name, L)), userId);
   }
   switch (key as BuiltinId) {

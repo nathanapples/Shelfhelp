@@ -12,7 +12,7 @@ import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
-import { BUILTINS, PAGE, defaultRows, loadFeaturedPrompt, discoverRow, tagRows, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
+import { BUILTINS, PAGE, isTagRange, defaultRows, loadFeaturedPrompt, discoverRow, tagRows, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
 import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
 import { ISSUE_KINDS, addComment, createIssue, deleteIssue, issueCounts, issueDetail, listIssues, setIssueStatus } from "./lib/issues.js";
 import { canSeeRequest, editionLabel, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
@@ -588,10 +588,10 @@ export async function routes(app: FastifyInstance) {
   });
 
   /** One row's books. With ?full=1, a bigger set and the row's title, for the row's own page. */
-  app.get<{ Params: { row: string }; Querystring: { full?: string } }>("/api/discover/:row", async (req, reply) => {
+  app.get<{ Params: { row: string }; Querystring: { full?: string; range?: string } }>("/api/discover/:row", async (req, reply) => {
     try {
       if (req.query.full === "1") {
-        const [info, books] = await Promise.all([rowInfoFor(req.params.row, req.viewer.user.id), discoverRow(req.params.row, req.viewer.user.id, PAGE)]);
+        const [info, books] = await Promise.all([rowInfoFor(req.params.row, req.viewer.user.id), discoverRow(req.params.row, req.viewer.user.id, PAGE, isTagRange(req.query.range) ? req.query.range : "all")]);
         return { info, books };
       }
       return await discoverRow(req.params.row, req.viewer.user.id);

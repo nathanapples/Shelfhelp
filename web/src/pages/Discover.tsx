@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { AdjustmentsHorizontalIcon, ChevronLeftIcon, ChevronRightIcon, FaceSmileIcon, TagIcon } from "@heroicons/react/24/outline";
+import { AdjustmentsHorizontalIcon, ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import { isAdmin, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type RequestOutcome, type SearchHit, type Status } from "../lib/api";
 import { CustomizeDiscover } from "../components/CustomizeDiscover";
 import { useApi } from "../lib/hooks";
@@ -28,8 +28,8 @@ export function afterRequest<T extends { book: SearchHit; replace?: (b: SearchHi
   setOpen((cur) => (cur && cur.book.id === next.id ? { ...cur, book: withOutcomes(cur.book, outcomes) } : cur));
 }
 
-/** A scrolling line of genre or mood chips, each opening its page. Arrows scroll it on any screen size. */
-export function TagStrip({ label, icon: Icon, tags }: { label: string; icon: React.ComponentType<{ className?: string }>; tags: DiscoverRowInfo[] }) {
+/** A Discover section of genre or mood chips, each opening its page. Arrows scroll the chips on any screen size. */
+export function TagStrip({ title, subtitle, tags }: { title: string; subtitle: string; tags: DiscoverRowInfo[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
   const update = () => {
@@ -43,16 +43,28 @@ export function TagStrip({ label, icon: Icon, tags }: { label: string; icon: Rea
   }, [tags.length]);
   const scroll = (dir: number) => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.7, behavior: "smooth" });
   if (!tags.length) return null;
-  const arrow = "flex-shrink-0 rounded-full p-1 text-gray-400 ring-1 ring-gray-700 transition hover:bg-gray-700 hover:text-white disabled:opacity-30";
+  const arrow = "rounded-full p-1.5 text-gray-400 ring-1 ring-gray-700 transition hover:bg-gray-700 hover:text-white disabled:opacity-30";
   return (
-    <div className="mb-2 flex items-center gap-1.5">
-      <span className="flex w-16 flex-shrink-0 items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 sm:w-20 sm:text-xs">
-        <Icon className="h-4 w-4 flex-shrink-0" /> {label}
-      </span>
-      <button className={arrow} onClick={() => scroll(-1)} disabled={!edges.left} aria-label={`Scroll ${label.toLowerCase()} left`}>
-        <ChevronLeftIcon className="h-4 w-4" />
-      </button>
-      <div ref={ref} onScroll={update} className="hide-scrollbar flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1">
+    <section className="mb-4">
+      <div className="mb-1 flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-bold text-white sm:text-xl">{title}</h2>
+          <p className="truncate text-xs text-gray-400 sm:text-sm">{subtitle}</p>
+        </div>
+        <div className="flex flex-shrink-0 items-center gap-1">
+          <button className={arrow} onClick={() => scroll(-1)} disabled={!edges.left} aria-label={`Scroll ${title.toLowerCase()} left`}>
+            <ChevronLeftIcon className="h-5 w-5" />
+          </button>
+          <button className={arrow} onClick={() => scroll(1)} disabled={!edges.right} aria-label={`Scroll ${title.toLowerCase()} right`}>
+            <ChevronRightIcon className="h-5 w-5" />
+          </button>
+        </div>
+      </div>
+      <div
+        ref={ref}
+        onScroll={update}
+        className="hide-scrollbar -mx-4 flex items-center gap-2 overflow-x-auto px-4 py-1.5 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8"
+      >
         {tags.map((g) => (
           <Link
             key={g.key}
@@ -63,10 +75,7 @@ export function TagStrip({ label, icon: Icon, tags }: { label: string; icon: Rea
           </Link>
         ))}
       </div>
-      <button className={arrow} onClick={() => scroll(1)} disabled={!edges.right} aria-label={`Scroll ${label.toLowerCase()} right`}>
-        <ChevronRightIcon className="h-4 w-4" />
-      </button>
-    </div>
+    </section>
   );
 }
 
@@ -175,8 +184,8 @@ export default function DiscoverPage({ status }: { status: Status }) {
       )}
       {config && (config.genres?.length || config.moods?.length) ? (
         <div className="mt-2">
-          <TagStrip label="Genres" icon={TagIcon} tags={config.genres ?? []} />
-          <TagStrip label="Moods" icon={FaceSmileIcon} tags={config.moods ?? []} />
+          <TagStrip title="Browse by genre" subtitle="The top books in each genre on Hardcover" tags={config.genres ?? []} />
+          <TagStrip title="Browse by mood" subtitle="The top books readers give each mood on Hardcover" tags={config.moods ?? []} />
         </div>
       ) : null}
       {config && (

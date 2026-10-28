@@ -209,6 +209,19 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
     }
     return { books: picked };
   }
+  if (q.includes("query TrendingTagIds")) {
+    const ids = books.map((b) => b.id);
+    if (Number(v.offset) > 0) return { books_trending: { ids: [] } };
+    return { books_trending: { ids: v.duration === "one_year" ? ids.slice().reverse() : ids.slice(6).concat(ids.slice(0, 6)) } };
+  }
+  if (q.includes("query TrendingTagBooks")) {
+    return {
+      books: (v.ids as number[])
+        .map((id) => books.find((b) => b.id === id))
+        .filter((b): b is MockBook => !!b)
+        .map((b) => ({ ...listBooks(books.indexOf(b), 1)[0].book, cachedTags: { Genre: genresOf(b).map((tag) => ({ tag, count: 3 })), Mood: moodsOf(b).map((tag) => ({ tag, count: 2 })) } })),
+    };
+  }
   if (q.includes("query TrendingBookIds")) {
     const ids = books.map((b) => b.id);
     return { books_trending: { ids: v.duration === "one_year" ? ids.slice().reverse() : ids.slice(4).concat(ids.slice(0, 4)), error: null } };

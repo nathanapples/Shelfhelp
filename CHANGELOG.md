@@ -2,6 +2,11 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.13.0 (2026-10-28)
+
+- Genre and mood pages have an All time / This year / This month switch. All time is the most-read books with that genre or mood. This year and This month are Hardcover's trending books for that period that have the genre or mood.
+- The genre and mood lines on Discover are now sections like the other rows: "Browse by genre" and "Browse by mood", each with a subtitle and scroll arrows.
+
 ## 0.12.0 (2026-10-28)
 
 - Each reader gets a Want to Read collection automatically: as soon as someone connects Hardcover (in My account, Settings, Users, or the owner's token in Settings), Shelfhelp makes "Name's Want to Read" from their own Hardcover shelf in the first Audiobookshelf library and syncs it. Readers who already have a Hardcover token get theirs on the next sync. Each is made once, so one you delete stays deleted. Turn it off in Settings, General.
