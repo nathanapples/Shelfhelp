@@ -1,12 +1,162 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent, type Modifier } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Bars3Icon, FaceSmileIcon, PlusIcon, RectangleStackIcon, SparklesIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { Bars3Icon, FaceSmileIcon, MagnifyingGlassIcon, PlusIcon, RectangleStackIcon, SparklesIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { api, tagRowInfo, type DiscoverConfig, type DiscoverRowInfo, type HcList, type TagKind } from "../lib/api";
-import { TagSearch } from "./TagSearch";
+import { TagSearch, useAllTags } from "./TagSearch";
 import { Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
+
+type Hit = { key: string; label: string; detail: string | null; type: "Row" | "Genre" | "Mood" | "List"; pick: () => void };
+
+const TYPE_STYLE: Record<Hit["type"], string> = {
+  Row: "bg-purple-900/50 text-purple-200 ring-purple-700",
+  Genre: "bg-pink-900/50 text-pink-200 ring-pink-700",
+  Mood: "bg-amber-900/50 text-amber-200 ring-amber-700",
+  List: "bg-indigo-900/50 text-indigo-200 ring-indigo-700",
+};
+
+/** A Hardcover list link (or just `@user/lists/slug`). */
+const looksLikeList = (q: string) => /@[^/\s]+\/lists\/[^/?#\s]+/i.test(q.trim());
+
+/**
+ * One search for every kind of row: built-in rows, any Hardcover genre or
+ * mood, your Hardcover lists, or a pasted list link. Each result says what it is.
+ */
+function RowSearch({
+  has,
+  lists,
+  builtins,
+  adding,
+  onAddRow,
+  onAddList,
+}: {
+  has: (key: string) => boolean;
+  lists: HcList[];
+  builtins: DiscoverRowInfo[];
+  adding: boolean;
+  onAddRow: (r: DiscoverRowInfo) => void;
+  onAddList: (ref: string) => Promise<boolean>;
+}) {
+  const [q, setQ] = useState("");
+  const [focused, setFocused] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const load = focused || !!q;
+  const genres = useAllTags("genre", load);
+  const moods = useAllTags("mood", load);
+  const link = looksLikeList(q);
+  const hits = useMemo<Hit[]>(() => {
+    const want = q.trim().toLowerCase();
+    if (!want || link) return [];
+    const starts = (s: string) => (s.toLowerCase().startsWith(want) ? 0 : 1);
+    const match = (s: string) => s.toLowerCase().includes(want);
+    const all: (Hit & { rank: number })[] = [
+      ...builtins
+        .filter((b) => !has(b.key) && match(b.title))
+        .map((b) => ({ key: b.key, label: b.title, detail: b.subtitle, type: "Row" as const, pick: () => onAddRow(b), rank: starts(b.title) })),
+      ...lists
+        .filter((l) => !has(`list-${l.id}`) && match(l.name))
+        .map((l) => ({ key: `list-${l.id}`, label: l.name, detail: `${l.booksCount} books`, type: "List" as const, pick: () => void onAddList(String(l.id)), rank: starts(l.name) })),
+      ...(["genre", "mood"] as const).flatMap((kind) =>
+        ((kind === "genre" ? genres.tags : moods.tags) ?? [])
+          .filter((t) => !has(`${kind}-${t.slug}`) && match(t.name))
+          .slice(0, 25)
+          .map((t) => ({
+            key: `${kind}-${t.slug}`,
+            label: t.name,
+            detail: `${t.count.toLocaleString()} books`,
+            type: kind === "genre" ? ("Genre" as const) : ("Mood" as const),
+            pick: () => onAddRow(tagRowInfo(kind, t)),
+            rank: starts(t.name),
+          })),
+      ),
+    ];
+    // Names that start with what you typed first, then the order above.
+    return all
+      .map((h, i) => ({ h, i }))
+      .sort((a, b) => a.h.rank - b.h.rank || a.i - b.i)
+      .slice(0, 12)
+      .map(({ h }) => h);
+  }, [q, link, builtins, lists, genres.tags, moods.tags, has, onAddRow, onAddList]);
+  const loading = !link && !!q.trim() && (!genres.tags || !moods.tags) && !genres.error && !moods.error;
+
+  const submit = async () => {
+    if (link) {
+      if (await onAddList(q)) setQ("");
+    } else if (hits[0]) {
+      hits[0].pick();
+      setQ("");
+    }
+  };
+
+  return (
+    <div ref={box} className="relative">
+      <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+      <input
+        className="input py-1.5 pl-9 text-sm"
+        value={q}
+        placeholder="Search genres, moods and lists, or paste a Hardcover list link"
+        onChange={(e) => {
+          setQ(e.target.value);
+          requestAnimationFrame(() => box.current?.scrollIntoView({ block: "start", behavior: "smooth" }));
+        }}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        autoCapitalize="off"
+        autoCorrect="off"
+      />
+      {q.trim() && focused && (
+        <ul className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg bg-gray-800 py-1 shadow-xl ring-1 ring-gray-600">
+          {link ? (
+            <li>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={submit}
+                disabled={adding}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-700"
+              >
+                <span className={`flex-shrink-0 rounded px-1.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${TYPE_STYLE.List}`}>List</span>
+                <span className="min-w-0 flex-1 truncate">Add the list at this link</span>
+                {adding ? <Spinner className="h-4 w-4" /> : <PlusIcon className="h-4 w-4 text-gray-400" />}
+              </button>
+            </li>
+          ) : (
+            <>
+              {hits.map((h) => (
+                <li key={h.key}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      h.pick();
+                      setQ("");
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-gray-200 hover:bg-gray-700"
+                  >
+                    <span className={`w-12 flex-shrink-0 rounded px-1.5 text-center text-[10px] font-semibold uppercase tracking-wide ring-1 ${TYPE_STYLE[h.type]}`}>
+                      {h.type}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{h.label}</span>
+                    {h.detail && <span className="hidden flex-shrink-0 text-xs text-gray-500 sm:inline">{h.detail}</span>}
+                  </button>
+                </li>
+              ))}
+              {loading && (
+                <li className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400">
+                  <Spinner className="h-4 w-4" /> Loading genres and moods from Hardcover...
+                </li>
+              )}
+              {!loading && hits.length === 0 && <li className="px-3 py-2 text-sm text-gray-500">Nothing matches. Paste a Hardcover list link to add a list.</li>}
+            </>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 /** Rows only move up and down. */
 const restrictToVerticalAxis: Modifier = ({ transform }) => ({ ...transform, x: 0 });
@@ -65,7 +215,6 @@ export function CustomizeDiscover({
   const [rows, setRows] = useState<DiscoverRowInfo[]>(config.allRows ?? config.rows);
   const toTags = (list: DiscoverRowInfo[] | undefined) => (list ?? []).map((g) => ({ slug: g.tag ?? "", name: g.name ?? g.title }));
   const [chips, setChips] = useState<Record<TagKind, { slug: string; name: string }[]>>({ genre: toTags(config.genres), mood: toTags(config.moods) });
-  const [ref, setRef] = useState("");
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [asDefault, setAsDefault] = useState(false);
@@ -87,15 +236,17 @@ export function CustomizeDiscover({
     const to = rows.findIndex((r) => r.key === over.id);
     if (from >= 0 && to >= 0) setRows(arrayMove(rows, from, to));
   };
-  const addList = async (input: string) => {
-    if (!input.trim()) return;
+  const addList = async (input: string): Promise<boolean> => {
+    if (!input.trim()) return false;
     setAdding(true);
     try {
       const row = await api<DiscoverRowInfo>("/discover/list", { method: "POST", body: { ref: input.trim() } });
-      if (!has(row.key)) setRows([...rows, row]);
-      setRef("");
+      if (has(row.key)) toast(`${row.title} is already a row`, "info");
+      else setRows((cur) => [...cur, row]);
+      return true;
     } catch (e) {
       toast((e as Error).message, "error");
+      return false;
     } finally {
       setAdding(false);
     }
@@ -165,8 +316,19 @@ export function CustomizeDiscover({
         </SortableContext>
       </DndContext>
 
-      <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Add a row</h4>
-      <div className="flex flex-wrap gap-2">
+      <h4 className="mb-1 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Add a row</h4>
+      <p className="mb-2 text-xs text-gray-500">
+        Search for a genre, mood or Hardcover list to add it as a row, or paste a link to any public Hardcover list.
+      </p>
+      <RowSearch
+        has={has}
+        lists={myLists ?? []}
+        builtins={config.builtins}
+        adding={adding}
+        onAddRow={(r) => setRows([...rows, r])}
+        onAddList={addList}
+      />
+      <div className="mt-3 flex flex-wrap gap-2">
         {config.builtins
           .filter((b) => !has(b.key))
           .map((b) => (
@@ -180,40 +342,6 @@ export function CustomizeDiscover({
             </button>
           ))}
       </div>
-
-      {(["genre", "mood"] as const).map((kind) => {
-        const offered = (kind === "genre" ? config.genres : config.moods) ?? [];
-        return (
-          <div key={kind}>
-            <h4 className="mb-1 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Add a {kind} row</h4>
-            <p className="mb-2 text-xs text-gray-500">
-              Adds a row of the top {kind === "genre" ? "books in that genre" : "books with that mood"} to Discover, like the rows above.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {offered
-                .filter((g) => !has(g.key))
-                .map((g) => (
-                  <button
-                    key={g.key}
-                    onClick={() => setRows([...rows, g])}
-                    title={g.subtitle}
-                    className="flex items-center gap-1 rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-200 ring-1 ring-gray-600 hover:bg-gray-700"
-                  >
-                    <PlusIcon className="h-4 w-4" /> {g.name ?? g.title}
-                  </button>
-                ))}
-            </div>
-            <div className="mt-2">
-              <TagSearch
-                kind={kind}
-                exclude={rows.filter((r) => r.kind === kind).map((r) => r.tag ?? "")}
-                onPick={(t) => setRows([...rows, tagRowInfo(kind, t)])}
-                placeholder={`Add a row for any ${kind} on Hardcover`}
-              />
-            </div>
-          </div>
-        );
-      })}
 
       <h4 className="mb-1 mt-8 text-sm font-semibold uppercase tracking-wider text-gray-400">Genres and moods to browse</h4>
       <p className="mb-3 text-xs text-gray-500">
@@ -248,39 +376,6 @@ export function CustomizeDiscover({
           </div>
         </div>
       ))}
-
-      <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Add a Hardcover list</h4>
-      <div className="flex gap-2">
-        <input
-          className="input"
-          placeholder="https://hardcover.app/@someone/lists/best-sci-fi"
-          value={ref}
-          onChange={(e) => setRef(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addList(ref)}
-          autoCapitalize="off"
-          autoCorrect="off"
-        />
-        <button className="btn btn-default flex-shrink-0" onClick={() => addList(ref)} disabled={adding || !ref.trim()}>
-          {adding ? <Spinner className="h-4 w-4" /> : <PlusIcon className="h-4 w-4" />} Add
-        </button>
-      </div>
-      <p className="mt-1 text-xs text-gray-500">Any public list on Hardcover works.</p>
-      {myLists && myLists.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {myLists
-            .filter((l) => !has(`list-${l.id}`))
-            .slice(0, 12)
-            .map((l) => (
-              <button
-                key={l.id}
-                onClick={() => addList(String(l.id))}
-                className="flex items-center gap-1 rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-200 ring-1 ring-gray-600 hover:bg-gray-700"
-              >
-                <PlusIcon className="h-4 w-4" /> {l.name}
-              </button>
-            ))}
-        </div>
-      )}
 
       {admin && (
         <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-lg bg-indigo-900/20 p-3 ring-1 ring-indigo-800">
