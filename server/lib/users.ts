@@ -31,6 +31,7 @@ export interface UserRow {
   discover_rows: string | null;
   want_list_at: string | null;
   shelves_at: string | null;
+  discover_tags: string | null;
 }
 
 export interface Reader {

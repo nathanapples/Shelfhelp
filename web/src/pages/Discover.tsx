@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AdjustmentsHorizontalIcon, ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
-import { isAdmin, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type RequestOutcome, type SearchHit, type Status } from "../lib/api";
+import { isAdmin, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type RequestOutcome, type SearchHit, type Status, type TagKind, tagLink } from "../lib/api";
 import { CustomizeDiscover } from "../components/CustomizeDiscover";
 import { useApi } from "../lib/hooks";
 import { BookCard } from "../components/BookCard";
@@ -29,7 +29,7 @@ export function afterRequest<T extends { book: SearchHit; replace?: (b: SearchHi
 }
 
 /** A Discover section of genre or mood chips, each opening its page. Arrows scroll the chips on any screen size. */
-export function TagStrip({ title, subtitle, tags }: { title: string; subtitle: string; tags: DiscoverRowInfo[] }) {
+export function TagStrip({ kind, title, subtitle, tags }: { kind: TagKind; title: string; subtitle: string; tags: DiscoverRowInfo[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
   const update = () => {
@@ -52,6 +52,9 @@ export function TagStrip({ title, subtitle, tags }: { title: string; subtitle: s
           <p className="truncate text-xs text-gray-400 sm:text-sm">{subtitle}</p>
         </div>
         <div className="flex flex-shrink-0 items-center gap-1">
+          <Link to={`/browse/${kind}`} className="mr-1 whitespace-nowrap text-sm font-medium text-indigo-400 hover:text-indigo-300">
+            {kind === "genre" ? "All genres" : "All moods"}
+          </Link>
           <button className={arrow} onClick={() => scroll(-1)} disabled={!edges.left} aria-label={`Scroll ${title.toLowerCase()} left`}>
             <ChevronLeftIcon className="h-5 w-5" />
           </button>
@@ -68,12 +71,18 @@ export function TagStrip({ title, subtitle, tags }: { title: string; subtitle: s
         {tags.map((g) => (
           <Link
             key={g.key}
-            to={`/discover/${g.key}`}
+            to={tagLink(kind, { slug: g.tag ?? "", name: g.name ?? g.title })}
             className="flex-shrink-0 whitespace-nowrap rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-200 ring-1 ring-gray-600 transition hover:bg-gray-700 hover:text-white"
           >
-            {g.title.replace(/^Top /, "").replace(/ reads$/, "")}
+            {g.name ?? g.title}
           </Link>
         ))}
+        <Link
+          to={`/browse/${kind}`}
+          className="flex-shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-sm font-medium text-indigo-300 ring-1 ring-indigo-700 transition hover:bg-indigo-900/40"
+        >
+          {kind === "genre" ? "All genres ›" : "All moods ›"}
+        </Link>
       </div>
     </section>
   );
@@ -192,8 +201,8 @@ export default function DiscoverPage({ status }: { status: Status }) {
       )}
       {config && (config.genres?.length || config.moods?.length) ? (
         <div className="mt-2">
-          <TagStrip title="Browse by genre" subtitle="The top books in each genre on Hardcover" tags={config.genres ?? []} />
-          <TagStrip title="Browse by mood" subtitle="The top books readers give each mood on Hardcover" tags={config.moods ?? []} />
+          <TagStrip kind="genre" title="Browse by genre" subtitle="The top books in each genre on Hardcover" tags={config.genres ?? []} />
+          <TagStrip kind="mood" title="Browse by mood" subtitle="The top books readers give each mood on Hardcover" tags={config.moods ?? []} />
         </div>
       ) : null}
       {config && (

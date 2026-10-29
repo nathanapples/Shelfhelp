@@ -3,7 +3,8 @@ import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, 
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Bars3Icon, FaceSmileIcon, PlusIcon, RectangleStackIcon, SparklesIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
-import { api, type DiscoverConfig, type DiscoverRowInfo, type HcList } from "../lib/api";
+import { api, tagRowInfo, type DiscoverConfig, type DiscoverRowInfo, type HcList, type TagKind } from "../lib/api";
+import { TagSearch } from "./TagSearch";
 import { Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
 
@@ -62,6 +63,8 @@ export function CustomizeDiscover({
 }) {
   const toast = useToast();
   const [rows, setRows] = useState<DiscoverRowInfo[]>(config.allRows ?? config.rows);
+  const toTags = (list: DiscoverRowInfo[] | undefined) => (list ?? []).map((g) => ({ slug: g.tag ?? "", name: g.name ?? g.title }));
+  const [chips, setChips] = useState<Record<TagKind, { slug: string; name: string }[]>>({ genre: toTags(config.genres), mood: toTags(config.moods) });
   const [ref, setRef] = useState("");
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -101,7 +104,7 @@ export function CustomizeDiscover({
   const save = async () => {
     setBusy(true);
     try {
-      await api("/discover/rows", { method: "PUT", body: { rows, asDefault } });
+      await api("/discover/rows", { method: "PUT", body: { rows, asDefault, tags: chips } });
       toast(asDefault ? "Saved as everyone's default" : "Discover saved");
       onSaved();
       onClose();
@@ -178,27 +181,70 @@ export function CustomizeDiscover({
           ))}
       </div>
 
-      {(
-        [
-          ["Add a genre", config.genres ?? []],
-          ["Add a mood", config.moods ?? []],
-        ] as const
-      ).map(([heading, tags]) => (
-        <div key={heading}>
-          <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">{heading}</h4>
+      {(["genre", "mood"] as const).map((kind) => {
+        const offered = (kind === "genre" ? config.genres : config.moods) ?? [];
+        return (
+          <div key={kind}>
+            <h4 className="mb-1 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Add a {kind} row</h4>
+            <p className="mb-2 text-xs text-gray-500">
+              Adds a row of the top {kind === "genre" ? "books in that genre" : "books with that mood"} to Discover, like the rows above.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {offered
+                .filter((g) => !has(g.key))
+                .map((g) => (
+                  <button
+                    key={g.key}
+                    onClick={() => setRows([...rows, g])}
+                    title={g.subtitle}
+                    className="flex items-center gap-1 rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-200 ring-1 ring-gray-600 hover:bg-gray-700"
+                  >
+                    <PlusIcon className="h-4 w-4" /> {g.name ?? g.title}
+                  </button>
+                ))}
+            </div>
+            <div className="mt-2">
+              <TagSearch
+                kind={kind}
+                exclude={rows.filter((r) => r.kind === kind).map((r) => r.tag ?? "")}
+                onPick={(t) => setRows([...rows, tagRowInfo(kind, t)])}
+                placeholder={`Add a row for any ${kind} on Hardcover`}
+              />
+            </div>
+          </div>
+        );
+      })}
+
+      <h4 className="mb-1 mt-8 text-sm font-semibold uppercase tracking-wider text-gray-400">Genres and moods to browse</h4>
+      <p className="mb-3 text-xs text-gray-500">
+        The chips in Browse by genre and Browse by mood at the bottom of Discover. Each opens that genre or mood's page; they don't add rows.
+      </p>
+      {(["genre", "mood"] as const).map((kind) => (
+        <div key={kind} className="mb-4">
+          <div className="mb-1.5 text-xs font-semibold text-gray-300">{kind === "genre" ? "Genres" : "Moods"}</div>
           <div className="flex flex-wrap gap-2">
-            {tags
-              .filter((g) => !has(g.key))
-              .map((g) => (
+            {chips[kind].map((t) => (
+              <span key={t.slug} className="flex items-center gap-1 rounded-full bg-gray-800 py-1 pl-3 pr-1 text-sm text-gray-200 ring-1 ring-gray-600">
+                {t.name}
                 <button
-                  key={g.key}
-                  onClick={() => setRows([...rows, g])}
-                  title={g.subtitle}
-                  className="flex items-center gap-1 rounded-full bg-gray-800 px-3 py-1 text-sm text-gray-200 ring-1 ring-gray-600 hover:bg-gray-700"
+                  type="button"
+                  className="rounded-full p-0.5 text-gray-400 hover:bg-gray-700 hover:text-white"
+                  onClick={() => setChips({ ...chips, [kind]: chips[kind].filter((x) => x.slug !== t.slug) })}
+                  aria-label={`Remove ${t.name}`}
                 >
-                  <PlusIcon className="h-4 w-4" /> {g.title.replace(/^Top /, "").replace(/ reads$/, "")}
+                  <XMarkIcon className="h-3.5 w-3.5" />
                 </button>
-              ))}
+              </span>
+            ))}
+            {chips[kind].length === 0 && <span className="text-sm text-gray-500">None. The section is hidden.</span>}
+          </div>
+          <div className="mt-2">
+            <TagSearch
+              kind={kind}
+              exclude={chips[kind].map((t) => t.slug)}
+              onPick={(t) => setChips({ ...chips, [kind]: [...chips[kind], t] })}
+              placeholder={`Add a ${kind} to browse`}
+            />
           </div>
         </div>
       ))}

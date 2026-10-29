@@ -438,6 +438,8 @@ export interface DiscoverRowInfo {
   kind: "builtin" | "list" | "genre" | "mood";
   id?: string;
   tag?: string;
+  /** A genre or mood's name. */
+  name?: string;
   listId?: number;
   owner?: string | null;
   slug?: string | null;
@@ -457,6 +459,28 @@ export interface DiscoverConfig {
   genres: DiscoverRowInfo[];
   moods: DiscoverRowInfo[];
 }
+
+export type TagKind = "genre" | "mood";
+
+/** A genre or mood on Hardcover. */
+export interface HcTag {
+  slug: string;
+  name: string;
+  count: number;
+}
+
+/** The page of a genre or mood's top books. The name rides along so any Hardcover tag works. */
+export const tagLink = (kind: TagKind, t: { slug: string; name: string }) => `/discover/${kind}-${t.slug}?name=${encodeURIComponent(t.name)}`;
+
+/** A Discover row for a genre or mood, as Customize adds it. */
+export const tagRowInfo = (kind: TagKind, t: { slug: string; name: string }): DiscoverRowInfo => ({
+  key: `${kind}-${t.slug}`,
+  kind,
+  tag: t.slug,
+  name: t.name,
+  title: kind === "genre" ? `Top ${t.name}` : `${t.name} reads`,
+  subtitle: kind === "genre" ? `The top ${t.name} books on Hardcover` : `The top books readers call ${t.name.toLowerCase()}`,
+});
 
 export interface DiscoverBook extends SearchHit {
   addedAt?: number;

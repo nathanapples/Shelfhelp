@@ -417,6 +417,10 @@ const migrations: string[] = [
   -- When a reader's Hardcover shelves were last read (also without reading sync).
   ALTER TABLE users ADD COLUMN shelves_at TEXT;
   `,
+  `
+  -- The genre and mood chips someone picked for Discover's Browse sections.
+  ALTER TABLE users ADD COLUMN discover_tags TEXT;
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

@@ -2,6 +2,14 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.15.0 (2026-10-29)
+
+- Browse by genre and Browse by mood now start with Hardcover's top 20 of each by number of books ("General" is skipped as a catch-all, so Philosophy is the 20th genre).
+- New All genres and All moods pages: every genre or mood on Hardcover with at least a few books, most books first, with a filter box. Open them from the "All genres" and "All moods" links and chips on Discover. Each genre or mood opens its own page of top books (This month, This year, All time), including ones that aren't in the defaults.
+- Customize this page:
+  - "Add a genre row" and "Add a mood row" say clearly that they add rows to Discover, and a search box adds a row for any genre or mood on Hardcover.
+  - New "Genres and moods to browse" section: remove chips from Browse by genre and Browse by mood, or search Hardcover to add more. Admins can save these as everyone's default along with the rows, and "Use the defaults" resets them.
+
 ## 0.14.0 (2026-10-28)
 
 - Discover is personal for every reader: Top picks for you, From your Want to Read and Pick up where you left off use each person's own Hardcover account, and New from authors you listen to uses their own listening when Shelfhelp has it. People who haven't connected Hardcover don't see those rows, and Discover shows a line asking them to connect it in My account.

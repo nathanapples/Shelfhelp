@@ -44,31 +44,95 @@ export const BUILTINS: Record<BuiltinId, { title: string; subtitle: string }> = 
   prompt: { title: "Featured prompt", subtitle: "Hardcover's featured prompt, most picked books first" },
 };
 
-type TagKind = "genre" | "mood";
-const tagList = (pairs: string[]) => pairs.map((name) => ({ slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name }));
+export type TagKind = "genre" | "mood";
+export interface Tag {
+  slug: string;
+  name: string;
+}
+const slugify = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const tagList = (names: string[]) => names.map((name) => ({ slug: slugify(name), name }));
 
 /**
- * Genres and moods to browse: the top 10 of each on Hardcover by number of
- * books (hardcover.app/browse/tags/genre and /mood). Tags are matched
- * ignoring case, spaces and dashes.
+ * The default genres and moods to browse: the top 20 of each on Hardcover by
+ * number of books (hardcover.app/browse/tags/genre and /mood, 2026-10-28;
+ * "General" is skipped as a catch-all). Tags are matched ignoring case,
+ * spaces and dashes. Admins and readers can change the chips in Customize.
  */
-export const TAGS: Record<TagKind, { slug: string; name: string }[]> = {
-  genre: tagList(["Fiction", "Fantasy", "Young Adult", "Adventure", "Science Fiction", "Comics", "Classics", "History", "Romance", "LGBTQ"]),
-  mood: tagList(["Adventurous", "Emotional", "Dark", "Mysterious", "Tense", "Funny", "Reflective", "Lighthearted", "Sad", "Hopeful"]),
+export const TAGS: Record<TagKind, Tag[]> = {
+  genre: tagList([
+    "Fiction", "Fantasy", "Young Adult", "Adventure", "Science Fiction", "Comics", "Classics", "History", "Romance", "LGBTQ",
+    "War", "Juvenile Fiction", "Biography", "Comics & Graphic Novels", "Mystery", "Religion", "Dystopian", "Nonfiction", "Biography & Autobiography", "Philosophy",
+  ]),
+  mood: tagList([
+    "Adventurous", "Emotional", "Dark", "Mysterious", "Tense", "Funny", "Reflective", "Lighthearted", "Sad", "Hopeful",
+    "Challenging", "Inspiring", "Informative", "Relaxing", "Fast-Paced", "Medium-Paced", "Suspenseful", "Slow-Paced", "Humorous", "Thought-Provoking",
+  ]),
 };
-// Genres offered before 0.11.0, still valid in rows people saved.
-const OLD_GENRES = tagList(["Mystery", "Thriller", "Horror", "Historical Fiction", "Literary Fiction", "Nonfiction", "Biography", "Self Help", "Humor"]);
-const tagBySlug: Record<TagKind, Map<string, { slug: string; name: string }>> = {
+// Genres offered before, still known by name in rows people saved.
+const OLD_GENRES = tagList(["Thriller", "Horror", "Historical Fiction", "Literary Fiction", "Self Help", "Humor"]);
+const known: Record<TagKind, Map<string, Tag>> = {
   genre: new Map([...TAGS.genre, ...OLD_GENRES].map((g) => [g.slug, g])),
   mood: new Map(TAGS.mood.map((g) => [g.slug, g])),
 };
 
+/** A tag's name from its slug: the built-in ones, Hardcover's full list, or a name saved with it. */
+function tagName(kind: TagKind, slug: string, saved?: string | null): string | null {
+  return known[kind].get(slug)?.name ?? allTagsCache[kind]?.tags.find((t) => t.slug === slug)?.name ?? (saved?.trim() || null);
+}
+
+const allTagsCache: Partial<Record<TagKind, { at: number; tags: (Tag & { count: number })[] }>> = {};
+
+/**
+ * Every genre or mood on Hardcover with at least a few books, most books
+ * first (up to 600). Cached for a day.
+ */
+export async function allTags(kind: TagKind): Promise<(Tag & { count: number })[]> {
+  const hit = allTagsCache[kind];
+  if (hit && Date.now() - hit.at < 24 * 3600_000) return hit.tags;
+  const out: (Tag & { count: number })[] = [];
+  for (let offset = 0; offset < 600; offset += 200) {
+    const data = await hardcover().graphql<{ tags: { tag: string; slug: string | null; count: number | null }[] }>(
+      `query AllTags($category: String!, $limit: Int!, $offset: Int!) {
+         tags(where: { tag_category: { slug: { _eq: $category } }, count: { _gte: 5 } }, order_by: { count: desc }, limit: $limit, offset: $offset) {
+           tag slug count
+         }
+       }`,
+      { category: kind, limit: 200, offset },
+    );
+    for (const t of data.tags) {
+      const name = t.tag?.trim();
+      // Hardcover's lists hold some stray quoted or bracketed entries; skip those.
+      if (!name || /^[\["']|["'\]]$/.test(name)) continue;
+      out.push({ slug: t.slug || slugify(name), name, count: t.count ?? 0 });
+    }
+    if (data.tags.length < 200) break;
+  }
+  // One entry per slug, keeping the one with the most books.
+  const seen = new Set<string>();
+  const tags = out.filter((t) => !seen.has(t.slug) && seen.add(t.slug));
+  allTagsCache[kind] = { at: Date.now(), tags };
+  return tags;
+}
+
+/** Cleans a saved list of tags; unknown ones need a name saved with them. */
+function cleanTags(kind: TagKind, list: unknown): Tag[] | null {
+  if (!Array.isArray(list)) return null;
+  const out: Tag[] = [];
+  for (const t of list as (Tag | string)[]) {
+    const slug = typeof t === "string" ? t : t?.slug;
+    if (!slug || out.some((x) => x.slug === slug)) continue;
+    const name = tagName(kind, slug, typeof t === "string" ? null : t.name);
+    if (name) out.push({ slug, name });
+  }
+  return out;
+}
+
 export type RowConfig =
   | { key: string; kind: "builtin"; id: BuiltinId }
   | { key: string; kind: "list"; listId: number; title: string; owner?: string | null; slug?: string | null }
-  | { key: string; kind: TagKind; tag: string };
+  | { key: string; kind: TagKind; tag: string; name: string };
 
-const tagRow = (kind: TagKind, slug: string): RowConfig => ({ key: `${kind}-${slug}`, kind, tag: slug });
+const tagRow = (kind: TagKind, slug: string, name: string): RowConfig => ({ key: `${kind}-${slug}`, kind, tag: slug, name });
 
 const builtin = (id: BuiltinId): RowConfig => ({ key: id, kind: "builtin", id });
 /** Modeled on Hardcover's own Discover page: picks for you, trending, series to continue, then new and upcoming. */
@@ -86,8 +150,9 @@ function valid(rows: unknown): RowConfig[] | null {
     } else if (r.kind === "genre" || r.kind === "mood") {
       // Rows saved before 0.11.0 kept the slug in `genre`.
       const slug = r.tag ?? (r as { genre?: string }).genre ?? "";
-      if (!tagBySlug[r.kind].has(slug)) continue;
-      out.push(tagRow(r.kind, slug));
+      const name = tagName(r.kind, slug, r.name);
+      if (!name) continue;
+      out.push(tagRow(r.kind, slug, name));
     }
     else continue;
     seen.add(out[out.length - 1].key);
@@ -106,15 +171,25 @@ export function rowsFor(userId: number) {
   return own?.length ? { rows: own, custom: true } : { rows: defaultRows(), custom: false };
 }
 
-export function saveRows(userId: number, rows: unknown, asDefault: boolean) {
+export function saveRows(userId: number, rows: unknown, asDefault: boolean, tags?: unknown) {
   const clean = valid(rows) ?? [];
-  if (asDefault) saveSettings({ discoverRows: clean });
-  else updateUser(userId, { discover_rows: JSON.stringify(clean) });
+  const t = tags as Partial<Record<TagKind, unknown>> | undefined;
+  const chips = t ? { genre: cleanTags("genre", t.genre) ?? TAGS.genre, mood: cleanTags("mood", t.mood) ?? TAGS.mood } : null;
+  if (asDefault) saveSettings({ discoverRows: clean, ...(chips ? { discoverTags: chips } : {}) });
+  else updateUser(userId, { discover_rows: JSON.stringify(clean), ...(chips ? { discover_tags: JSON.stringify(chips) } : {}) });
   return clean;
 }
 
 export function resetRows(userId: number) {
-  updateUser(userId, { discover_rows: null });
+  updateUser(userId, { discover_rows: null, discover_tags: null });
+}
+
+/** The genre and mood chips someone sees in Browse: their own, else the defaults, else the built-in top 20. */
+export function tagsFor(userId: number): Record<TagKind, Tag[]> {
+  const own = json<Partial<Record<TagKind, unknown>> | null>(getUser(userId)?.discover_tags ?? null, null);
+  const def = getSettings().discoverTags as Partial<Record<TagKind, unknown>> | null;
+  const pick = (kind: TagKind) => cleanTags(kind, own?.[kind]) ?? cleanTags(kind, def?.[kind]) ?? TAGS[kind];
+  return { genre: pick("genre"), mood: pick("mood") };
 }
 
 export function rowInfo(r: RowConfig) {
@@ -123,7 +198,7 @@ export function rowInfo(r: RowConfig) {
   }
   if (r.kind === "builtin") return { ...r, ...BUILTINS[r.id] };
   if (r.kind === "genre" || r.kind === "mood") {
-    const name = tagBySlug[r.kind].get(r.tag)!.name;
+    const name = r.name;
     const lower = /^[A-Z]+$/.test(name) ? name : name.toLowerCase();
     return {
       ...r,
@@ -135,15 +210,20 @@ export function rowInfo(r: RowConfig) {
   return { ...l, subtitle: l.owner ? `A Hardcover list by @${l.owner}` : "A Hardcover list" };
 }
 
-export const tagRows = (kind: TagKind) => TAGS[kind].map((g) => rowInfo(tagRow(kind, g.slug)));
+export const tagRows = (kind: TagKind, tags: Tag[]) => tags.map((g) => rowInfo(tagRow(kind, g.slug, g.name)));
+export const tagRowInfo = (kind: TagKind, slug: string, name: string) => rowInfo(tagRow(kind, slug, name));
 
 /** Title and subtitle for any row key, for its own page. */
-export async function rowInfoFor(key: string, userId: number) {
+export async function rowInfoFor(key: string, userId: number, nameHint?: string | null) {
   const mine = rowsFor(userId).rows.find((r) => r.key === key) ?? defaultRows().find((r) => r.key === key);
   if (mine) return rowInfo(mine);
   if (key in BUILTINS) return rowInfo(builtin(key as BuiltinId));
   const g = key.match(/^(genre|mood)-(.+)$/);
-  if (g && tagBySlug[g[1] as TagKind].has(g[2])) return rowInfo(tagRow(g[1] as TagKind, g[2]));
+  if (g) {
+    const kind = g[1] as TagKind;
+    const name = tagName(kind, g[2], nameHint) ?? (await allTags(kind).catch(() => []), tagName(kind, g[2]));
+    if (name) return rowInfo(tagRow(kind, g[2], name));
+  }
   const l = key.match(/^list-(\d+)$/);
   if (l) {
     const { info } = await fetchList(Number(l[1]));
@@ -405,7 +485,7 @@ async function vibeBooks(userId: number, limit: number): Promise<HcSummary[]> {
 }
 
 /** One row's books. `key` is a built-in id, list-<id>, genre-<slug> or mood-<slug>. `limit` is bigger on the row's own page. */
-export async function discoverRow(key: string, userId: number, limit = ROW, range: TagRange = "month") {
+export async function discoverRow(key: string, userId: number, limit = ROW, range: TagRange = "month", nameHint?: string | null) {
   // Rows built from your own Hardcover account need your own token.
   if (PERSONAL.has(key) && !hasHardcover(userId)) return [];
   const hc = () => hardcover();
@@ -418,8 +498,11 @@ export async function discoverRow(key: string, userId: number, limit = ROW, rang
   const tag = key.match(/^(genre|mood)-(.+)$/);
   if (tag) {
     const kind = tag[1] as TagKind;
-    const g = tagBySlug[kind].get(tag[2]);
-    if (!g) throw new Error("No such row");
+    const rowName = rowsFor(userId).rows.find((r) => r.key === key && r.kind !== "builtin" && r.kind !== "list") as { name?: string } | undefined;
+    let name = tagName(kind, tag[2], nameHint ?? rowName?.name);
+    if (!name) name = (await allTags(kind).catch(() => [])).find((t) => t.slug === tag[2])?.name ?? null;
+    if (!name) throw new Error("No such row");
+    const g = { name };
     if (range !== "all") {
       const trending = await cached(`${key}:${range}:${L}`, () => trendingTagBooks(kind, g.name, range, L));
       // A Discover row with too little trending falls back to all time; the page shows what it asked for.

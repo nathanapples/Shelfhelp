@@ -213,6 +213,12 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
     }
     return { books: picked };
   }
+  if (q.includes("query AllTags")) {
+    const genres = ["Fiction", "Fantasy", "Young Adult", "Science Fiction", "Thriller", "Horror", "Cozy Mystery", "Space Opera", "Urban Fantasy", "Cyberpunk", "General", '"Dark"'];
+    const moods = ["Adventurous", "Emotional", "Dark", "Tense", "Cozy", "Whimsical", "Atmospheric", "Hopeful"];
+    const list = (v.category === "mood" ? moods : genres).map((tag, i) => ({ tag, slug: tag.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""), count: 5000 - i * 300 }));
+    return { tags: Number(v.offset) > 0 ? [] : list };
+  }
   if (q.includes("query TrendingTagIds")) {
     const ids = books.map((b) => b.id);
     if (Number(v.offset) > 0) return { books_trending: { ids: [] } };

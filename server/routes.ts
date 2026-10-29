@@ -12,7 +12,7 @@ import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
-import { BUILTINS, PAGE, PERSONAL, hasHardcover, isTagRange, defaultRows, loadFeaturedPrompt, discoverRow, tagRows, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
+import { BUILTINS, PAGE, PERSONAL, hasHardcover, isTagRange, defaultRows, loadFeaturedPrompt, discoverRow, tagRows, tagsFor, allTags, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
 import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
 import { ISSUE_KINDS, addComment, createIssue, deleteIssue, issueCounts, issueDetail, listIssues, setIssueStatus } from "./lib/issues.js";
 import { canSeeRequest, editionLabel, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
@@ -46,6 +46,7 @@ function hardcoverConnected(userId: number, hadToken: boolean) {
 /** What someone who isn't an admin may use. Everything else is admin-only. */
 const USER_ROUTES: [string, RegExp][] = [
   ["*", /^\/api\/discover(\/[^/]+)?$/],
+  ["GET", /^\/api\/tags\/(genre|mood)$/],
   ["GET", /^\/api\/hardcover\/(search|book|editions|description)$/],
   ["GET", /^\/api\/abs\/cover\/[^/]+$/],
   ["GET", /^\/api\/library\/similar$/],
@@ -593,6 +594,7 @@ export async function routes(app: FastifyInstance) {
     const { rows, custom } = rowsFor(req.viewer.user.id);
     const chaptarr = isConfigured().chaptarr;
     const connected = hasHardcover(req.viewer.user.id);
+    const chips = tagsFor(req.viewer.user.id);
     return {
       // Personal rows need the viewer's own Hardcover account.
       rows: rows.filter((r) => (chaptarr || r.key !== "requests") && (connected || !PERSONAL.has(r.key))).map(rowInfo),
@@ -603,14 +605,24 @@ export async function routes(app: FastifyInstance) {
       builtins: Object.entries(BUILTINS)
         .filter(([id]) => chaptarr || id !== "requests")
         .map(([id, b]) => ({ key: id, kind: "builtin", id, ...b })),
-      genres: tagRows("genre"),
-      moods: tagRows("mood"),
+      genres: tagRows("genre", chips.genre),
+      moods: tagRows("mood", chips.mood),
     };
   });
 
-  app.put<{ Body: { rows: unknown; asDefault?: boolean } }>("/api/discover/rows", async (req, reply) => {
+  /** Every genre or mood on Hardcover, most books first, for All genres / All moods and Customize. */
+  app.get<{ Params: { kind: string } }>("/api/tags/:kind", async (req, reply) => {
+    try {
+      const kind = req.params.kind === "mood" ? "mood" : "genre";
+      return await allTags(kind);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.put<{ Body: { rows: unknown; asDefault?: boolean; tags?: unknown } }>("/api/discover/rows", async (req, reply) => {
     if (req.body?.asDefault && !isAdmin(req)) return reply.code(403).send({ error: "Only an admin can change the defaults." });
-    return { rows: saveRows(req.viewer.user.id, req.body?.rows, !!req.body?.asDefault).map(rowInfo) };
+    return { rows: saveRows(req.viewer.user.id, req.body?.rows, !!req.body?.asDefault, req.body?.tags).map(rowInfo) };
   });
 
   app.delete("/api/discover/rows", async (req) => {
@@ -627,10 +639,14 @@ export async function routes(app: FastifyInstance) {
   });
 
   /** One row's books. With ?full=1, a bigger set and the row's title, for the row's own page. */
-  app.get<{ Params: { row: string }; Querystring: { full?: string; range?: string } }>("/api/discover/:row", async (req, reply) => {
+  app.get<{ Params: { row: string }; Querystring: { full?: string; range?: string; name?: string } }>("/api/discover/:row", async (req, reply) => {
     try {
       if (req.query.full === "1") {
-        const [info, books] = await Promise.all([rowInfoFor(req.params.row, req.viewer.user.id), discoverRow(req.params.row, req.viewer.user.id, PAGE, isTagRange(req.query.range) ? req.query.range : "month")]);
+        const name = req.query.name?.slice(0, 80) || null;
+        const [info, books] = await Promise.all([
+          rowInfoFor(req.params.row, req.viewer.user.id, name),
+          discoverRow(req.params.row, req.viewer.user.id, PAGE, isTagRange(req.query.range) ? req.query.range : "month", name),
+        ]);
         return { info, books };
       }
       return await discoverRow(req.params.row, req.viewer.user.id);

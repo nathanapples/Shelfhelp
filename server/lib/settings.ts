@@ -46,6 +46,8 @@ export interface Settings {
   autoWantToRead: boolean;
   /** Default Discover rows for everyone. Empty uses Shelfhelp's starter rows. */
   discoverRows: unknown[];
+  /** Default genre and mood chips for Discover's Browse sections. Null uses Shelfhelp's top 20. */
+  discoverTags: unknown;
   /** How people sign in: none (shared password or open), oidc (Pocket ID), cloudflare (Cloudflare Access). */
   authMode: AuthMode;
   oidcIssuer: string;
@@ -94,6 +96,7 @@ const defaults: Settings = {
   chaptarrEbookMetadata: 0,
   autoWantToRead: true,
   discoverRows: [],
+  discoverTags: null,
   authMode: "none",
   oidcIssuer: "",
   oidcClientId: "",

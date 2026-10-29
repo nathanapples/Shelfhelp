@@ -18,7 +18,7 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
   const asked = params.get("range");
   const range: "all" | "year" | "month" = !isTag ? "all" : asked === "all" || asked === "year" ? asked : "month";
   const { data, error, loading, setData } = useApi<{ info: DiscoverRowInfo; books: DiscoverBook[] }>(
-    `/discover/${encodeURIComponent(key)}?full=1${isTag ? `&range=${range}` : ""}`,
+    `/discover/${encodeURIComponent(key)}?full=1${isTag ? `&range=${range}` : ""}${params.get("name") ? `&name=${encodeURIComponent(params.get("name")!)}` : ""}`,
   );
   const [open, setOpen] = useState<{ book: SearchHit; replace: (b: SearchHit) => void } | null>(null);
   const info = data?.info;
@@ -60,7 +60,13 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
               type="button"
               role="radio"
               aria-checked={range === id}
-              onClick={() => setParams(id === "month" ? {} : { range: id }, { replace: true })}
+              onClick={() => {
+                // Keep the genre or mood name in the link; only the range changes.
+                const next = new URLSearchParams(params);
+                if (id === "month") next.delete("range");
+                else next.set("range", id);
+                setParams(next, { replace: true });
+              }}
               className={`px-3 py-1.5 text-sm font-medium transition ${range === id ? "bg-indigo-600 text-white" : "bg-gray-800 text-gray-300 hover:bg-gray-700"}`}
             >
               {label}
