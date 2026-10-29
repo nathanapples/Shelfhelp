@@ -555,7 +555,7 @@ export async function routes(app: FastifyInstance) {
     try {
       const id = Number(req.query.id);
       if (!id) return reply.code(400).send({ error: "Which book?" });
-      return { description: await bookDescription(id) };
+      return await bookDescription(id);
     } catch (err) {
       return fail(reply, err);
     }

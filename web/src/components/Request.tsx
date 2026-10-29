@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { StarIcon } from "@heroicons/react/20/solid";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   ArrowDownTrayIcon,
   ArrowTopRightOnSquareIcon,
@@ -14,7 +14,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { IssueThread, ReportIssue } from "./Issues";
 import { WantIcon, useWantToRead } from "./WantToRead";
-import { api, duration, type HcEdition, type Issue, type Similar, type Format, type RequestFormat, type RequestMap, type RequestOutcome, type RequestStatus } from "../lib/api";
+import { api, duration, tagLink, type HcEdition, type Issue, type Similar, type Format, type RequestFormat, type RequestMap, type RequestOutcome, type RequestStatus } from "../lib/api";
 import { Cover, Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
 
@@ -508,28 +508,66 @@ function BookIssues({ book, admin }: { book: RequestableBook; admin: boolean }) 
 }
 
 /** The book's Hardcover description, small and cut off after a few lines (tap More for the rest). */
+/**
+ * The book's Hardcover description, small and cut off after three lines.
+ * "More" shows the rest, plus the book's genres and moods as links to their
+ * pages, so the popup stays short until you ask for detail.
+ */
 function Description({ bookId }: { bookId: number }) {
-  const [text, setText] = useState<string | null>(null);
+  type TagRef = { slug: string; name: string };
+  const [about, setAbout] = useState<{ description: string | null; genres: TagRef[]; moods: TagRef[] } | null>(null);
   const [open, setOpen] = useState(false);
   useEffect(() => {
     let alive = true;
-    setText(null);
+    setAbout(null);
     setOpen(false);
-    api<{ description: string | null }>(`/hardcover/description?id=${bookId}`)
-      .then((d) => alive && setText(d.description))
+    api<{ description: string | null; genres?: TagRef[]; moods?: TagRef[] }>(`/hardcover/description?id=${bookId}`)
+      .then((d) => alive && setAbout({ description: d.description, genres: d.genres ?? [], moods: d.moods ?? [] }))
       .catch(() => {});
     return () => {
       alive = false;
     };
   }, [bookId]);
-  if (!text) return null;
-  const long = text.length > 220;
+  if (!about) return null;
+  const { description: text, genres, moods } = about;
+  const hasTags = genres.length + moods.length > 0;
+  if (!text && !hasTags) return null;
+  const long = !!text && text.length > 220;
+  const chip = (kind: "genre" | "mood", t: TagRef) => (
+    <Link
+      key={`${kind}-${t.slug}`}
+      to={tagLink(kind, t)}
+      // Replace the popup's Back step, so Back from that page returns here without an extra press.
+      replace
+      className={`rounded-full px-2 py-0.5 text-[11px] ring-1 transition hover:text-white ${
+        kind === "genre" ? "bg-pink-900/30 text-pink-200 ring-pink-800 hover:bg-pink-900/60" : "bg-amber-900/30 text-amber-200 ring-amber-800 hover:bg-amber-900/60"
+      }`}
+    >
+      {t.name}
+    </Link>
+  );
   return (
     <div className="mt-3 text-xs leading-relaxed text-gray-300 sm:text-sm">
-      <p className={`whitespace-pre-line ${open ? "" : "line-clamp-3"}`}>{text}</p>
-      {long && (
+      {text && <p className={`whitespace-pre-line ${open ? "" : "line-clamp-3"}`}>{text}</p>}
+      {open && hasTags && (
+        <div className="mt-2 space-y-1.5">
+          {genres.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Genres</span>
+              {genres.map((t) => chip("genre", t))}
+            </div>
+          )}
+          {moods.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Moods</span>
+              {moods.map((t) => chip("mood", t))}
+            </div>
+          )}
+        </div>
+      )}
+      {(long || hasTags) && (
         <button type="button" className="mt-0.5 text-xs font-medium text-indigo-400 hover:underline" onClick={() => setOpen((o) => !o)}>
-          {open ? "Less" : "More"}
+          {open ? "Less" : text ? "More" : "Genres and moods"}
         </button>
       )}
     </div>
@@ -569,6 +607,13 @@ export function RequestModal({
 }) {
   const [owned, setOwned] = useState<boolean | null>(null);
   useEffect(() => setOwned(null), [book?.id]);
+  // Following a link out of the popup (a genre, a mood) closes it, even when the new page reuses this one.
+  const location = useLocation();
+  const openedAt = useRef(location.key);
+  useEffect(() => {
+    if (!book) openedAt.current = location.key;
+    else if (location.key !== openedAt.current) onClose();
+  }, [location.key, book]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!book) return null;
   const hcUrl = book.slug ? `https://hardcover.app/books/${book.slug}` : null;
   const shown = { ...book, absItemId: owned === null ? book.absItemId : owned ? (book.absItemId ?? "yes") : null };

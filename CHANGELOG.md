@@ -2,6 +2,11 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.18.0 (2026-10-29)
+
+- Book popups show the book's genres and moods from Hardcover (up to six of each) when you tap More under the description. Each one opens that genre or mood's page. Nothing is added to the short view. Books without a description show a small "Genres and moods" link instead.
+- Following a link out of a book popup closes the popup, and Back from the new page returns to where you were without an extra press.
+
 ## 0.17.0 (2026-10-29)
 
 - Hardcover keys are checked for the permissions Shelfhelp needs (read:me:content, read:library, write:library, read:vibes, read:catalog) when someone connects. A key missing any of them is refused with a message saying which, instead of connecting and then quietly failing.

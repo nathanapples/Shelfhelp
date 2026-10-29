@@ -475,16 +475,46 @@ export async function bookEditions(bookId: number): Promise<HcEdition[]> {
   return editions;
 }
 
-const descriptions = new Map<number, { at: number; text: string | null }>();
+type TagRef = { slug: string; name: string };
+type BookAbout = { description: string | null; genres: TagRef[]; moods: TagRef[] };
+const descriptions = new Map<number, { at: number; about: BookAbout }>();
 
-/** A book's description from Hardcover. Cached for a day. */
-export async function bookDescription(bookId: number): Promise<string | null> {
+/** The book's top tags in one category of Hardcover's cached_tags ("Genre", "Mood"), most-tagged first. */
+function topTags(cached: unknown, category: string, limit = 6): TagRef[] {
+  let v = cached;
+  if (typeof v === "string") {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      return [];
+    }
+  }
+  const list = (v as Record<string, unknown> | null)?.[category];
+  if (!Array.isArray(list)) return [];
+  const out: TagRef[] = [];
+  for (const t of list) {
+    const name = (typeof t === "string" ? t : (t as { tag?: string })?.tag)?.trim();
+    // Skip stray quoted or bracketed tags.
+    if (!name || /^[\["']|["'\]]$/.test(name)) continue;
+    const slug = (typeof t === "object" && (t as { tagSlug?: string }).tagSlug) || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    if (!out.some((x) => x.slug === slug)) out.push({ slug, name });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** A book's description, genres and moods from Hardcover. Cached for a day. */
+export async function bookDescription(bookId: number): Promise<BookAbout> {
   const hit = descriptions.get(bookId);
-  if (hit && Date.now() - hit.at < 24 * 3600_000) return hit.text;
-  const book = (await hardcover().books.get(bookId)) as { description?: string | null } | null;
-  const text = book?.description?.trim() || null;
-  descriptions.set(bookId, { at: Date.now(), text });
-  return text;
+  if (hit && Date.now() - hit.at < 24 * 3600_000) return hit.about;
+  const book = (await hardcover().books.get(bookId)) as { description?: string | null; cachedTags?: unknown } | null;
+  const about = {
+    description: book?.description?.trim() || null,
+    genres: topTags(book?.cachedTags, "Genre"),
+    moods: topTags(book?.cachedTags, "Mood"),
+  };
+  descriptions.set(bookId, { at: Date.now(), about });
+  return about;
 }
 
 const SHELF_NAMES: Record<number, string> = { 1: "Want to Read", 2: "Currently Reading", 3: "Read", 4: "Paused", 5: "Did Not Finish" };

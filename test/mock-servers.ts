@@ -195,7 +195,7 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
   }
   if (/query GetBook\(/.test(q)) {
     const i = books.findIndex((b) => b.id === Number(v.id));
-    return { books_by_pk: i < 0 ? null : { ...listBooks(i, 1)[0].book, description: `${books[i].title} is a mock description. `.repeat(8).trim(), headline: null, releaseDate: "2020-01-01" } };
+    return { books_by_pk: i < 0 ? null : { ...listBooks(i, 1)[0].book, description: `${books[i].title} is a mock description. `.repeat(8).trim(), headline: null, releaseDate: "2020-01-01", cachedTags: { Genre: genresOf(books[i]).map((tag) => ({ tag, tagSlug: tag.toLowerCase().replace(/[^a-z0-9]+/g, "-"), count: 9 })), Mood: moodsOf(books[i]).map((tag) => ({ tag, count: 4 })), Tag: [{ tag: "Space", count: 3 }] } } };
   }
   if (q.includes("query GetUserBookForBook")) {
     const e = userBooks.get(Number(v.bookId));
