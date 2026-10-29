@@ -333,6 +333,39 @@ export async function testHardcover(token: string) {
 }
 
 /**
+ * Checks the server's own key against what it's used for: catalog data and
+ * search, public lists and prompts. It doesn't need to see its own profile,
+ * so the username is shown only when the key allows it.
+ */
+export async function testServerKey(token: string): Promise<{ username: string | null; missing: string[] }> {
+  const hc = hardcover(token);
+  const missing = new Set<string>();
+  const probe = async (fn: () => Promise<unknown>, scopes: string[]) => {
+    try {
+      await fn();
+    } catch (err) {
+      const m = missingScopes(err, scopes);
+      if (!m) throw err;
+      for (const x of m) missing.add(x);
+    }
+  };
+  await probe(() => hc.books.getMany([1]), ["read:catalog"]);
+  await probe(() => hc.search.books("dune", { perPage: 1 }), ["read:catalog"]);
+  await probe(() => hc.prompts.list({ featured: true, limit: 1 }), ["read:prompts"]);
+  // Only a permission error counts here; anything else about this query isn't the key's fault.
+  await probe(() => hc.graphql("query ServerKeyLists { lists(limit: 1) { id } }").catch((err) => {
+    if (missingScopes(err, ["read:lists"])) throw err;
+  }), ["read:lists"]);
+  let username: string | null = null;
+  try {
+    username = ((await hc.me.get()) as { username?: string }).username ?? null;
+  } catch {
+    /* fine: the server key doesn't need read:me */
+  }
+  return { username, missing: [...missing] };
+}
+
+/**
  * The Hardcover permissions (scopes) a reader's key needs: their shelves and
  * Want to Read, reading progress, Top picks (vibes) and book details.
  */

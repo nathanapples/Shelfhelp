@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import { Abs, AbsError } from "./lib/abs.js";
 import { db, json } from "./lib/db.js";
 import { config } from "./lib/config.js";
-import { READER_SCOPES, forgetToken, addToWantToRead, hardcoverProblem, bookDescription, checkHardcoverToken, scopeHelp, bookEditions, fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
+import { READER_SCOPES, forgetToken, addToWantToRead, hardcoverProblem, bookDescription, checkHardcoverToken, scopeHelp, bookEditions, fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover, testServerKey } from "./lib/hardcover.js";
 import { getItems, refreshLibrary, searchLibrary } from "./lib/library.js";
 import { cleanIssuer, getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } from "./lib/settings.js";
 import { ensureWantToRead } from "./lib/autolists.js";
@@ -540,7 +540,7 @@ export async function routes(app: FastifyInstance) {
   app.post<{ Body: { token?: string } }>("/api/settings/test/hardcover", async (req, reply) => {
     try {
       const token = !req.body?.token || req.body.token === MASK ? getSettings().hardcoverToken : req.body.token;
-      return await testHardcover(token);
+      return await testServerKey(token);
     } catch (err) {
       return fail(reply, err);
     }

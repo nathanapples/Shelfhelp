@@ -486,6 +486,11 @@ http
         res.writeHead(403, { "Content-Type": "application/json" });
         return res.end(JSON.stringify({ error: "insufficient_scope", error_description: `Missing scopes: ${scope}`, scope }));
       }
+      // Test hook: "hc-catalog" is a server key with only read:catalog, read:lists and read:prompts.
+      if (tok === "hc-catalog" && /query Me\b/.test(parsed.query ?? "")) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "insufficient_scope", error_description: "Missing scopes: read:me:content", scope: "read:me:content" }));
+      }
       const out = hardcover(parsed, tok);
       // MOCK_DELAY_MS slows every answer down, to watch progress in the UI.
       setTimeout(() => {

@@ -2,6 +2,10 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.19.1 (2026-10-29)
+
+- Test on the server key in Settings no longer fails for a key with only read:catalog, read:lists and read:prompts. It used to look up the key's Hardcover username, which needs read:me:content. It now checks what the server key is used for (catalog, search, public lists, prompts), says which of those permissions are missing, and shows the username only if the key allows it.
+
 ## 0.19.0 (2026-10-29)
 
 - **Sign in with Hardcover.** People can connect their Hardcover account with a Connect with Hardcover button in My account (and on Discover) instead of making and pasting a key. Shelfhelp asks for read:me:content, read:library, write:library, read:vibes, read:catalog, read:lists and offline_access, keeps the tokens on the server, and renews them as they expire. Pasting a key still works, and either one replaces the other. Disconnect signs out on Hardcover too.

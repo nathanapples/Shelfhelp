@@ -92,8 +92,13 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
   const testHardcover = async () => {
     setTesting(true);
     try {
-      const r = await api<{ username: string }>("/settings/test/hardcover", { method: "POST", body: { token: s.hardcoverToken } });
-      setTest({ ok: true, message: <>Connected to Hardcover as <b>@{r.username}</b>.</> });
+      const r = await api<{ username: string | null; missing: string[] }>("/settings/test/hardcover", { method: "POST", body: { token: s.hardcoverToken } });
+      const who = r.username ? <> as <b>@{r.username}</b></> : null;
+      setTest(
+        r.missing.length
+          ? { ok: false, message: <>Hardcover accepted the key{who}, but it's missing {r.missing.join(", ")}. Make a new key with read:catalog, read:lists and read:prompts.</> }
+          : { ok: true, message: <>The server key works{who}: it can read the catalog, search, public lists and prompts.</> },
+      );
     } catch (e) {
       setTest({ ok: false, message: (e as Error).message });
     } finally {
