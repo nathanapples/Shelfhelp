@@ -2,6 +2,12 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.19.2 (2026-10-29)
+
+- Sign in with Hardcover: Shelfhelp now sends the app's client secret the way the Hardcover app expects. It tries HTTP Basic first, falls back to sending it in the form, and remembers which one worked. Before, it only sent it in the form, which an app set up for Basic refuses with `invalid_client`.
+- Clearer sign-in errors: a refused client ID or secret says to check both in Settings, Hardcover. Errors Hardcover sends back include its explanation.
+- Test on the server key says plainly when Hardcover refuses the key itself (for example "Token is not associated with a user"), as opposed to a missing permission.
+
 ## 0.19.1 (2026-10-29)
 
 - Test on the server key in Settings no longer fails for a key with only read:catalog, read:lists and read:prompts. It used to look up the key's Hardcover username, which needs read:me:content. It now checks what the server key is used for (catalog, search, public lists, prompts), says which of those permissions are missing, and shows the username only if the key allows it.

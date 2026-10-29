@@ -12,6 +12,7 @@
  * token as it expires and stores each new pair before using it.
  */
 import { OAuthSession, createAuthorization, exchangeCode, type AuthorizationAttempt, type OAuthConfig, type TokenSet, type TokenStore } from "@hardcover/sdk/oauth";
+import { fetchTransport, type HttpRequest, type Transport } from "@hardcover/sdk";
 import { config } from "./config.js";
 import { db, json } from "./db.js";
 import { getSettings } from "./settings.js";
@@ -29,6 +30,53 @@ export function signInConfigured(s = getSettings()) {
   return !!s.hardcoverClientId;
 }
 
+/**
+ * The SDK sends the client secret in the form body (client_secret_post).
+ * Hardcover's app settings can require HTTP Basic instead (client_secret_basic),
+ * and answer invalid_client otherwise. This tries Basic first, falls back to
+ * the form body on invalid_client, and remembers what worked. Retrying is
+ * safe: a request refused for client authentication never spends a code or
+ * refresh token.
+ */
+type AuthMethod = "basic" | "post";
+const working = new Map<string, AuthMethod>();
+const base = fetchTransport();
+
+function asBasic(req: HttpRequest): HttpRequest {
+  const form = new URLSearchParams(req.body);
+  const id = form.get("client_id");
+  const secret = form.get("client_secret");
+  if (!id || !secret) return req;
+  form.delete("client_id");
+  form.delete("client_secret");
+  const basic = Buffer.from(`${encodeURIComponent(id)}:${encodeURIComponent(secret)}`).toString("base64");
+  return { ...req, headers: { ...req.headers, authorization: `Basic ${basic}` }, body: form.toString() };
+}
+
+function clientAuthTransport(clientId: string): Transport {
+  return {
+    async send(req) {
+      if (!/client_secret=/.test(req.body)) return base.send(req);
+      const order: AuthMethod[] = working.get(clientId) === "post" ? ["post", "basic"] : ["basic", "post"];
+      let res = await base.send(order[0] === "basic" ? asBasic(req) : req);
+      if (isInvalidClient(res.status, res.body)) {
+        const retry = await base.send(order[1] === "basic" ? asBasic(req) : req);
+        if (!isInvalidClient(retry.status, retry.body)) {
+          working.set(clientId, order[1]);
+          return retry;
+        }
+        return res;
+      }
+      working.set(clientId, order[0]);
+      return res;
+    },
+  };
+}
+
+function isInvalidClient(status: number, body: string) {
+  return (status === 400 || status === 401) && /"error"\s*:\s*"invalid_client"/.test(body);
+}
+
 function oauthConfig(): OAuthConfig {
   const s = getSettings();
   if (!s.hardcoverClientId) throw new Error("Sign in with Hardcover isn't set up. An admin adds the Hardcover app's client ID in Settings.");
@@ -36,7 +84,8 @@ function oauthConfig(): OAuthConfig {
   const base = process.env.HARDCOVER_OAUTH_URL?.replace(/\/+$/, "");
   return {
     clientId: s.hardcoverClientId,
-    clientSecret: s.hardcoverClientSecret || undefined,
+    clientSecret: s.hardcoverClientSecret.trim() || undefined,
+    transport: clientAuthTransport(s.hardcoverClientId),
     userAgent: `shelfhelp/${config.version}`,
     ...(base
       ? {

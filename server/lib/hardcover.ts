@@ -349,7 +349,13 @@ export async function testServerKey(token: string): Promise<{ username: string |
       for (const x of m) missing.add(x);
     }
   };
-  await probe(() => hc.books.getMany([1]), ["read:catalog"]);
+  try {
+    await probe(() => hc.books.getMany([1]), ["read:catalog"]);
+  } catch (err) {
+    throw new Error(
+      `Hardcover refused this key outright: "${(err as Error).message}". It isn't a missing permission. Check that the whole key was pasted, that it's an API key from hardcover.app/account/api (not the developer app's client ID or secret), and that it was made while signed in to the account it belongs to.`,
+    );
+  }
   await probe(() => hc.search.books("dune", { perPage: 1 }), ["read:catalog"]);
   await probe(() => hc.prompts.list({ featured: true, limit: 1 }), ["read:prompts"]);
   // Only a permission error counts here; anything else about this query isn't the key's fault.

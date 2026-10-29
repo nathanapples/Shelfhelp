@@ -416,6 +416,12 @@ function oauth(req: http.IncomingMessage, res: http.ServerResponse) {
     }
     if (url.pathname !== "/oauth2/token") return send(404, { error: "not_found" });
     if (clientId !== OAUTH_CLIENT.id || clientSecret !== OAUTH_CLIENT.secret) return send(401, { error: "invalid_client" });
+    // MOCK_OAUTH_AUTH=basic|post: accept only that way of sending the client secret, like a registered token_endpoint_auth_method.
+    const method = req.headers.authorization ? "basic" : "post";
+    if (process.env.MOCK_OAUTH_AUTH && process.env.MOCK_OAUTH_AUTH !== method) {
+      oauthLog.push(`token rejected ${method}`);
+      return send(401, { error: "invalid_client", error_description: `client authentication must use ${process.env.MOCK_OAUTH_AUTH}` });
+    }
     const grant = form.get("grant_type");
     if (grant === "authorization_code") {
       const c = oauthCodes.get(form.get("code") ?? "");

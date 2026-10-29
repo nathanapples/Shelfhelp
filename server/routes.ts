@@ -339,12 +339,29 @@ export async function routes(app: FastifyInstance) {
       back = flow.back;
       // The person who started the sign-in must be the one finishing it.
       if (flow.userId !== req.viewer.user.id) throw new Error("You were signed in to Shelfhelp as someone else when you started. Try again.");
-      const code = parseRedirect(`${publicBase(req)}${req.url}`, flow.attempt);
+      let code: string;
+      try {
+        code = parseRedirect(`${publicBase(req)}${req.url}`, flow.attempt);
+      } catch (err) {
+        const e = err as Error & { code?: string; description?: string };
+        if (e.code === "access_denied") throw err;
+        throw new Error(`Hardcover sent you back with an error: ${e.description ? `${e.code}: ${e.description}` : e.message}`);
+      }
       const id = req.viewer.user.id;
       const had = !!readerById(id)?.hardcoverToken;
       const previous = readerById(id)?.hardcoverToken;
       if (previous) forgetToken(previous);
-      await finishSignIn(id, flow.attempt, code);
+      try {
+        await finishSignIn(id, flow.attempt, code);
+      } catch (err) {
+        const e = err as Error & { code?: string; description?: string };
+        const why = e.description ? `${e.code ?? e.message}: ${e.description}` : e.message;
+        throw new Error(
+          e.code === "invalid_client" || /invalid_client/.test(e.message)
+            ? `Hardcover didn't accept Shelfhelp's client ID and secret (${why}). Check both in Settings, Hardcover against the developer app; the secret may need to be made again.`
+            : `Hardcover didn't finish the sign-in: ${why}`,
+        );
+      }
       // Signing in replaces a pasted key.
       updateUser(id, { hardcover_token: null });
       forgetToken(oauthRef(id));
