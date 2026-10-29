@@ -4,7 +4,7 @@
  * list. Hardcover answers are cached for a few hours.
  */
 import { db, json } from "./db.js";
-import { fetchList, hardcover, resolveList, type ListBook } from "./hardcover.js";
+import { fetchList, hardcover, missingScopes, resolveList, type ListBook } from "./hardcover.js";
 import { inLibrary, requestsFor, summarizeBook, type HcSummary } from "./requests.js";
 import { myShelfStatus, refreshShelves } from "./reading.js";
 import { recentlyAdded } from "./linking.js";
@@ -254,7 +254,8 @@ async function cached(key: string, load: () => Promise<HcSummary[]>) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL) return hit.books;
   const books = await load();
-  cache.set(key, { at: Date.now(), books });
+  // Empty answers aren't kept, so a row fills in as soon as there's something (new vibes, a connected key).
+  if (books.length) cache.set(key, { at: Date.now(), books });
   return books;
 }
 
@@ -488,6 +489,17 @@ async function vibeBooks(userId: number, limit: number): Promise<HcSummary[]> {
 export async function discoverRow(key: string, userId: number, limit = ROW, range: TagRange = "month", nameHint?: string | null) {
   // Rows built from your own Hardcover account need your own token.
   if (PERSONAL.has(key) && !hasHardcover(userId)) return [];
+  if (!PERSONAL.has(key)) return buildRow(key, userId, limit, range, nameHint);
+  try {
+    return await buildRow(key, userId, limit, range, nameHint);
+  } catch (err) {
+    // A key missing permissions: Discover's banner explains it, so the row is just empty.
+    if (missingScopes(err, [])) return [];
+    throw err;
+  }
+}
+
+async function buildRow(key: string, userId: number, limit: number, range: TagRange, nameHint?: string | null) {
   const hc = () => hardcover();
   const L = limit;
   const list = key.match(/^list-(\d+)$/);

@@ -317,6 +317,68 @@ export async function testHardcover(token: string) {
   return { username: (me as { username?: string }).username ?? "unknown" };
 }
 
+/**
+ * The Hardcover permissions (scopes) a reader's key needs: their shelves and
+ * Want to Read, reading progress, Top picks (vibes) and book details.
+ */
+export const READER_SCOPES = ["read:me:content", "read:library", "write:library", "read:vibes", "read:catalog"] as const;
+
+/** The scopes a Hardcover error says are missing, or null when it isn't a missing-permission error. */
+export function missingScopes(err: unknown, fallback: string[]): string[] | null {
+  const e = err as { missingScopes?: string[]; message?: string; name?: string } | null;
+  if (e?.missingScopes) return e.missingScopes.length ? e.missingScopes : fallback;
+  const m = e?.message?.match(/missing scopes?:?\s*([\w:,\s]+)/i);
+  if (m) return m[1].split(/[\s,]+/).filter((x) => x.includes(":"));
+  if (/insufficient_scope/i.test(e?.message ?? "")) return fallback;
+  return null;
+}
+
+/**
+ * Checks a reader's key: who it belongs to, and which permissions Shelfhelp
+ * needs that it doesn't have. Only reads are tried (write:library can't be
+ * checked without changing something), so that one is listed as needed.
+ */
+export async function checkHardcoverToken(token: string): Promise<{ username: string; missing: string[] }> {
+  const hc = hardcover(token);
+  const { username } = await testHardcover(token);
+  const missing = new Set<string>();
+  const probe = async (fn: () => Promise<unknown>, scopes: string[]) => {
+    try {
+      await fn();
+    } catch (err) {
+      const m = missingScopes(err, scopes);
+      if (!m) throw err;
+      for (const s of m) missing.add(s);
+    }
+  };
+  await probe(() => hc.library.count({ status: 1 }), ["read:library"]);
+  await probe(() => hc.vibes.mine({ limit: 1 }), ["read:vibes"]);
+  await probe(() => hc.books.getMany([1]), ["read:catalog"]);
+  return { username, missing: [...missing] };
+}
+
+const checks = new Map<string, { at: number; problem: string | null }>();
+
+/** What's wrong with a reader's key, if anything, checked at most once an hour. */
+export async function hardcoverProblem(token: string): Promise<string | null> {
+  const hit = checks.get(token);
+  if (hit && Date.now() - hit.at < 3600_000) return hit.problem;
+  let problem: string | null = null;
+  try {
+    const c = await checkHardcoverToken(token);
+    if (c.missing.length) problem = scopeHelp(c.missing);
+  } catch (err) {
+    problem = `Hardcover didn't accept your key: ${(err as Error).message}`;
+  }
+  checks.set(token, { at: Date.now(), problem });
+  return problem;
+}
+
+/** One line telling someone how to fix a key that's missing permissions. */
+export function scopeHelp(missing: string[]) {
+  return `Your Hardcover key is missing ${missing.length === 1 ? "this permission" : "these permissions"}: ${missing.join(", ")}. Make a new key at hardcover.app (Account, API Access) with ${READER_SCOPES.join(", ")}, then paste it here.`;
+}
+
 /** One edition of a book, for picking the exact version to request. */
 export interface HcEdition {
   id: number;

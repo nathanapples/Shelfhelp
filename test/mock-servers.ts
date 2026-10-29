@@ -371,7 +371,15 @@ http
         res.writeHead(200, { "Content-Type": "application/json" });
         return res.end(JSON.stringify({ ok: true }));
       }
-      const out = hardcover(JSON.parse(data || "{}"), String(req.headers.authorization ?? "").replace(/^Bearer /, ""));
+      const tok = String(req.headers.authorization ?? "").replace(/^Bearer /, "");
+      const parsed = JSON.parse(data || "{}");
+      // Test hook: the token "hc-noscope" has no read:library or read:vibes permission.
+      if (tok === "hc-noscope" && /query (CountLibrary|GetLibrary|GetVibesForUser)/.test(parsed.query ?? "")) {
+        const scope = /Vibes/.test(parsed.query) ? "read:vibes" : "read:library";
+        res.writeHead(403, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "insufficient_scope", error_description: `Missing scopes: ${scope}`, scope }));
+      }
+      const out = hardcover(parsed, tok);
       // MOCK_DELAY_MS slows every answer down, to watch progress in the UI.
       setTimeout(() => {
         res.writeHead(200, { "Content-Type": "application/json" });

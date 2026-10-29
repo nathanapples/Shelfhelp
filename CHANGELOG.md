@@ -2,6 +2,12 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.17.0 (2026-10-29)
+
+- Hardcover keys are checked for the permissions Shelfhelp needs (read:me:content, read:library, write:library, read:vibes, read:catalog) when someone connects. A key missing any of them is refused with a message saying which, instead of connecting and then quietly failing.
+- My account lists the permissions to give a new key, and warns when the saved key is missing some or Hardcover no longer accepts it. Discover shows the same warning above the rows.
+- Top picks for you, From your Want to Read and Pick up where you left off stay on Discover when they're empty, with a line saying why, instead of disappearing. Empty answers are no longer remembered, so these rows fill in as soon as there's something to show.
+
 ## 0.16.1 (2026-10-29)
 
 - The phone's Back button now closes a book's popup (and any other popup, like Customize or an issue) instead of leaving the page. With a popup open on top of another, Back closes the top one first. Back also closes the phone's side menu.

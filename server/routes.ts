@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import { Abs, AbsError } from "./lib/abs.js";
 import { db, json } from "./lib/db.js";
 import { config } from "./lib/config.js";
-import { addToWantToRead, bookDescription, bookEditions, fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
+import { READER_SCOPES, addToWantToRead, hardcoverProblem, bookDescription, checkHardcoverToken, scopeHelp, bookEditions, fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
 import { getItems, refreshLibrary, searchLibrary } from "./lib/library.js";
 import { cleanIssuer, getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } from "./lib/settings.js";
 import { ensureWantToRead } from "./lib/autolists.js";
@@ -245,8 +245,17 @@ export async function routes(app: FastifyInstance) {
     const u = req.viewer.user;
     let hardcoverUser: string | null = null;
     const r = readerById(u.id)!;
-    if (r.hardcoverToken) hardcoverUser = (await testHardcover(r.hardcoverToken).catch(() => null))?.username ?? null;
-    return { ...userView(u), via: req.viewer.via, hardcoverUser };
+    let hardcoverProblem: string | null = null;
+    if (r.hardcoverToken) {
+      try {
+        const check = await checkHardcoverToken(r.hardcoverToken);
+        hardcoverUser = check.username;
+        if (check.missing.length) hardcoverProblem = scopeHelp(check.missing);
+      } catch (err) {
+        hardcoverProblem = `Hardcover didn't accept your key: ${(err as Error).message}`;
+      }
+    }
+    return { ...userView(u), via: req.viewer.via, hardcoverUser, hardcoverProblem, hardcoverScopes: READER_SCOPES };
   });
 
   app.put<{ Body: { hardcoverToken?: string | null } }>("/api/me", async (req, reply) => {
@@ -255,7 +264,8 @@ export async function routes(app: FastifyInstance) {
       const token = req.body?.hardcoverToken;
       if (token === undefined || token === MASK) return { ok: true };
       if (token) {
-        const who = await testHardcover(token);
+        const who = await checkHardcoverToken(token);
+        if (who.missing.length) return reply.code(400).send({ error: scopeHelp(who.missing) });
         const had = !!readerById(u.id)?.hardcoverToken;
         // The owner's token is the one in Settings.
         if (u.id === OWNER_ID) saveSettings({ hardcoverToken: token });
@@ -292,7 +302,8 @@ export async function routes(app: FastifyInstance) {
       if (!a) return reply.code(404).send({ error: "That Audiobookshelf user wasn't found." });
       const u = await userForAbs(a);
       if (req.body.hardcoverToken) {
-        await testHardcover(req.body.hardcoverToken);
+        const check = await checkHardcoverToken(req.body.hardcoverToken);
+        if (check.missing.length) return reply.code(400).send({ error: scopeHelp(check.missing) });
         const had = !!readerById(u.id)?.hardcoverToken;
         if (u.id === OWNER_ID) saveSettings({ hardcoverToken: req.body.hardcoverToken });
         else updateUser(u.id, { hardcover_token: req.body.hardcoverToken });
@@ -315,7 +326,10 @@ export async function routes(app: FastifyInstance) {
         if (b.role && id !== OWNER_ID) updateUser(id, { role: b.role === "admin" ? "admin" : "user" });
         if (b.readingEnabled !== undefined) updateUser(id, { reading_enabled: b.readingEnabled ? 1 : 0 });
         if (b.hardcoverToken !== undefined && b.hardcoverToken !== MASK) {
-          if (b.hardcoverToken) await testHardcover(b.hardcoverToken);
+          if (b.hardcoverToken) {
+            const check = await checkHardcoverToken(b.hardcoverToken);
+            if (check.missing.length) return reply.code(400).send({ error: scopeHelp(check.missing) });
+          }
           const had = !!readerById(id)?.hardcoverToken;
           if (id === OWNER_ID) {
             if (b.hardcoverToken) saveSettings({ hardcoverToken: b.hardcoverToken });
@@ -599,6 +613,8 @@ export async function routes(app: FastifyInstance) {
       // Personal rows need the viewer's own Hardcover account.
       rows: rows.filter((r) => (chaptarr || r.key !== "requests") && (connected || !PERSONAL.has(r.key))).map(rowInfo),
       needsHardcover: !connected && rows.some((r) => PERSONAL.has(r.key)),
+      // A connected key that's missing permissions: say so instead of showing empty rows.
+      hardcoverProblem: connected && rows.some((r) => PERSONAL.has(r.key)) ? await hardcoverProblem(readerById(req.viewer.user.id)!.hardcoverToken).catch(() => null) : null,
       allRows: rows.filter((r) => chaptarr || r.key !== "requests").map(rowInfo),
       custom,
       defaults: defaultRows().map(rowInfo),

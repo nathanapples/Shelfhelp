@@ -453,6 +453,8 @@ export interface DiscoverConfig {
   allRows?: DiscoverRowInfo[];
   /** Personal rows are hidden because you haven't connected Hardcover. */
   needsHardcover?: boolean;
+  /** Your Hardcover key is connected but can't do everything (missing permissions, expired). */
+  hardcoverProblem?: string | null;
   custom: boolean;
   defaults: DiscoverRowInfo[];
   builtins: DiscoverRowInfo[];

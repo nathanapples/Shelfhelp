@@ -88,6 +88,13 @@ export function TagStrip({ kind, title, subtitle, tags }: { kind: TagKind; title
   );
 }
 
+/** Why a personal row is empty, shown instead of hiding it. */
+const EMPTY_NOTES: Record<string, string> = {
+  foryou: "No picks yet. Hardcover makes these from your vibes: open hardcover.app and visit Vibes once, then check back in a few minutes.",
+  want: "Nothing to show. Books on your Hardcover Want to Read shelf that aren't in Audiobookshelf yet show up here.",
+  continue: "Nothing to pick up yet. When you've read a book in a series on Hardcover, the next one shows up here.",
+};
+
 function Shelf({
   row,
   status,
@@ -102,7 +109,9 @@ function Shelf({
   const { data, error, loading, setData } = useApi<DiscoverBook[]>(`/discover/${row.key}?v=${version}`);
   const scroller = useRef<HTMLDivElement>(null);
   const scroll = (dir: number) => scroller.current?.scrollBy({ left: dir * scroller.current.clientWidth * 0.8, behavior: "smooth" });
-  if (!loading && !error && data?.length === 0) return null;
+  // Your own rows stay, with a line saying why they're empty; other empty rows are hidden.
+  const emptyNote = EMPTY_NOTES[row.key];
+  if (!loading && !error && data?.length === 0 && !emptyNote) return null;
   const replace = (b: SearchHit) => setData((d) => d?.map((x) => (x.id === b.id && x.absItemId === b.absItemId ? { ...x, ...b } : x)) ?? d);
 
   return (
@@ -134,6 +143,9 @@ function Shelf({
         </div>
       )}
       {error && <p className="rounded-lg bg-red-900/20 p-3 text-sm text-red-300 ring-1 ring-red-900">{error}</p>}
+      {!loading && !error && data?.length === 0 && emptyNote && (
+        <p className="rounded-lg bg-gray-800/60 p-3 text-sm text-gray-400 ring-1 ring-gray-700">{emptyNote}</p>
+      )}
       <div ref={scroller} className="hide-scrollbar -mx-4 flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 pb-2 pt-1.5 sm:-mx-6 sm:scroll-px-6 sm:gap-2.5 sm:px-6 lg:-mx-8 lg:scroll-px-8 lg:px-8">
         {data?.map((b, i) => (
           <div key={`${b.id}-${b.absItemId ?? i}`} className="snap-start">
@@ -185,6 +197,14 @@ export default function DiscoverPage({ status }: { status: Status }) {
 
   return (
     <div className="pt-2">
+      {config?.hardcoverProblem && (
+        <div className="mb-5 rounded-xl bg-yellow-900/20 p-4 text-sm text-yellow-100 ring-1 ring-yellow-800">
+          {config.hardcoverProblem}{" "}
+          <Link to="/account" className="font-semibold underline">
+            Open My account
+          </Link>
+        </div>
+      )}
       {config?.needsHardcover && (
         <div className="mb-5 rounded-xl bg-indigo-900/20 p-4 text-sm text-indigo-100 ring-1 ring-indigo-800">
           Connect your Hardcover account to see Top picks for you, your Want to Read and series to pick up where you left off.{" "}

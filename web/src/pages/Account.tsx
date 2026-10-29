@@ -16,7 +16,7 @@ const VIA: Record<string, string> = {
 
 export default function AccountPage({ status, onChanged }: { status: Status; onChanged: () => void }) {
   const toast = useToast();
-  const { data: me, error, loading, reload } = useApi<UserView & { hardcoverUser: string | null }>("/me");
+  const { data: me, error, loading, reload } = useApi<UserView & { hardcoverUser: string | null; hardcoverProblem?: string | null; hardcoverScopes?: string[] }>("/me");
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const { data: reading, setData: setReading } = useApi<{ enabled: boolean }>("/reading/settings");
@@ -109,7 +109,14 @@ export default function AccountPage({ status, onChanged }: { status: Status; onC
           </a>
           . Only you and admins can see your reading.
         </p>
-        {me.hasHardcover && (
+        <p className="mt-2 text-xs text-gray-500">
+          When you make the key, give it these permissions:{" "}
+          <span className="font-mono text-gray-400">{(me.hardcoverScopes ?? []).join(", ")}</span>.
+        </p>
+        {me.hardcoverProblem && (
+          <div className="mt-4 rounded-lg bg-yellow-900/20 p-3 text-sm text-yellow-100 ring-1 ring-yellow-800">{me.hardcoverProblem}</div>
+        )}
+        {me.hasHardcover && !me.hardcoverProblem && (
           <div className="mt-4 flex items-center gap-2 text-sm text-green-300">
             <CheckCircleIcon className="h-5 w-5" /> Connected{me.hardcoverUser ? ` as @${me.hardcoverUser}` : ""}.{" "}
             <Link to={`/reading/${me.id}`} className="text-indigo-400 hover:underline">
