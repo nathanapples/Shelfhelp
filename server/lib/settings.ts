@@ -4,7 +4,11 @@ import { db } from "./db.js";
 export type Strictness = "strict" | "balanced" | "loose";
 
 export interface Settings {
+  /** The server's own Hardcover key: catalog data, trending, genres, public lists. Never anyone's shelves. */
   hardcoverToken: string;
+  /** The Hardcover developer app people sign in through ("Sign in with Hardcover"). */
+  hardcoverClientId: string;
+  hardcoverClientSecret: string;
   absUrl: string;
   absToken: string;
   /** Minutes between automatic syncs. 0 turns the schedule off. */
@@ -71,6 +75,8 @@ export type RequestFormat = "audiobook" | "ebook" | "both";
 
 const defaults: Settings = {
   hardcoverToken: "",
+  hardcoverClientId: "",
+  hardcoverClientSecret: "",
   absUrl: "",
   absToken: "",
   syncIntervalMinutes: 360,
@@ -111,6 +117,8 @@ const defaults: Settings = {
 /** Environment variables win over saved values, so a compose file can pin them. */
 const envKeys: Partial<Record<keyof Settings, string>> = {
   hardcoverToken: "HARDCOVER_TOKEN",
+  hardcoverClientId: "HARDCOVER_CLIENT_ID",
+  hardcoverClientSecret: "HARDCOVER_CLIENT_SECRET",
   absUrl: "ABS_URL",
   absToken: "ABS_TOKEN",
   syncIntervalMinutes: "SYNC_INTERVAL_MINUTES",

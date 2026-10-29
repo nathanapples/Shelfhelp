@@ -6,7 +6,7 @@
 import { db } from "./db.js";
 import { Abs } from "./abs.js";
 import { getSettings, isConfigured } from "./settings.js";
-import { getUser, readers, updateUser, OWNER_ID, type Reader } from "./users.js";
+import { getUser, readers, updateUser, type Reader } from "./users.js";
 import { shelfCollectionName, testHardcover } from "./hardcover.js";
 import { log } from "./activity.js";
 
@@ -24,8 +24,8 @@ export async function ensureWantToRead({ userId, sync = true }: { userId?: numbe
   for (const r of todo) {
     // A Want to Read collection someone already set up counts (the owner's may predate this).
     const existing = db
-      .prepare("SELECT id FROM lists WHERE source_type = 'hardcover_status' AND hc_list_id = ? AND (user_id = ? OR (user_id IS NULL AND ? = ?))")
-      .get(WANT_TO_READ, r.id, r.id, OWNER_ID) as { id: number } | undefined;
+      .prepare("SELECT id FROM lists WHERE source_type = 'hardcover_status' AND hc_list_id = ? AND user_id = ?")
+      .get(WANT_TO_READ, r.id) as { id: number } | undefined;
     if (!existing) {
       const hcUser = (await testHardcover(r.hardcoverToken).catch(() => null))?.username ?? null;
       const name = shelfCollectionName(hcUser && hcUser !== "unknown" ? hcUser : r.name, "Want to Read");

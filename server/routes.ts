@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import { Abs, AbsError } from "./lib/abs.js";
 import { db, json } from "./lib/db.js";
 import { config } from "./lib/config.js";
-import { READER_SCOPES, addToWantToRead, hardcoverProblem, bookDescription, checkHardcoverToken, scopeHelp, bookEditions, fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
+import { READER_SCOPES, forgetToken, addToWantToRead, hardcoverProblem, bookDescription, checkHardcoverToken, scopeHelp, bookEditions, fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover } from "./lib/hardcover.js";
 import { getItems, refreshLibrary, searchLibrary } from "./lib/library.js";
 import { cleanIssuer, getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } from "./lib/settings.js";
 import { ensureWantToRead } from "./lib/autolists.js";
@@ -16,7 +16,9 @@ import { BUILTINS, PAGE, PERSONAL, hasHardcover, isTagRange, defaultRows, loadFe
 import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
 import { ISSUE_KINDS, addComment, createIssue, deleteIssue, issueCounts, issueDetail, listIssues, setIssueStatus } from "./lib/issues.js";
 import { canSeeRequest, editionLabel, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
-import { requestRecoveryLink, useRecoveryLink, cloudflareProblem, cloudflareUser, endSession, createSession, oidcCallback, oidcDiscovery, oidcRedirectUri, oidcStart, passwordMatches, viewer, type Viewer } from "./lib/auth.js";
+import { SIGNIN_SCOPES, finishSignIn, grantedScopes, hasSignIn, oauthRef, signInConfigured, signOut as hardcoverSignOut, startSignIn } from "./lib/hcauth.js";
+import { parseRedirect, type AuthorizationAttempt } from "@hardcover/sdk/oauth";
+import { requestRecoveryLink, useRecoveryLink, cloudflareProblem, cloudflareUser, endSession, createSession, oidcCallback, oidcDiscovery, oidcRedirectUri, oidcStart, passwordMatches, publicBase, isHttps, viewer, type Viewer } from "./lib/auth.js";
 import { OWNER_ID, absUsers, allUsers, asReader, getUser, readerById, readers, resolveOwner, updateUser, userForAbs, userView, type Reader } from "./lib/users.js";
 import { decideItem, history, myShelfStatus, refreshShelves, readingUsers, readingRunning, rematchItem, readingView, rememberBook, send, skipChange, syncReading, undo, type HcBookView } from "./lib/reading.js";
 
@@ -34,6 +36,7 @@ declare module "fastify" {
  * and their Want to Read collection is made.
  */
 function hardcoverConnected(userId: number, hadToken: boolean) {
+  forgetToken(oauthRef(userId));
   if (!hadToken) updateUser(userId, { reading_enabled: 0 });
   refreshShelves(userId)
     .catch(() => {})
@@ -43,11 +46,27 @@ function hardcoverConnected(userId: number, hadToken: boolean) {
     });
 }
 
+/**
+ * Saves a pasted Hardcover key for someone (null disconnects). A pasted key
+ * replaces a Hardcover sign-in, and disconnecting ends both.
+ */
+async function setHardcoverKey(userId: number, token: string | null) {
+  const before = readerById(userId)?.hardcoverToken;
+  if (before) forgetToken(before);
+  await hardcoverSignOut(userId);
+  updateUser(userId, { hardcover_token: token || null });
+}
+
+const HC_FLOW_COOKIE = "shelfhelp_hc_signin";
+const HC_FLOW_PATH = "/api/hardcover/oauth";
+const hcRedirectUri = (req: FastifyRequest) => `${publicBase(req)}${HC_FLOW_PATH}/callback`;
+
 /** What someone who isn't an admin may use. Everything else is admin-only. */
 const USER_ROUTES: [string, RegExp][] = [
   ["*", /^\/api\/discover(\/[^/]+)?$/],
   ["GET", /^\/api\/tags\/(genre|mood)$/],
   ["GET", /^\/api\/hardcover\/(search|book|editions|description)$/],
+  ["GET", /^\/api\/hardcover\/oauth\/(start|callback)$/],
   ["GET", /^\/api\/abs\/cover\/[^/]+$/],
   ["GET", /^\/api\/library\/similar$/],
   ["GET", /^\/api\/(jobs|counts)$/],
@@ -195,6 +214,7 @@ export async function routes(app: FastifyInstance) {
       signinProblem: !v && s.authMode === "cloudflare" ? cloudflareProblem() : null,
       user: v ? { ...userView(v.user), via: v.via } : null,
       configured: isConfigured(),
+      hardcoverSignIn: signInConfigured(s),
       requestsEnabled: s.requestsEnabled && isConfigured().chaptarr,
       requestFormat: s.requestFormat,
     };
@@ -250,12 +270,22 @@ export async function routes(app: FastifyInstance) {
       try {
         const check = await checkHardcoverToken(r.hardcoverToken);
         hardcoverUser = check.username;
-        if (check.missing.length) hardcoverProblem = scopeHelp(check.missing);
+        if (check.missing.length) hardcoverProblem = scopeHelp(check.missing, hasSignIn(u.id));
       } catch (err) {
-        hardcoverProblem = `Hardcover didn't accept your key: ${(err as Error).message}`;
+        hardcoverProblem = hasSignIn(u.id)
+          ? `Hardcover didn't accept your sign-in: ${(err as Error).message}. Connect again.`
+          : `Hardcover didn't accept your key: ${(err as Error).message}`;
       }
     }
-    return { ...userView(u), via: req.viewer.via, hardcoverUser, hardcoverProblem, hardcoverScopes: READER_SCOPES };
+    return {
+      ...userView(getUser(u.id)!),
+      via: req.viewer.via,
+      hardcoverUser,
+      hardcoverProblem,
+      hardcoverScopes: READER_SCOPES,
+      hardcoverGranted: hasSignIn(u.id) ? grantedScopes(u.id) : null,
+      hardcoverSignIn: signInConfigured(),
+    };
   });
 
   app.put<{ Body: { hardcoverToken?: string | null } }>("/api/me", async (req, reply) => {
@@ -267,16 +297,67 @@ export async function routes(app: FastifyInstance) {
         const who = await checkHardcoverToken(token);
         if (who.missing.length) return reply.code(400).send({ error: scopeHelp(who.missing) });
         const had = !!readerById(u.id)?.hardcoverToken;
-        // The owner's token is the one in Settings.
-        if (u.id === OWNER_ID) saveSettings({ hardcoverToken: token });
-        else updateUser(u.id, { hardcover_token: token });
+        await setHardcoverKey(u.id, token);
         hardcoverConnected(u.id, had);
         return { ok: true, hardcoverUser: who.username };
       }
-      if (u.id !== OWNER_ID) updateUser(u.id, { hardcover_token: null });
+      await setHardcoverKey(u.id, null);
       return { ok: true, hardcoverUser: null };
     } catch (err) {
       return fail(reply, err);
+    }
+  });
+
+  // Sign in with Hardcover: connects the signed-in Shelfhelp user's own Hardcover account.
+  app.get<{ Querystring: { back?: string } }>(`${HC_FLOW_PATH}/start`, async (req, reply) => {
+    const back = req.query.back?.startsWith("/") ? req.query.back : "/account";
+    try {
+      const attempt = startSignIn(hcRedirectUri(req));
+      reply.setCookie(HC_FLOW_COOKIE, JSON.stringify({ attempt, userId: req.viewer.user.id, back }), {
+        path: HC_FLOW_PATH,
+        httpOnly: true,
+        sameSite: "lax",
+        secure: isHttps(req),
+        signed: true,
+        maxAge: 900,
+      });
+      return reply.redirect(attempt.url);
+    } catch (err) {
+      return reply.redirect(`${back}${back.includes("?") ? "&" : "?"}hardcover_error=${encodeURIComponent((err as Error).message)}`);
+    }
+  });
+
+  app.get<{ Querystring: Record<string, string> }>(`${HC_FLOW_PATH}/callback`, async (req, reply) => {
+    const raw = req.cookies[HC_FLOW_COOKIE];
+    const un = raw ? req.unsignCookie(raw) : null;
+    reply.clearCookie(HC_FLOW_COOKIE, { path: HC_FLOW_PATH });
+    let back = "/account";
+    const done = (q: string) => reply.redirect(`${back}${back.includes("?") ? "&" : "?"}${q}`);
+    try {
+      if (!un?.valid || !un.value) throw new Error("The Hardcover sign-in took too long or started in another browser. Try again.");
+      const flow = JSON.parse(un.value) as { attempt: AuthorizationAttempt; userId: number; back: string };
+      back = flow.back;
+      // The person who started the sign-in must be the one finishing it.
+      if (flow.userId !== req.viewer.user.id) throw new Error("You were signed in to Shelfhelp as someone else when you started. Try again.");
+      const code = parseRedirect(`${publicBase(req)}${req.url}`, flow.attempt);
+      const id = req.viewer.user.id;
+      const had = !!readerById(id)?.hardcoverToken;
+      const previous = readerById(id)?.hardcoverToken;
+      if (previous) forgetToken(previous);
+      await finishSignIn(id, flow.attempt, code);
+      // Signing in replaces a pasted key.
+      updateUser(id, { hardcover_token: null });
+      forgetToken(oauthRef(id));
+      const check = await checkHardcoverToken(oauthRef(id)).catch(() => null);
+      hardcoverConnected(id, had);
+      log("info", `${userView(getUser(id)!).name} connected Hardcover${check ? ` as @${check.username}` : ""} by signing in`);
+      if (check?.missing.length) return done(`hardcover_error=${encodeURIComponent(scopeHelp(check.missing, true))}`);
+      return done(`hardcover=connected${check ? `&hardcover_user=${encodeURIComponent(check.username)}` : ""}`);
+    } catch (err) {
+      const e = err as Error & { code?: string };
+      const message = e.code === "access_denied" || /access_denied/.test(e.message) ? "You didn't allow Shelfhelp on Hardcover, so nothing changed." : e.message;
+      log("warn", `Hardcover sign-in failed: ${message}`);
+      return done(`hardcover_error=${encodeURIComponent(message)}`);
     }
   });
 
@@ -305,8 +386,7 @@ export async function routes(app: FastifyInstance) {
         const check = await checkHardcoverToken(req.body.hardcoverToken);
         if (check.missing.length) return reply.code(400).send({ error: scopeHelp(check.missing) });
         const had = !!readerById(u.id)?.hardcoverToken;
-        if (u.id === OWNER_ID) saveSettings({ hardcoverToken: req.body.hardcoverToken });
-        else updateUser(u.id, { hardcover_token: req.body.hardcoverToken });
+        await setHardcoverKey(u.id, req.body.hardcoverToken);
         hardcoverConnected(u.id, had);
       }
       return userView(getUser(u.id)!);
@@ -331,9 +411,7 @@ export async function routes(app: FastifyInstance) {
             if (check.missing.length) return reply.code(400).send({ error: scopeHelp(check.missing) });
           }
           const had = !!readerById(id)?.hardcoverToken;
-          if (id === OWNER_ID) {
-            if (b.hardcoverToken) saveSettings({ hardcoverToken: b.hardcoverToken });
-          } else updateUser(id, { hardcover_token: b.hardcoverToken || null });
+          await setHardcoverKey(id, b.hardcoverToken || null);
           if (b.hardcoverToken) hardcoverConnected(id, had);
         }
         return userView(getUser(id)!);
@@ -376,7 +454,7 @@ export async function routes(app: FastifyInstance) {
   });
 
   // Settings
-  app.get("/api/settings", async () => {
+  app.get("/api/settings", async (req) => {
     const s = getSettings();
     return {
       ...s,
@@ -384,6 +462,9 @@ export async function routes(app: FastifyInstance) {
       absToken: s.absToken ? MASK : "",
       chaptarrApiKey: s.chaptarrApiKey ? MASK : "",
       oidcClientSecret: s.oidcClientSecret ? MASK : "",
+      hardcoverClientSecret: s.hardcoverClientSecret ? MASK : "",
+      hardcoverRedirectUri: hcRedirectUri(req),
+      hardcoverSignInScopes: SIGNIN_SCOPES,
       lockedByEnv: lockedByEnv(),
     };
   });
@@ -391,6 +472,8 @@ export async function routes(app: FastifyInstance) {
   app.put<{ Body: Partial<Settings> }>("/api/settings", async (req, reply) => {
     const patch = { ...req.body };
     if (patch.oidcClientSecret === MASK) delete patch.oidcClientSecret;
+    if (patch.hardcoverClientSecret === MASK) delete patch.hardcoverClientSecret;
+    if (patch.hardcoverClientId !== undefined) patch.hardcoverClientId = String(patch.hardcoverClientId).trim();
     // Switching sign-in modes must not lock you out.
     if (patch.authMode && patch.authMode !== getSettings().authMode) {
       const next = { ...getSettings(), ...patch };
@@ -421,8 +504,8 @@ export async function routes(app: FastifyInstance) {
     const before = getSettings().matchStrictness;
     const modeBefore = getSettings().authMode;
     const saved = saveSettings(patch);
-    // A new Hardcover token, or the setting turned on: make the Want to Read collections now.
-    if (patch.hardcoverToken || patch.autoWantToRead || patch.absUrl || patch.absToken) ensureWantToRead().catch(() => {});
+    // The setting turned on, or Audiobookshelf just connected: make the Want to Read collections now.
+    if (patch.autoWantToRead || patch.absUrl || patch.absToken) ensureWantToRead().catch(() => {});
     // Turning on Cloudflare Access: you must still be an admin afterwards, or it's undone.
     if (saved.authMode === "cloudflare" && modeBefore !== "cloudflare") {
       const cf = await cloudflareUser(req).catch(() => null);
@@ -448,6 +531,9 @@ export async function routes(app: FastifyInstance) {
       absToken: saved.absToken ? MASK : "",
       chaptarrApiKey: saved.chaptarrApiKey ? MASK : "",
       oidcClientSecret: saved.oidcClientSecret ? MASK : "",
+      hardcoverClientSecret: saved.hardcoverClientSecret ? MASK : "",
+      hardcoverRedirectUri: hcRedirectUri(req),
+      hardcoverSignInScopes: SIGNIN_SCOPES,
     };
   });
 
@@ -505,17 +591,21 @@ export async function routes(app: FastifyInstance) {
   });
 
   // Hardcover
-  app.get("/api/hardcover/shelves", async (_req, reply) => {
+  app.get("/api/hardcover/shelves", async (req, reply) => {
     try {
-      return await myShelves();
+      const token = readerById(req.viewer.user.id)?.hardcoverToken;
+      if (!token) return reply.code(409).send({ error: "Connect your Hardcover account in My account to pick from your shelves." });
+      return await myShelves(token);
     } catch (err) {
       return fail(reply, err);
     }
   });
 
-  app.get("/api/hardcover/lists", async (_req, reply) => {
+  app.get("/api/hardcover/lists", async (req, reply) => {
     try {
-      return await myLists();
+      const token = readerById(req.viewer.user.id)?.hardcoverToken;
+      if (!token) return reply.code(409).send({ error: "Connect your Hardcover account in My account to pick from your lists." });
+      return await myLists(token);
     } catch (err) {
       return fail(reply, err);
     }
@@ -964,21 +1054,39 @@ export async function routes(app: FastifyInstance) {
     try {
       const b = req.body;
       const sourceType = b.sourceType === "hardcover_status" || b.sourceType === "requests" ? b.sourceType : "hardcover_list";
+      // Shelves are read with your own Hardcover connection; lists with the server's key, or yours for a private list.
+      const mine = readerById(req.viewer.user.id)?.hardcoverToken || "";
+      let userId: number | null = sourceType === "hardcover_status" ? req.viewer.user.id : null;
+      if (sourceType === "hardcover_status" && !mine) {
+        return reply.code(409).send({ error: "Connect your Hardcover account in My account to sync your shelves." });
+      }
       const existing = db
-        .prepare("SELECT id FROM lists WHERE source_type = ? AND hc_list_id = ? AND abs_library_id = ? AND user_id IS NULL")
-        .get(sourceType, b.hcListId, b.absLibraryId) as
+        .prepare("SELECT id FROM lists WHERE source_type = ? AND hc_list_id = ? AND abs_library_id = ? AND user_id IS ?")
+        .get(sourceType, b.hcListId, b.absLibraryId, userId) as
         | { id: number }
         | undefined;
       if (existing) return reply.code(409).send({ error: "That list is already synced to this library.", id: existing.id });
-      const { info } = sourceType === "requests" ? requestSource(b.hcListId) : await fetchSource(sourceType, b.hcListId);
+      let info;
+      if (sourceType === "requests") info = requestSource(b.hcListId).info;
+      else if (sourceType === "hardcover_status") info = (await fetchSource(sourceType, b.hcListId, mine)).info;
+      else {
+        try {
+          info = (await fetchSource(sourceType, b.hcListId)).info;
+        } catch (err) {
+          if (!mine) throw err;
+          info = (await fetchSource(sourceType, b.hcListId, mine)).info;
+          userId = req.viewer.user.id;
+        }
+      }
       const res = db
         .prepare(
-          `INSERT INTO lists (source_type, hc_list_id, hc_slug, hc_owner, name, description, abs_library_id, collection_name, remove_missing, keep_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO lists (source_type, hc_list_id, hc_slug, hc_owner, name, description, abs_library_id, collection_name, remove_missing, keep_order, user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           sourceType, b.hcListId, info.slug, b.hcOwner ?? info.owner ?? null, info.name, info.description, b.absLibraryId,
           (b.collectionName || (sourceType === "hardcover_status" ? shelfCollectionName(info.owner, info.name) : info.name)).trim(), b.removeMissing === false ? 0 : 1, b.keepOrder === false ? 0 : 1,
+          userId,
         );
       const id = Number(res.lastInsertRowid);
       log("info", `Added list "${info.name}"`, id);

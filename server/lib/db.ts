@@ -421,6 +421,12 @@ const migrations: string[] = [
   -- The genre and mood chips someone picked for Discover's Browse sections.
   ALTER TABLE users ADD COLUMN discover_tags TEXT;
   `,
+  `
+  -- "Sign in with Hardcover": the person's OAuth tokens (JSON), refreshed as they expire.
+  ALTER TABLE users ADD COLUMN hc_oauth TEXT;
+  -- Shelves always belong to someone now: the server's own key never reads shelves.
+  UPDATE lists SET user_id = 1 WHERE source_type = 'hardcover_status' AND user_id IS NULL;
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

@@ -236,37 +236,116 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
       )}
 
       {tab === "hardcover" && (
-        <Section
-          title="Hardcover"
-          description={
-            <>
-              Your Hardcover API token. Get it from{" "}
-              <a className="text-indigo-400 hover:underline" href="https://hardcover.app/account/api" target="_blank" rel="noreferrer">
-                hardcover.app/account/api
-              </a>
-              .
-            </>
-          }
-        >
-          <div className="form-row">
-            <label>API token</label>
-            <div className="form-input-area">
-              <input
-                className="input font-mono"
-                type="password"
-                autoComplete="off"
-                placeholder="hc_pat_..."
-                value={s.hardcoverToken}
-                disabled={locked("hardcoverToken")}
-                onChange={(e) => set("hardcoverToken", e.target.value)}
-                onFocus={(e) => e.target.value.startsWith("•") && set("hardcoverToken", "")}
-              />
-              {locked("hardcoverToken") && <Locked />}
+        <>
+          <Section
+            title="Server key"
+            description={
+              <>
+                Shelfhelp's own Hardcover key, for shared data: trending, genres and moods, book details, editions and public lists. It never
+                reads anyone's shelves; each person connects their own account under My account. Use a Hardcover account made just for
+                Shelfhelp so it stays separate from yours, and give its key only <span className="font-mono">read:catalog</span>,{" "}
+                <span className="font-mono">read:lists</span> and <span className="font-mono">read:prompts</span>. Keys are at{" "}
+                <a className="text-indigo-400 hover:underline" href="https://hardcover.app/account/api" target="_blank" rel="noreferrer">
+                  hardcover.app/account/api
+                </a>
+                .
+              </>
+            }
+          >
+            <div className="form-row">
+              <label>API key</label>
+              <div className="form-input-area">
+                <input
+                  className="input font-mono"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="hc_pat_..."
+                  value={s.hardcoverToken}
+                  disabled={locked("hardcoverToken")}
+                  onChange={(e) => set("hardcoverToken", e.target.value)}
+                  onFocus={(e) => e.target.value.startsWith("•") && set("hardcoverToken", "")}
+                />
+                {locked("hardcoverToken") && <Locked />}
+              </div>
             </div>
-          </div>
-          <TestResult result={test} />
-          {actions(["hardcoverToken"], testHardcover)}
-        </Section>
+            <TestResult result={test} />
+            {actions(["hardcoverToken"], testHardcover)}
+          </Section>
+
+          <Section
+            title="Sign in with Hardcover"
+            description={
+              <>
+                Lets people connect their Hardcover account with a button instead of pasting a key. On hardcover.app, open Account, then
+                Developer apps, and make a web app with the redirect link below. Then copy its client ID and secret here. Pasted keys keep
+                working.
+              </>
+            }
+          >
+            <div className="form-row">
+              <label>
+                Redirect link
+                <span className="label-tip">Register exactly this on the Hardcover app</span>
+              </label>
+              <div className="form-input-area">
+                <div className="flex gap-2">
+                  <input className="input font-mono" readOnly value={s.hardcoverRedirectUri ?? ""} onFocus={(e) => e.target.select()} />
+                  <button
+                    className="btn btn-default flex-shrink-0"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(s.hardcoverRedirectUri ?? "").then(
+                        () => toast("Copied"),
+                        () => toast("Couldn't copy; select the link and copy it", "error"),
+                      );
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  It uses the address you opened Shelfhelp with. Open Settings through your public address if this one is wrong.
+                </p>
+              </div>
+            </div>
+            <div className="form-row">
+              <label>Client ID</label>
+              <div className="form-input-area">
+                <input
+                  className="input font-mono"
+                  autoComplete="off"
+                  value={s.hardcoverClientId ?? ""}
+                  disabled={locked("hardcoverClientId")}
+                  onChange={(e) => set("hardcoverClientId", e.target.value)}
+                />
+                {locked("hardcoverClientId") && <Locked />}
+              </div>
+            </div>
+            <div className="form-row">
+              <label>
+                Client secret
+                <span className="label-tip">Stays on the server</span>
+              </label>
+              <div className="form-input-area">
+                <input
+                  className="input font-mono"
+                  type="password"
+                  autoComplete="off"
+                  value={s.hardcoverClientSecret ?? ""}
+                  disabled={locked("hardcoverClientSecret")}
+                  onChange={(e) => set("hardcoverClientSecret", e.target.value)}
+                  onFocus={(e) => e.target.value.startsWith("•") && set("hardcoverClientSecret", "")}
+                />
+                {locked("hardcoverClientSecret") && <Locked />}
+              </div>
+            </div>
+            {s.hardcoverSignInScopes && (
+              <p className="mt-4 max-w-6xl text-xs text-gray-500">
+                People are asked to allow: <span className="font-mono text-gray-400">{s.hardcoverSignInScopes.join(", ")}</span>.
+              </p>
+            )}
+            {actions(["hardcoverClientId", "hardcoverClientSecret"])}
+          </Section>
+        </>
       )}
 
       {tab === "abs" && (

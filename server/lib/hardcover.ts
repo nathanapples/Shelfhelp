@@ -2,21 +2,35 @@ import { HardcoverClient, type CachedContributor, type CachedFeaturedSeries, typ
 import { config } from "./config.js";
 import { getSettings } from "./settings.js";
 import { seriesNumber } from "./normalize.js";
+import { oauthUserId, sessionFor } from "./hcauth.js";
 
 const clients = new Map<string, HardcoverClient>();
 
+/**
+ * A Hardcover client. With no token, the server's own key from Settings (shared
+ * data only). A reader's token is either a pasted key or `oauth:<userId>` for
+ * someone who signed in with Hardcover, whose tokens refresh themselves.
+ */
 export function hardcover(token = getSettings().hardcoverToken): HardcoverClient {
-  if (!token) throw new Error("Hardcover isn't set up yet. Add your API token in Settings.");
-  const hit = clients.get(token);
+  if (!token) throw new Error("Hardcover isn't set up yet. Add the server's Hardcover key in Settings.");
+  const userId = oauthUserId(token);
+  const key = userId != null ? `${token}|${getSettings().hardcoverClientId}` : token;
+  const hit = clients.get(key);
   if (hit) return hit;
   const client = new HardcoverClient({
-    token,
+    ...(userId != null ? { auth: sessionFor(userId) } : { token }),
     ...(process.env.HARDCOVER_ENDPOINT ? { endpoint: process.env.HARDCOVER_ENDPOINT } : {}),
     userAgent: `shelfhelp/${config.version}`,
     onWarning: (m) => console.warn(`[hardcover] ${m}`),
   });
-  clients.set(token, client);
+  clients.set(key, client);
   return client;
+}
+
+/** Forgets cached clients and checks for a token, after someone signs in again or disconnects. */
+export function forgetToken(token: string) {
+  for (const k of [...clients.keys()]) if (k === token || k.startsWith(`${token}|`)) clients.delete(k);
+  checks.delete(token);
 }
 
 export interface ListBook {
@@ -78,9 +92,9 @@ export function toListBook(b: BookLike, position: number): ListBook {
   };
 }
 
-/** Every book on a list, in list order. */
-export async function fetchList(listId: number): Promise<{ info: ListInfo; books: ListBook[] }> {
-  const hc = hardcover();
+/** Every book on a list, in list order. `token` reads a private list as its owner (default: the server's key). */
+export async function fetchList(listId: number, token?: string): Promise<{ info: ListInfo; books: ListBook[] }> {
+  const hc = token ? hardcover(token) : hardcover();
   const books: ListBook[] = [];
   let info: ListInfo | null = null;
   const pageSize = 100;
@@ -118,12 +132,13 @@ export const SHELVES: Record<number, { name: string; slug: string; description: 
   5: { name: "Did Not Finish", slug: "did-not-finish", description: "Books you stopped reading." },
 };
 
-/** Every book on one of your status shelves, most recently changed first. */
-/** A Hardcover status shelf. `token` reads someone else's shelf (default: the token in Settings). */
+/** Someone's Hardcover status shelf, read with their own token. */
 export async function fetchShelf(statusId: number, token?: string): Promise<{ info: ListInfo; books: ListBook[] }> {
   const shelf = SHELVES[statusId];
   if (!shelf) throw new Error(`Unknown Hardcover shelf ${statusId}`);
-  const hc = token ? hardcover(token) : hardcover();
+  // The server's own key has no shelves worth reading: shelves always need the person's own connection.
+  if (!token) throw new Error("This shelf needs its reader's Hardcover connection. Connect Hardcover in My account.");
+  const hc = hardcover(token);
   const books: ListBook[] = [];
   const pageSize = 100;
   for (let offset = 0; ; offset += pageSize) {
@@ -152,7 +167,7 @@ export async function fetchShelf(statusId: number, token?: string): Promise<{ in
 export type SourceType = "hardcover_list" | "hardcover_status";
 
 export function fetchSource(type: string, id: number, token?: string) {
-  return type === "hardcover_status" ? fetchShelf(id, token) : fetchList(id);
+  return type === "hardcover_status" ? fetchShelf(id, token) : fetchList(id, token);
 }
 
 /** Your status shelves with counts and a few covers, for the picker. */
@@ -163,8 +178,8 @@ export function shelfCollectionName(username: string | null | undefined, shelf: 
   return `${who}${/s$/i.test(who) ? "'" : "'s"} ${shelf}`;
 }
 
-export async function myShelves() {
-  const hc = hardcover();
+export async function myShelves(token: string) {
+  const hc = hardcover(token);
   const me = (await hc.me.get()) as { username?: string };
   const out = [];
   for (const id of [1, 2, 3, 5]) {
@@ -185,8 +200,8 @@ export async function myShelves() {
 }
 
 /** The signed-in user's own lists and the lists they follow. */
-export async function myLists(): Promise<(ListInfo & { followed: boolean })[]> {
-  const hc = hardcover();
+export async function myLists(token: string): Promise<(ListInfo & { followed: boolean })[]> {
+  const hc = hardcover(token);
   const query = `
     query MyLists($userId: Int!) {
       mine: lists(where: { user_id: { _eq: $userId } }, order_by: { updated_at: desc_nulls_last }, limit: 100) {
@@ -366,16 +381,21 @@ export async function hardcoverProblem(token: string): Promise<string | null> {
   let problem: string | null = null;
   try {
     const c = await checkHardcoverToken(token);
-    if (c.missing.length) problem = scopeHelp(c.missing);
+    if (c.missing.length) problem = scopeHelp(c.missing, oauthUserId(token) != null);
   } catch (err) {
-    problem = `Hardcover didn't accept your key: ${(err as Error).message}`;
+    problem = oauthUserId(token) != null
+      ? `Hardcover didn't accept your sign-in: ${(err as Error).message}. Connect Hardcover again in My account.`
+      : `Hardcover didn't accept your key: ${(err as Error).message}`;
   }
   checks.set(token, { at: Date.now(), problem });
   return problem;
 }
 
 /** One line telling someone how to fix a key that's missing permissions. */
-export function scopeHelp(missing: string[]) {
+export function scopeHelp(missing: string[], signedIn = false) {
+  if (signedIn) {
+    return `Your Hardcover sign-in is missing ${missing.length === 1 ? "this permission" : "these permissions"}: ${missing.join(", ")}. Connect Hardcover again in My account and allow everything Shelfhelp asks for.`;
+  }
   return `Your Hardcover key is missing ${missing.length === 1 ? "this permission" : "these permissions"}: ${missing.join(", ")}. Make a new key at hardcover.app (Account, API Access) with ${READER_SCOPES.join(", ")}, then paste it here.`;
 }
 

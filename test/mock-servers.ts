@@ -346,6 +346,103 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
   return { error: "unhandled" };
 }
 
+// Hardcover's OAuth server: auto-approves as whoever "is signed in to hardcover.app" (/test/oauth/as?user=...).
+const OAUTH_ISSUER = "http://localhost:5091";
+const OAUTH_CLIENT = { id: "shelfhelp-test", secret: "s3cret" };
+const OAUTH_TTL = Number(process.env.MOCK_OAUTH_TTL_S ?? 120);
+let oauthAs = "hc-sage";
+let oauthDeny = false;
+const oauthLog: string[] = [];
+const oauthCodes = new Map<string, { as: string; challenge: string; redirect: string; scope: string }>();
+const accessTokens = new Map<string, { as: string; expires: number; family: string }>();
+const refreshTokens = new Map<string, { as: string; scope: string; family: string; used: boolean }>();
+const revokedFamilies = new Set<string>();
+let tokenSeq = 0;
+function issue(as: string, scope: string, family: string) {
+  const n = ++tokenSeq;
+  const access = `hc_at_mock${n}`;
+  const refresh = `hc_rt_mock${n}`;
+  accessTokens.set(access, { as, expires: Date.now() + OAUTH_TTL * 1000, family });
+  refreshTokens.set(refresh, { as, scope, family, used: false });
+  return { access_token: access, refresh_token: refresh, token_type: "Bearer", expires_in: OAUTH_TTL, scope };
+}
+function oauth(req: http.IncomingMessage, res: http.ServerResponse) {
+  const send = (code: number, body: unknown) => {
+    res.writeHead(code, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(body));
+  };
+  const url = new URL(req.url!, OAUTH_ISSUER);
+  if (url.pathname === "/test/oauth/as") {
+    oauthAs = url.searchParams.get("user") === "nathan" ? "hc-nathan" : "hc-sage";
+    oauthDeny = url.searchParams.get("deny") === "1";
+    return send(200, { ok: true, as: oauthAs, deny: oauthDeny });
+  }
+  if (url.pathname === "/test/oauth/log") return send(200, { log: oauthLog, families: revokedFamilies.size });
+  if (url.pathname === "/test/oauth/expire") {
+    for (const t of accessTokens.values()) t.expires = 0;
+    return send(200, { ok: true });
+  }
+  if (url.pathname === "/oauth2/authorize") {
+    const q = url.searchParams;
+    const back = new URL(q.get("redirect_uri")!);
+    if (q.get("client_id") !== OAUTH_CLIENT.id) return send(400, { error: "invalid_client" });
+    if (oauthDeny) {
+      back.searchParams.set("error", "access_denied");
+    } else {
+      const code = `code${++tokenSeq}`;
+      oauthCodes.set(code, { as: oauthAs, challenge: q.get("code_challenge")!, redirect: q.get("redirect_uri")!, scope: q.get("scope") ?? "" });
+      back.searchParams.set("code", code);
+    }
+    back.searchParams.set("state", q.get("state")!);
+    back.searchParams.set("iss", OAUTH_ISSUER);
+    oauthLog.push(`authorize ${q.get("scope")}`);
+    res.writeHead(302, { Location: back.toString() });
+    return res.end();
+  }
+  let data = "";
+  req.on("data", (c) => (data += c));
+  req.on("end", () => {
+    const form = new URLSearchParams(data);
+    const basic = Buffer.from(String(req.headers.authorization ?? "").replace(/^Basic /, ""), "base64").toString();
+    const [id, secret] = basic.split(":").map(decodeURIComponent);
+    const clientId = id || form.get("client_id");
+    const clientSecret = secret ?? form.get("client_secret");
+    if (url.pathname === "/oauth2/revoke") {
+      const t = form.get("token") ?? "";
+      const fam = accessTokens.get(t)?.family ?? refreshTokens.get(t)?.family;
+      if (fam) revokedFamilies.add(fam);
+      oauthLog.push("revoke");
+      return send(200, {});
+    }
+    if (url.pathname !== "/oauth2/token") return send(404, { error: "not_found" });
+    if (clientId !== OAUTH_CLIENT.id || clientSecret !== OAUTH_CLIENT.secret) return send(401, { error: "invalid_client" });
+    const grant = form.get("grant_type");
+    if (grant === "authorization_code") {
+      const c = oauthCodes.get(form.get("code") ?? "");
+      oauthCodes.delete(form.get("code") ?? "");
+      if (!c) return send(400, { error: "invalid_grant", error_description: "bad code" });
+      const challenge = createHash("sha256").update(form.get("code_verifier") ?? "").digest("base64url");
+      if (challenge !== c.challenge || form.get("redirect_uri") !== c.redirect) return send(400, { error: "invalid_grant", error_description: "pkce or redirect mismatch" });
+      oauthLog.push("token code");
+      return send(200, issue(c.as, c.scope, `fam${tokenSeq}`));
+    }
+    if (grant === "refresh_token") {
+      const r = refreshTokens.get(form.get("refresh_token") ?? "");
+      if (!r || revokedFamilies.has(r.family)) return send(400, { error: "invalid_grant" });
+      if (r.used) {
+        // Reusing a spent refresh token revokes the whole sign-in.
+        revokedFamilies.add(r.family);
+        oauthLog.push("token refresh REUSED");
+        return send(400, { error: "invalid_grant", error_description: "refresh token reused" });
+      }
+      r.used = true;
+      oauthLog.push("token refresh");
+      return send(200, issue(r.as, r.scope, r.family));
+    }
+    return send(400, { error: "unsupported_grant_type" });
+  });
+}
+
 http
   .createServer((req, res) => {
     const m = req.url?.match(/^\/cover\/(\d+)\.svg/);
@@ -354,6 +451,7 @@ http
       res.writeHead(200, { "Content-Type": "image/svg+xml", "Access-Control-Allow-Origin": "*" });
       return res.end(coverSvg(b?.title ?? "Book", b?.author ?? "", Number(m[1])));
     }
+    if (req.url?.startsWith("/oauth2/") || req.url?.startsWith("/test/oauth")) return oauth(req, res);
     let data = "";
     req.on("data", (c) => (data += c));
     req.on("end", () => {
@@ -371,7 +469,16 @@ http
         res.writeHead(200, { "Content-Type": "application/json" });
         return res.end(JSON.stringify({ ok: true }));
       }
-      const tok = String(req.headers.authorization ?? "").replace(/^Bearer /, "");
+      let tok = String(req.headers.authorization ?? "").replace(/^Bearer /, "");
+      if (tok.startsWith("hc_at_")) {
+        const at = accessTokens.get(tok);
+        oauthLog.push(`api ${at ? (at.expires < Date.now() ? "expired" : "ok") : "unknown"} ${tok.slice(0, 12)}`);
+        if (!at || at.expires < Date.now() || revokedFamilies.has(at.family)) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          return res.end(JSON.stringify({ error: "invalid_token" }));
+        }
+        tok = at.as;
+      }
       const parsed = JSON.parse(data || "{}");
       // Test hook: the token "hc-noscope" has no read:library or read:vibes permission.
       if (tok === "hc-noscope" && /query (CountLibrary|GetLibrary|GetVibesForUser)/.test(parsed.query ?? "")) {

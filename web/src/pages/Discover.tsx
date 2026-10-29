@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AdjustmentsHorizontalIcon, ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
-import { isAdmin, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type RequestOutcome, type SearchHit, type Status, type TagKind, tagLink } from "../lib/api";
+import { hardcoverSignInUrl, isAdmin, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type RequestOutcome, type SearchHit, type Status, type TagKind, tagLink } from "../lib/api";
 import { CustomizeDiscover } from "../components/CustomizeDiscover";
 import { useApi } from "../lib/hooks";
 import { BookCard } from "../components/BookCard";
@@ -208,9 +208,15 @@ export default function DiscoverPage({ status }: { status: Status }) {
       {config?.needsHardcover && (
         <div className="mb-5 rounded-xl bg-indigo-900/20 p-4 text-sm text-indigo-100 ring-1 ring-indigo-800">
           Connect your Hardcover account to see Top picks for you, your Want to Read and series to pick up where you left off.{" "}
-          <Link to="/account" className="font-semibold underline">
-            Open My account
-          </Link>
+          {status.hardcoverSignIn ? (
+            <a href={hardcoverSignInUrl("/")} className="font-semibold underline">
+              Connect with Hardcover
+            </a>
+          ) : (
+            <Link to="/account" className="font-semibold underline">
+              Open My account
+            </Link>
+          )}
         </div>
       )}
       {shown.map((r) => (

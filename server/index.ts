@@ -8,9 +8,11 @@ import { routes } from "./routes.js";
 import { reschedule } from "./lib/scheduler.js";
 import { startRequestWatcher } from "./lib/requests.js";
 import { linkLibrary } from "./lib/linking.js";
-import { resolveOwner } from "./lib/users.js";
+import { resolveOwner, splitOwnerKey } from "./lib/users.js";
 import { syncAll } from "./lib/sync.js";
 import { backfillHistory, syncReading } from "./lib/reading.js";
+
+splitOwnerKey();
 
 const app = Fastify({ logger: false, bodyLimit: 1_000_000, trustProxy: true });
 

@@ -34,7 +34,7 @@ const SESSION_DAYS = 30;
 // ---------------------------------------------------------------------------
 // Sessions
 
-function isHttps(req: FastifyRequest) {
+export function isHttps(req: FastifyRequest) {
   const proto = String(req.headers["x-forwarded-proto"] ?? "").split(",")[0].trim();
   return (proto || req.protocol) === "https";
 }

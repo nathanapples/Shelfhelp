@@ -1,15 +1,17 @@
 /**
  * People who use Shelfhelp, and the "current reader" for reading sync.
  *
- * User 1 is the owner: the Audiobookshelf user whose API key Shelfhelp uses
- * and the Hardcover token in Settings. Other users are Audiobookshelf users
- * who signed in (or whom an admin added as readers), each with their own
- * Hardcover token and reading options.
+ * User 1 is the owner: the Audiobookshelf user whose API key Shelfhelp uses.
+ * Other users are Audiobookshelf users who signed in (or whom an admin added
+ * as readers). Everyone, the owner included, connects their own Hardcover
+ * account (signed in through Shelfhelp's Hardcover app, or a pasted key); the
+ * Hardcover key in Settings is the server's own, for shared data only.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { db } from "./db.js";
 import { getSettings } from "./settings.js";
 import { Abs } from "./abs.js";
+import { oauthRef } from "./hcauth.js";
 
 export const OWNER_ID = 1;
 
@@ -32,6 +34,7 @@ export interface UserRow {
   want_list_at: string | null;
   shelves_at: string | null;
   discover_tags: string | null;
+  hc_oauth: string | null;
 }
 
 export interface Reader {
@@ -64,8 +67,8 @@ export function toReader(u: UserRow): Reader {
     isOwner: u.id === OWNER_ID,
     name: displayName(u),
     absUserId: u.abs_user_id,
-    // The owner uses the Hardcover token from Settings unless they set their own.
-    hardcoverToken: u.hardcover_token || (u.id === OWNER_ID ? getSettings().hardcoverToken : ""),
+    // Signing in with Hardcover wins over a pasted key.
+    hardcoverToken: u.hc_oauth ? oauthRef(u.id) : u.hardcover_token || "",
     enabled: !!u.reading_enabled,
     autoSend: !!u.reading_auto_send,
     minProgress: u.reading_min_progress,
@@ -73,7 +76,7 @@ export function toReader(u: UserRow): Reader {
   };
 }
 
-/** Users who can have their reading synced: the owner, and anyone with a Hardcover token. */
+/** Users who can have their reading synced: the owner, and anyone with Hardcover connected. */
 export function readers(): Reader[] {
   return allUsers()
     .map(toReader)
@@ -103,6 +106,20 @@ export function updateUser(id: number, patch: Partial<Omit<UserRow, "id" | "crea
     ...keys.map((k) => (patch as Record<string, string | number | null>)[k]),
     id,
   );
+}
+
+/**
+ * Before 0.19 the owner's Hardcover account was the key in Settings. That key is
+ * the server's own now, so the owner keeps using it as their personal key until
+ * they sign in with Hardcover or paste another. Runs once.
+ */
+export function splitOwnerKey() {
+  const done = db.prepare("SELECT 1 FROM settings WHERE key = '_ownerKeySplit'").get();
+  if (done) return;
+  const owner = getUser(OWNER_ID);
+  const key = getSettings().hardcoverToken;
+  if (owner && !owner.hardcover_token && !owner.hc_oauth && key) updateUser(OWNER_ID, { hardcover_token: key });
+  db.prepare("INSERT INTO settings (key, value) VALUES ('_ownerKeySplit', 'true')").run();
 }
 
 /** Fills in the owner's Audiobookshelf identity from the API key, once known. */
@@ -191,6 +208,8 @@ export function userView(u: UserRow) {
     absUserId: u.abs_user_id,
     hasHardcover: !!r.hardcoverToken,
     ownHardcoverToken: !!u.hardcover_token,
+    /** How they connected Hardcover: "signin" (Sign in with Hardcover), "key" (a pasted key) or null. */
+    hardcoverVia: u.hc_oauth ? ("signin" as const) : u.hardcover_token ? ("key" as const) : null,
     readingEnabled: r.enabled,
     lastLoginAt: u.last_login_at,
   };

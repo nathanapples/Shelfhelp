@@ -2,6 +2,13 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.19.0 (2026-10-29)
+
+- **Sign in with Hardcover.** People can connect their Hardcover account with a Connect with Hardcover button in My account (and on Discover) instead of making and pasting a key. Shelfhelp asks for read:me:content, read:library, write:library, read:vibes, read:catalog, read:lists and offline_access, keeps the tokens on the server, and renews them as they expire. Pasting a key still works, and either one replaces the other. Disconnect signs out on Hardcover too.
+- To turn it on, make a web app under Developer apps on hardcover.app with the redirect link shown in Settings, Hardcover, then enter its client ID and secret there (or `HARDCOVER_CLIENT_ID` and `HARDCOVER_CLIENT_SECRET`).
+- **The Hardcover key in Settings is now the server's own key**, used only for shared data: trending, genres and moods, book details, editions and public lists. It no longer stands in for the owner's account. On upgrade the owner keeps that key as their personal connection until they sign in with Hardcover or paste another, so nothing changes until you replace the server key (ideally with a key from a Hardcover account made just for Shelfhelp).
+- Shelf collections (Want to Read, Read and so on) are always read with their owner's own connection, and picking shelves or lists under Collections uses yours. Private lists you add are read with your connection.
+
 ## 0.18.0 (2026-10-29)
 
 - Book popups show the book's genres and moods from Hardcover (up to six of each) when you tap More under the description. Each one opens that genre or mood's page. Nothing is added to the short view. Books without a description show a small "Genres and moods" link instead.

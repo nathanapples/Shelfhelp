@@ -100,7 +100,7 @@ services:
 
 Then `docker compose up -d` and open `http://<host>:5075`. Settings asks for:
 
-1. **Hardcover API token** from [hardcover.app/account/api](https://hardcover.app/account/api).
+1. **Hardcover server key** from [hardcover.app/account/api](https://hardcover.app/account/api). It's Shelfhelp's own key for shared data (trending, genres, book details, public lists) and never reads anyone's shelves. Ideally make it on a Hardcover account just for Shelfhelp, with only `read:catalog`, `read:lists` and `read:prompts`.
 2. **Audiobookshelf URL and API key.** Create a key in Audiobookshelf under Settings, API Keys, for a user that can update (an admin is simplest). If both containers share a Docker network, the URL can be `http://audiobookshelf:80`.
 
 To update: `docker compose pull && docker compose up -d`.
@@ -118,7 +118,8 @@ To update: `docker compose pull && docker compose up -d`.
 | `OIDC_INTERNAL_URL` | unset | How the container reaches the provider, if not by its public address |
 | `OIDC_ADMIN_GROUP` | unset | Provider group whose members are Shelfhelp admins |
 | `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | unset | Cloudflare Access team domain and application AUD tag |
-| `HARDCOVER_TOKEN` | unset | Pins the Hardcover token instead of setting it in the UI |
+| `HARDCOVER_TOKEN` | unset | Pins the Hardcover server key instead of setting it in the UI |
+| `HARDCOVER_CLIENT_ID` / `HARDCOVER_CLIENT_SECRET` | unset | Pins the Hardcover developer app used for Sign in with Hardcover |
 | `ABS_URL` / `ABS_TOKEN` | unset | Pins the Audiobookshelf connection |
 | `CHAPTARR_URL` / `CHAPTARR_API_KEY` | unset | Pins the Chaptarr connection |
 | `SYNC_INTERVAL_MINUTES` | 360 | Pins the sync schedule (0 turns it off) |
@@ -128,7 +129,9 @@ Everything Shelfhelp keeps (settings, lists, decisions, the library snapshot) li
 
 ## Users and sign-in
 
-Everyone who uses Shelfhelp is an Audiobookshelf user. The owner is the Audiobookshelf user whose API key Shelfhelp uses (give it an admin key so Shelfhelp can see other users' listening progress). Audiobookshelf admins are Shelfhelp admins; everyone else is a reader, who sees Discover, their own Requests, their own Reading, and My account. Each reader connects their own Hardcover account under My account; an admin can also add someone as a reader from the Reading page.
+Everyone who uses Shelfhelp is an Audiobookshelf user. The owner is the Audiobookshelf user whose API key Shelfhelp uses (give it an admin key so Shelfhelp can see other users' listening progress). Audiobookshelf admins are Shelfhelp admins; everyone else is a reader, who sees Discover, their own Requests, their own Reading, and My account. Everyone, the owner included, connects their own Hardcover account under My account, either with **Connect with Hardcover** or by pasting an API key; an admin can also add someone as a reader from the Reading page.
+
+**Sign in with Hardcover:** on hardcover.app, open Account, then Developer apps, and make a web app. Use the redirect link shown in Settings, Hardcover (`https://<your address>/api/hardcover/oauth/callback`), then put the app's client ID and secret in Settings. Shelfhelp keeps each person's tokens and renews them on its own. Hardcover has no app-only access, so the server key above is still what Discover uses for shared data.
 
 Pick how people sign in under Settings, Users:
 

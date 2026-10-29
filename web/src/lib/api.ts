@@ -106,6 +106,11 @@ export interface Library {
 
 export interface Settings {
   hardcoverToken: string;
+  hardcoverClientId: string;
+  hardcoverClientSecret: string;
+  /** Read only: the redirect link to register on the Hardcover app. */
+  hardcoverRedirectUri?: string;
+  hardcoverSignInScopes?: string[];
   autoWantToRead: boolean;
   absUrl: string;
   absToken: string;
@@ -223,6 +228,8 @@ export interface UserView {
   absUserId: string | null;
   hasHardcover: boolean;
   ownHardcoverToken: boolean;
+  /** "signin": signed in with Hardcover; "key": a pasted key. */
+  hardcoverVia?: "signin" | "key" | null;
   readingEnabled: boolean;
   lastLoginAt: string | null;
   via?: "open" | "password" | "oidc" | "cloudflare" | "recovery";
@@ -238,6 +245,8 @@ export interface Status {
   signinProblem: string | null;
   user: UserView | null;
   configured: { hardcover: boolean; abs: boolean; chaptarr: boolean };
+  /** "Sign in with Hardcover" is set up (the app's client ID is in Settings). */
+  hardcoverSignIn?: boolean;
   requestsEnabled: boolean;
   requestFormat: RequestFormat;
 }
@@ -589,3 +598,6 @@ export interface IssueDetail extends Issue {
 
 /** SQLite times are UTC without a zone; make them parse as UTC. */
 export const utc = (t: string) => (/[zZ]|[+-]\d\d:?\d\d$/.test(t) ? t : `${t.replace(" ", "T")}Z`);
+
+/** Starts "Sign in with Hardcover"; Hardcover sends you back to `back`. */
+export const hardcoverSignInUrl = (back = "/account") => `/api/hardcover/oauth/start?back=${encodeURIComponent(back)}`;
