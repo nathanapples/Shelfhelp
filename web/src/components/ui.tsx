@@ -1,3 +1,4 @@
+import { useBackToClose } from "../lib/hooks";
 import type React from "react";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -119,6 +120,7 @@ export function Modal({
   size?: string;
   backdrop?: string | null;
 }) {
+  useBackToClose(open, onClose);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();

@@ -16,7 +16,7 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { api, isAdmin, type Status } from "../lib/api";
-import { jobStarted, useApi, useJobs } from "../lib/hooks";
+import { jobStarted, useApi, useBackToClose, useJobs } from "../lib/hooks";
 import { Spinner } from "./ui";
 import { useToast } from "./toast";
 
@@ -61,6 +61,8 @@ function NavItems({
             key={n.to}
             to={n.to}
             end={n.end}
+            // From the phone menu, replace the menu's Back step so Back doesn't stop on it later.
+            replace={!!onNavigate}
             onClick={onNavigate}
             className={({ isActive }) =>
               `group flex items-center rounded-md px-3 py-2 text-lg font-medium leading-6 text-white transition duration-150 ${
@@ -88,6 +90,8 @@ export function Layout({ children, status }: { children: ReactNode; status: Stat
   const showRequests = status.configured.chaptarr;
   const admin = isAdmin(status);
   const [open, setOpen] = useState(false);
+  // On a phone, Back closes the side menu.
+  useBackToClose(open, () => setOpen(false));
   const [scrolled, setScrolled] = useState(false);
   const { data: counts, reload } = useApi<Record<string, number>>("/counts", { poll: 15000 });
   const location = useLocation();
@@ -122,6 +126,7 @@ export function Layout({ children, status }: { children: ReactNode; status: Stat
         <div className="flex items-center gap-1">
         <NavLink
           to="/account"
+          replace={open}
           onClick={() => setOpen(false)}
           className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-2 text-sm text-gray-300 transition hover:bg-gray-700"
         >

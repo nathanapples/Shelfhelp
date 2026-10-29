@@ -111,3 +111,38 @@ export function useStoredState<T extends string>(key: string, fallback: T, allow
   );
   return [value, set];
 }
+
+let backSeq = 0;
+
+/**
+ * Lets the phone's Back button (or the browser's) close a popup or menu
+ * instead of leaving the page. While `open`, an extra history entry is kept;
+ * Back removes it and calls `onClose`. Closing another way (X, Escape, tapping
+ * outside) removes the entry too, so history stays as it was. Nested popups
+ * each get their own entry, so Back closes the top one first.
+ */
+export function useBackToClose(open: boolean, onClose: () => void) {
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    const id = ++backSeq;
+    const prev = window.history.state;
+    // Keep the router's own state (key, index) so it sees the same page.
+    window.history.pushState({ ...(prev ?? {}), shelfhelpPopup: id }, "");
+    let poppedByBack = false;
+    const onPop = () => {
+      if (window.history.state?.shelfhelpPopup !== id) {
+        poppedByBack = true;
+        window.removeEventListener("popstate", onPop);
+        close.current();
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      // Closed some other way: take our entry back off, if it's still on top.
+      if (!poppedByBack && window.history.state?.shelfhelpPopup === id) window.history.back();
+    };
+  }, [open]);
+}

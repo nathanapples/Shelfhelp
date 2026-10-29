@@ -2,6 +2,10 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.16.1 (2026-10-29)
+
+- The phone's Back button now closes a book's popup (and any other popup, like Customize or an issue) instead of leaving the page. With a popup open on top of another, Back closes the top one first. Back also closes the phone's side menu.
+
 ## 0.16.0 (2026-10-29)
 
 - Customize this page: "Add a row" is now one search for genres, moods and your Hardcover lists, plus the built-in rows. Each result is labeled Genre, Mood, List or Row. Paste a link to any public Hardcover list into the same box to add it. The separate genre row, mood row and Hardcover list sections are gone; the built-in row buttons stay under the search.
