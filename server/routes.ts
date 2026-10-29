@@ -16,7 +16,7 @@ import { BUILTINS, PAGE, PERSONAL, hasHardcover, isTagRange, defaultRows, loadFe
 import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
 import { ISSUE_KINDS, addComment, createIssue, deleteIssue, issueCounts, issueDetail, listIssues, setIssueStatus } from "./lib/issues.js";
 import { canSeeRequest, editionLabel, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
-import { SIGNIN_SCOPES, finishSignIn, grantedScopes, hasSignIn, oauthRef, signInConfigured, signOut as hardcoverSignOut, startSignIn } from "./lib/hcauth.js";
+import { SIGNIN_SCOPES, checkClient, lastClientAuthFailure, finishSignIn, grantedScopes, hasSignIn, oauthRef, signInConfigured, signOut as hardcoverSignOut, startSignIn } from "./lib/hcauth.js";
 import { parseRedirect, type AuthorizationAttempt } from "@hardcover/sdk/oauth";
 import { requestRecoveryLink, useRecoveryLink, cloudflareProblem, cloudflareUser, endSession, createSession, oidcCallback, oidcDiscovery, oidcRedirectUri, oidcStart, passwordMatches, publicBase, isHttps, viewer, type Viewer } from "./lib/auth.js";
 import { OWNER_ID, absUsers, allUsers, asReader, getUser, readerById, readers, resolveOwner, updateUser, userForAbs, userView, type Reader } from "./lib/users.js";
@@ -356,6 +356,9 @@ export async function routes(app: FastifyInstance) {
       } catch (err) {
         const e = err as Error & { code?: string; description?: string };
         const why = e.description ? `${e.code ?? e.message}: ${e.description}` : e.message;
+        if (lastClientAuthFailure.length) {
+          log("warn", `Hardcover refused the client ID and secret: ${lastClientAuthFailure.map((t) => `${t.method} → HTTP ${t.status} ${t.answer}`).join("; ")}`);
+        }
         throw new Error(
           e.code === "invalid_client" || /invalid_client/.test(e.message)
             ? `Hardcover didn't accept Shelfhelp's client ID and secret (${why}). Check both in Settings, Hardcover against the developer app; the secret may need to be made again.`
@@ -558,6 +561,15 @@ export async function routes(app: FastifyInstance) {
     try {
       const token = !req.body?.token || req.body.token === MASK ? getSettings().hardcoverToken : req.body.token;
       return await testServerKey(token);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  // Checks the Hardcover app's client ID and secret (as saved) without anyone signing in.
+  app.post("/api/settings/test/hardcover-app", async (req, reply) => {
+    try {
+      return await checkClient(hcRedirectUri(req));
     } catch (err) {
       return fail(reply, err);
     }

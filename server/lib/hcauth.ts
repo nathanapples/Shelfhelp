@@ -33,48 +33,104 @@ export function signInConfigured(s = getSettings()) {
 /**
  * The SDK sends the client secret in the form body (client_secret_post).
  * Hardcover's app settings can require HTTP Basic instead (client_secret_basic),
- * and answer invalid_client otherwise. This tries Basic first, falls back to
- * the form body on invalid_client, and remembers what worked. Retrying is
+ * and answer invalid_client otherwise. This tries each way in turn on
+ * invalid_client, and remembers what worked. Retrying is
  * safe: a request refused for client authentication never spends a code or
  * refresh token.
  */
-type AuthMethod = "basic" | "post";
+type AuthMethod = "basic" | "basic-raw" | "basic+id" | "post";
+const METHODS: AuthMethod[] = ["basic", "post", "basic-raw", "basic+id"];
 const working = new Map<string, AuthMethod>();
 const base = fetchTransport();
 
-function asBasic(req: HttpRequest): HttpRequest {
+/** What Hardcover answered for each way of sending the secret, last time it refused all of them. */
+export let lastClientAuthFailure: { method: AuthMethod; status: number; answer: string }[] = [];
+
+function withMethod(req: HttpRequest, method: AuthMethod): HttpRequest | null {
+  if (method === "post") return req;
   const form = new URLSearchParams(req.body);
   const id = form.get("client_id");
   const secret = form.get("client_secret");
-  if (!id || !secret) return req;
-  form.delete("client_id");
+  if (!id || !secret) return null;
+  // RFC 6749 says to form-encode both before Basic; some servers expect them as is.
+  if (method === "basic-raw" && encodeURIComponent(id) === id && encodeURIComponent(secret) === secret) return null;
+  if (method !== "basic+id") form.delete("client_id");
   form.delete("client_secret");
-  const basic = Buffer.from(`${encodeURIComponent(id)}:${encodeURIComponent(secret)}`).toString("base64");
-  return { ...req, headers: { ...req.headers, authorization: `Basic ${basic}` }, body: form.toString() };
+  const pair = method === "basic-raw" ? `${id}:${secret}` : `${encodeURIComponent(id)}:${encodeURIComponent(secret)}`;
+  return { ...req, headers: { ...req.headers, authorization: `Basic ${Buffer.from(pair).toString("base64")}` }, body: form.toString() };
 }
+
+/** Hardcover's answer, without anything secret (error bodies never echo the secret). */
+const answerOf = (body: string) => body.replace(/\s+/g, " ").slice(0, 300);
 
 function clientAuthTransport(clientId: string): Transport {
   return {
     async send(req) {
       if (!/client_secret=/.test(req.body)) return base.send(req);
-      const order: AuthMethod[] = working.get(clientId) === "post" ? ["post", "basic"] : ["basic", "post"];
-      let res = await base.send(order[0] === "basic" ? asBasic(req) : req);
-      if (isInvalidClient(res.status, res.body)) {
-        const retry = await base.send(order[1] === "basic" ? asBasic(req) : req);
-        if (!isInvalidClient(retry.status, retry.body)) {
-          working.set(clientId, order[1]);
-          return retry;
+      const known = working.get(clientId);
+      const order = known ? [known, ...METHODS.filter((m) => m !== known)] : METHODS;
+      const tried: typeof lastClientAuthFailure = [];
+      let first: Awaited<ReturnType<Transport["send"]>> | null = null;
+      for (const method of order) {
+        const r = withMethod(req, method);
+        if (!r) continue;
+        const res = await base.send(r);
+        if (!isInvalidClient(res.status, res.body)) {
+          working.set(clientId, method);
+          return res;
         }
-        return res;
+        first ??= res;
+        tried.push({ method, status: res.status, answer: answerOf(res.body) });
       }
-      working.set(clientId, order[0]);
-      return res;
+      lastClientAuthFailure = tried;
+      return first!;
     },
   };
 }
 
 function isInvalidClient(status: number, body: string) {
   return (status === 400 || status === 401) && /"error"\s*:\s*"invalid_client"/.test(body);
+}
+
+function tokenEndpoint() {
+  const base = process.env.HARDCOVER_OAUTH_URL?.replace(/\/+$/, "");
+  return base ? `${base}/oauth2/token` : "https://api.hardcover.app/oauth2/token";
+}
+
+/**
+ * Checks the client ID and secret without anyone signing in: a token request
+ * with a made-up code. If Hardcover accepts the client it answers
+ * invalid_grant (the code is wrong); invalid_client means the ID or secret is.
+ */
+export async function checkClient(redirectUri: string) {
+  const s = getSettings();
+  if (!s.hardcoverClientId) throw new Error("Add the client ID first.");
+  const secret = s.hardcoverClientSecret.trim();
+  const req: HttpRequest = {
+    url: tokenEndpoint(),
+    headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json", "user-agent": `shelfhelp/${config.version}` },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code: "shelfhelp-credentials-check",
+      redirect_uri: redirectUri,
+      code_verifier: "shelfhelp-credentials-check-0000000000000000000000",
+      client_id: s.hardcoverClientId,
+      ...(secret ? { client_secret: secret } : {}),
+    }).toString(),
+  };
+  const results: { method: string; status: number; answer: string; accepted: boolean }[] = [];
+  for (const method of secret ? METHODS : (["post"] as AuthMethod[])) {
+    const r = withMethod(req, method);
+    if (!r) continue;
+    const res = await base.send(r);
+    results.push({ method, status: res.status, answer: answerOf(res.body), accepted: !isInvalidClient(res.status, res.body) });
+  }
+  return {
+    secretLength: secret.length,
+    secretHasSpaces: /\s/.test(s.hardcoverClientSecret.trim()) || s.hardcoverClientSecret !== s.hardcoverClientSecret.trim(),
+    secretLooksLikeClientId: secret === s.hardcoverClientId,
+    results,
+  };
 }
 
 function oauthConfig(): OAuthConfig {

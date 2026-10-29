@@ -55,12 +55,16 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [test, setTest] = useState<{ ok: boolean; message: ReactNode } | null>(null);
+  const [appResult, setAppResult] = useState<{ ok: boolean; message: ReactNode } | null>(null);
   const [saves, setSaves] = useState(0);
 
   useEffect(() => {
     api<Settings>("/settings").then(setS).catch((e) => setError(e.message));
   }, []);
-  useEffect(() => setTest(null), [tab]);
+  useEffect(() => {
+    setTest(null);
+    setAppResult(null);
+  }, [tab]);
   const [libs, setLibs] = useState<(Library & { selected: boolean })[] | null>(null);
   useEffect(() => {
     if (tab !== "abs" || !status.configured.abs) return;
@@ -101,6 +105,45 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
       );
     } catch (e) {
       setTest({ ok: false, message: (e as Error).message });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const testHardcoverApp = async () => {
+    setTesting(true);
+    try {
+      const r = await api<{
+        secretLength: number;
+        secretHasSpaces: boolean;
+        secretLooksLikeClientId: boolean;
+        results: { method: string; status: number; answer: string; accepted: boolean }[];
+      }>("/settings/test/hardcover-app", { method: "POST" });
+      const ok = r.results.find((x) => x.accepted);
+      setAppResult(
+        ok
+          ? { ok: true, message: <>Hardcover accepted the client ID and secret (sent as {ok.method}). Sign in with Hardcover should work.</> }
+          : {
+              ok: false,
+              message: (
+                <>
+                  Hardcover refused the saved client ID and secret every way Shelfhelp can send them. The saved secret is {r.secretLength} characters
+                  {r.secretHasSpaces ? " and has spaces in it" : ""}
+                  {r.secretLooksLikeClientId ? ", and it's the same as the client ID" : ""}. Rotate the secret on Hardcover, paste it here, Save Changes,
+                  then Test again.
+                  <ul className="mt-2 list-disc pl-5 font-mono text-xs">
+                    {r.results.map((x) => (
+                      <li key={x.method}>
+                        {x.method}: HTTP {x.status} {x.answer}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ),
+            },
+      );
+    } catch (e) {
+      setAppResult({ ok: false, message: (e as Error).message });
     } finally {
       setTesting(false);
     }
@@ -348,7 +391,9 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
                 People are asked to allow: <span className="font-mono text-gray-400">{s.hardcoverSignInScopes.join(", ")}</span>.
               </p>
             )}
-            {actions(["hardcoverClientId", "hardcoverClientSecret"])}
+            <p className="mt-4 max-w-6xl text-xs text-gray-500">Test checks the saved client ID and secret with Hardcover, so Save Changes first.</p>
+            <TestResult result={appResult} />
+            {actions(["hardcoverClientId", "hardcoverClientSecret"], testHardcoverApp)}
           </Section>
         </>
       )}

@@ -2,6 +2,11 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.19.3 (2026-10-29)
+
+- Settings, Hardcover: a Test button for Sign in with Hardcover checks the saved client ID and secret with Hardcover without anyone signing in, and shows Hardcover's answer for each way of sending the secret, plus the saved secret's length.
+- Sign-in tries two more ways of sending the secret (Basic without form-encoding, and Basic with the client ID also in the form). When Hardcover refuses all of them, its exact answers go to the Activity log.
+
 ## 0.19.2 (2026-10-29)
 
 - Sign in with Hardcover: Shelfhelp now sends the app's client secret the way the Hardcover app expects. It tries HTTP Basic first, falls back to sending it in the form, and remembers which one worked. Before, it only sent it in the form, which an app set up for Basic refuses with `invalid_client`.
