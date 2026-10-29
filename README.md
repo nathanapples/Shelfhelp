@@ -1,14 +1,12 @@
 # Shelfhelp
 
-Keeps [Audiobookshelf](https://www.audiobookshelf.org/) collections in step with your [Hardcover](https://hardcover.app) lists, sends your listening progress to Hardcover, and requests books through Chaptarr, with a web UI modeled on Seerr.
-
-Add a Hardcover list or one of your shelves (Want to Read, Currently Reading, Read, Did Not Finish), pick a library, and Shelfhelp creates a collection with every book on it that you own. When the list or shelf changes, the collection follows.
+Keeps [Audiobookshelf](https://www.audiobookshelf.org/) collections in step with your [Hardcover](https://hardcover.app) lists, sends your Audiobookshelf listening progress to Hardcover, and requests books through [Chaptarr](https://github.com/Chaptarr/chaptarr), with a web UI modeled on Seerr.
 
 ## AI DISCLOSURE
 
 THIS IS VIBE CODED. I DO NOT RECOMEND ANYONE EXPOSE THIS TO THE INTERNET DIRECTLY. My solution has been to put it behind a cloudflare authentication page which authenticates with my Pocket ID.
 
-Although this is publicly listed, this is for my personal use. Given that this is vibe coded and its for my personal use, I make no promises things will be fixed or that I will look at people's submissions. All that said it works pretty well for me.
+Although this is publicly listed, this is for my personal use. Given that this is vibe coded and its for my personal use, I make no promises things will be fixed. All that said it works pretty well for me, my homelab, and users.
 
 ## How matching works
 
