@@ -12,7 +12,7 @@ import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
-import { BUILTINS, PAGE, PERSONAL, hasHardcover, isTagRange, defaultRows, loadFeaturedPrompt, discoverRow, tagRows, tagsFor, allTags, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
+import { BUILTINS, PAGE, PERSONAL, hasHardcover, isTagRange, defaultRows, loadFeaturedPrompt, discoverRow, tagRows, tagsFor, allTags, listRow, searchLists, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
 import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
 import { ISSUE_KINDS, addComment, createIssue, deleteIssue, issueCounts, issueDetail, listIssues, setIssueStatus } from "./lib/issues.js";
 import { canSeeRequest, editionLabel, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
@@ -795,6 +795,15 @@ export async function routes(app: FastifyInstance) {
   app.delete("/api/discover/rows", async (req) => {
     resetRows(req.viewer.user.id);
     return { ok: true };
+  });
+
+  /** Public Hardcover lists matching ?q=, for the Add a row search. */
+  app.get<{ Querystring: { q?: string } }>("/api/discover/list-search", async (req, reply) => {
+    try {
+      return await searchLists(req.query.q?.slice(0, 100) ?? "");
+    } catch (err) {
+      return fail(reply, err);
+    }
   });
 
   app.post<{ Body: { ref: string } }>("/api/discover/list", async (req, reply) => {

@@ -261,6 +261,24 @@ export async function rowInfoFor(key: string, userId: number, nameHint?: string 
   throw new Error("No such row");
 }
 
+/** A public Hardcover list found by search, for adding as a Discover row. */
+export interface ListHit {
+  id: number;
+  name: string;
+  owner: string | null;
+  booksCount: number;
+}
+
+/** Searches every public Hardcover list by name, most relevant first. Lists with no books are left out. */
+export async function searchLists(q: string, limit = 10): Promise<ListHit[]> {
+  if (!q.trim()) return [];
+  const res = await hardcover().search.lists(q.trim(), { perPage: 25 });
+  return res.hits
+    .filter((h) => (h.booksCount ?? 0) > 0)
+    .slice(0, limit)
+    .map((h) => ({ id: h.id, name: h.name, owner: h.user?.username ?? null, booksCount: h.booksCount ?? 0 }));
+}
+
 /** Turns a pasted Hardcover list link (or id) into a row. */
 export async function listRow(ref: string): Promise<RowConfig> {
   const id = await resolveList(ref);

@@ -8,6 +8,8 @@ import { TagSearch, useAllTags } from "./TagSearch";
 import { Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
 
+type ListHit = { id: number; name: string; owner: string | null; booksCount: number };
+
 type Hit = { key: string; label: string; detail: string | null; type: "Row" | "Genre" | "Mood" | "List"; pick: () => void };
 
 const TYPE_STYLE: Record<Hit["type"], string> = {
@@ -22,7 +24,7 @@ const looksLikeList = (q: string) => /@[^/\s]+\/lists\/[^/?#\s]+/i.test(q.trim()
 
 /**
  * One search for every kind of row: built-in rows, any Hardcover genre or
- * mood, your Hardcover lists, or a pasted list link. Each result says what it is.
+ * mood, your Hardcover lists, any public Hardcover list, or a pasted list link. Each result says what it is.
  */
 function RowSearch({
   has,
@@ -46,6 +48,23 @@ function RowSearch({
   const genres = useAllTags("genre", load);
   const moods = useAllTags("mood", load);
   const link = looksLikeList(q);
+  // Public lists from all of Hardcover, searched a moment after typing stops.
+  const [found, setFound] = useState<{ q: string; lists: ListHit[] } | null>(null);
+  const want = q.trim();
+  useEffect(() => {
+    if (link || want.length < 2) return;
+    let stale = false;
+    const t = setTimeout(() => {
+      api<ListHit[]>(`/discover/list-search?q=${encodeURIComponent(want)}`)
+        .catch(() => [] as ListHit[])
+        .then((lists) => !stale && setFound({ q: want, lists }));
+    }, 300);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [want, link]);
+  const searching = !link && want.length >= 2 && found?.q !== want;
   const hits = useMemo<Hit[]>(() => {
     const want = q.trim().toLowerCase();
     if (!want || link) return [];
@@ -73,12 +92,24 @@ function RowSearch({
       ),
     ];
     // Names that start with what you typed first, then the order above.
-    return all
+    const local = all
       .map((h, i) => ({ h, i }))
       .sort((a, b) => a.h.rank - b.h.rank || a.i - b.i)
       .slice(0, 12)
       .map(({ h }) => h);
-  }, [q, link, builtins, lists, genres.tags, moods.tags, has, onAddRow, onAddList]);
+    // Then other people's public lists, in Hardcover's order, skipping any already shown.
+    const shown = new Set(local.map((h) => h.key));
+    const remote: Hit[] = (found?.q === q.trim() ? found.lists : [])
+      .filter((l) => !has(`list-${l.id}`) && !shown.has(`list-${l.id}`))
+      .map((l) => ({
+        key: `list-${l.id}`,
+        label: l.name,
+        detail: `${l.owner ? `@${l.owner} · ` : ""}${l.booksCount.toLocaleString()} books`,
+        type: "List" as const,
+        pick: () => void onAddList(String(l.id)),
+      }));
+    return [...local, ...remote];
+  }, [q, link, builtins, lists, found, genres.tags, moods.tags, has, onAddRow, onAddList]);
   const loading = !link && !!q.trim() && (!genres.tags || !moods.tags) && !genres.error && !moods.error;
 
   const submit = async () => {
@@ -149,7 +180,12 @@ function RowSearch({
                   <Spinner className="h-4 w-4" /> Loading genres and moods from Hardcover...
                 </li>
               )}
-              {!loading && hits.length === 0 && <li className="px-3 py-2 text-sm text-gray-500">Nothing matches. Paste a Hardcover list link to add a list.</li>}
+              {searching && (
+                <li className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400">
+                  <Spinner className="h-4 w-4" /> Searching Hardcover lists...
+                </li>
+              )}
+              {!loading && !searching && hits.length === 0 && <li className="px-3 py-2 text-sm text-gray-500">Nothing matches. Paste a Hardcover list link to add a list.</li>}
             </>
           )}
         </ul>
