@@ -471,8 +471,6 @@ export interface DiscoverConfig {
   builtins: DiscoverRowInfo[];
   genres: DiscoverRowInfo[];
   moods: DiscoverRowInfo[];
-  /** Hardcover's most liked lists, for Browse lists (empty when that section is off). */
-  lists?: TopList[];
   /** Which Browse sections show at the bottom of Discover. */
   show?: BrowseShow;
 }
@@ -480,21 +478,8 @@ export interface DiscoverConfig {
 export interface BrowseShow {
   genre: boolean;
   mood: boolean;
-  list: boolean;
 }
 
-/** A Hardcover list in Browse lists and All lists. Opens as a Discover row page. */
-export interface TopList {
-  id: number;
-  slug: string | null;
-  name: string;
-  owner: string | null;
-  booksCount: number;
-  likesCount: number;
-  coverUrls: string[];
-}
-
-export const listLink = (l: { id: number; name: string }) => `/discover/list-${l.id}?name=${encodeURIComponent(l.name)}`;
 
 export type TagKind = "genre" | "mood";
 

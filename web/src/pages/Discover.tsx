@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AdjustmentsHorizontalIcon, ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
-import { hardcoverSignInUrl, isAdmin, listLink, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type RequestOutcome, type SearchHit, type Status, type TagKind, tagLink } from "../lib/api";
+import { hardcoverSignInUrl, isAdmin, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type RequestOutcome, type SearchHit, type Status, type TagKind, tagLink } from "../lib/api";
 import { CustomizeDiscover } from "../components/CustomizeDiscover";
 import { useApi, useStoredState } from "../lib/hooks";
 import { BookCard } from "../components/BookCard";
@@ -266,15 +266,6 @@ export default function DiscoverPage({ status }: { status: Status }) {
           )}
           {config.show?.mood !== false && (
             <ChipStrip title="Browse by mood" subtitle="The top books readers give each mood on Hardcover" to="/browse/mood" allLabel="All moods" chips={tagChips("mood", config.moods ?? [])} />
-          )}
-          {config.show?.list !== false && (
-            <ChipStrip
-              title="Browse lists"
-              subtitle="Hardcover's most liked lists"
-              to="/browse/lists"
-              allLabel="All lists"
-              chips={(config.lists ?? []).map((l) => ({ key: `list-${l.id}`, label: l.name, to: listLink(l) }))}
-            />
           )}
         </div>
       )}

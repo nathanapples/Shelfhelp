@@ -215,7 +215,7 @@ export function CustomizeDiscover({
   const [rows, setRows] = useState<DiscoverRowInfo[]>(config.allRows ?? config.rows);
   const toTags = (list: DiscoverRowInfo[] | undefined) => (list ?? []).map((g) => ({ slug: g.tag ?? "", name: g.name ?? g.title }));
   const [chips, setChips] = useState<Record<TagKind, { slug: string; name: string }[]>>({ genre: toTags(config.genres), mood: toTags(config.moods) });
-  const [show, setShow] = useState<BrowseShow>(config.show ?? { genre: true, mood: true, list: true });
+  const [show, setShow] = useState<BrowseShow>(config.show ?? { genre: true, mood: true });
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [asDefault, setAsDefault] = useState(false);
@@ -346,14 +346,13 @@ export function CustomizeDiscover({
 
       <h4 className="mb-1 mt-8 text-sm font-semibold uppercase tracking-wider text-gray-400">Browse sections</h4>
       <p className="mb-3 text-xs text-gray-500">
-        The chips at the bottom of Discover. Each opens a genre, mood or list's page; they don't add rows.
+        The chips at the bottom of Discover. Each opens a genre or mood's page; they don't add rows.
       </p>
       <div className="mb-4 flex flex-wrap gap-x-5 gap-y-2">
         {(
           [
             ["genre", "Browse by genre"],
             ["mood", "Browse by mood"],
-            ["list", "Browse lists"],
           ] as const
         ).map(([k, label]) => (
           <label key={k} className="flex cursor-pointer items-center gap-2 text-sm text-gray-200">

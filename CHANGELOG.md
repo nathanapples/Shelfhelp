@@ -2,6 +2,11 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.22.0 (2026-10-30)
+
+- Settings, Hardcover: a new **API usage** panel shows how many requests the server key has used today out of the daily limit, the per-minute allowance and when the count resets, as Hardcover reports it with each answer. Each person's connection shows the same as last seen. The daily count is per Hardcover account, so it includes other apps and keys on that account.
+- Browse lists and the All lists tab are removed again. Hardcover only lets a key read its own account's lists that way, so the section only ever showed the server account's lists.
+
 ## 0.21.0 (2026-10-30)
 
 - Discover rows: "See all" is gone (the row title opens the full page). In its place, a small **Show owned** checkbox hides or shows books you already have in Audiobookshelf, remembered per row in your browser. It only appears on rows that have owned books.

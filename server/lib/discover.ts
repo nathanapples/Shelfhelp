@@ -68,7 +68,7 @@ export const TAGS: Record<TagKind, Tag[]> = {
     "Challenging", "Inspiring", "Informative", "Relaxing", "Fast-Paced", "Medium-Paced", "Suspenseful", "Slow-Paced", "Humorous", "Thought-Provoking",
   ]),
 };
-/** How many of the top genres, moods and lists Discover's Browse sections show by default. */
+/** How many of the top genres and moods Discover's Browse sections show by default. */
 export const BROWSE_DEFAULT = 15;
 const defaultTags = (kind: TagKind) => TAGS[kind].slice(0, BROWSE_DEFAULT);
 /** A saved chip list that's exactly the old built-in top 20 counts as "the defaults". */
@@ -79,13 +79,12 @@ const isOldDefault = (kind: TagKind, list: Tag[] | null) =>
 export interface BrowseShow {
   genre: boolean;
   mood: boolean;
-  list: boolean;
 }
-const SHOW_ALL: BrowseShow = { genre: true, mood: true, list: true };
+const SHOW_ALL: BrowseShow = { genre: true, mood: true };
 function cleanShow(v: unknown): BrowseShow | null {
   if (!v || typeof v !== "object") return null;
   const o = v as Partial<Record<keyof BrowseShow, unknown>>;
-  return { genre: o.genre !== false, mood: o.mood !== false, list: o.list !== false };
+  return { genre: o.genre !== false, mood: o.mood !== false };
 }
 
 // Genres offered before, still known by name in rows people saved.
@@ -106,71 +105,6 @@ const allTagsCache: Partial<Record<TagKind, { at: number; tags: (Tag & { count: 
  * Every genre or mood on Hardcover with at least a few books, most books
  * first (up to 600). Cached for a day.
  */
-export interface TopList {
-  id: number;
-  slug: string | null;
-  name: string;
-  owner: string | null;
-  booksCount: number;
-  likesCount: number;
-  coverUrls: string[];
-}
-let topListsCache: { at: number; lists: TopList[] } | null = null;
-
-/** Hardcover's most liked public lists (with at least a few books). Cached for a day. */
-export async function topLists(limit = 30): Promise<TopList[]> {
-  if (topListsCache && Date.now() - topListsCache.at < 24 * 3600_000 && topListsCache.lists.length >= Math.min(limit, 30)) {
-    return topListsCache.lists.slice(0, limit);
-  }
-  type Row = {
-    id: number;
-    slug: string | null;
-    name: string | null;
-    books_count: number | null;
-    likes_count: number | null;
-    user?: { username?: string | null } | null;
-    list_books?: { book?: { cached_image?: { url?: string } | null } | null }[];
-  };
-  const data = await hardcover().graphql<{ lists: Row[] }>(
-    `query TopLists($limit: Int!) {
-       lists(where: { public: { _eq: true }, books_count: { _gte: 5 } }, order_by: { likes_count: desc }, limit: $limit) {
-         id slug name books_count likes_count
-         user { username }
-         list_books(order_by: { position: asc }, limit: 3) { book { cached_image } }
-       }
-     }`,
-    { limit: Math.max(limit, 30) },
-  );
-  const lists = data.lists
-    .filter((l) => l.name?.trim())
-    .map((l) => ({
-      id: l.id,
-      slug: l.slug,
-      name: l.name!.trim(),
-      owner: l.user?.username ?? null,
-      booksCount: l.books_count ?? 0,
-      likesCount: l.likes_count ?? 0,
-      coverUrls: (l.list_books ?? []).map((x) => x.book?.cached_image?.url).filter((u): u is string => !!u),
-    }));
-  topListsCache = { at: Date.now(), lists };
-  return lists.slice(0, limit);
-}
-
-/** Searches Hardcover's lists by name. */
-export async function searchLists(q: string): Promise<TopList[]> {
-  if (!q.trim()) return [];
-  const res = await hardcover().search.lists(q.trim(), { perPage: 30 });
-  return res.hits.map((h) => ({
-    id: h.id,
-    slug: h.slug ?? null,
-    name: h.name,
-    owner: h.user?.username ?? null,
-    booksCount: h.booksCount ?? 0,
-    likesCount: h.likesCount ?? 0,
-    coverUrls: [],
-  }));
-}
-
 export async function allTags(kind: TagKind): Promise<(Tag & { count: number })[]> {
   const hit = allTagsCache[kind];
   if (hit && Date.now() - hit.at < 24 * 3600_000) return hit.tags;

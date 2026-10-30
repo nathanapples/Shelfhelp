@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import ActivityLog from "./Activity";
 import { ChaptarrSettings, testMessage } from "./ChaptarrSettings";
 import { AuthSettings, UsersSettings } from "./UsersSettings";
+import { HardcoverUsage } from "../components/HardcoverUsage";
 import { CheckCircleIcon, ExclamationTriangleIcon, LockClosedIcon } from "@heroicons/react/24/outline";
 import { api, type Library, type Settings, type Status } from "../lib/api";
 import { ErrorBlock, LoadingBlock, PageTitle, Spinner, Tabs, Toggle } from "../components/ui";
@@ -286,6 +287,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
 
       {tab === "hardcover" && (
         <>
+          {status.configured.hardcover && <HardcoverUsage />}
           <Section
             title="Server key"
             description={

@@ -1,10 +1,35 @@
-import { HardcoverClient, type CachedContributor, type CachedFeaturedSeries, type CachedImage } from "@hardcover/sdk";
+import { HardcoverClient, type RateLimitState, type CachedContributor, type CachedFeaturedSeries, type CachedImage } from "@hardcover/sdk";
 import { config } from "./config.js";
 import { getSettings } from "./settings.js";
 import { seriesNumber } from "./normalize.js";
 import { oauthUserId, sessionFor } from "./hcauth.js";
 
 const clients = new Map<string, HardcoverClient>();
+
+/** The latest rate-limit report per token, from Hardcover's response headers. */
+const usage = new Map<string, { state: RateLimitState; at: number }>();
+
+/** API usage for a token, as Hardcover last reported it. Pass probe to ask Hardcover now if nothing's known yet. */
+export async function hardcoverUsage(token: string, probe = false) {
+  let hit = usage.get(token);
+  if (!hit && probe) {
+    await hardcover(token).books.getMany([1]).catch(() => null);
+    hit = usage.get(token);
+  }
+  if (!hit) return null;
+  const { burst, daily, tier } = hit.state;
+  const ago = (Date.now() - hit.at) / 1000;
+  const left = (s: number | undefined) => (s === undefined ? null : Math.max(0, Math.round(s - ago)));
+  return {
+    plan: tier ?? null,
+    perMinute: burst?.perMinute ?? burst?.limit ?? null,
+    dailyLimit: daily?.limit ?? null,
+    dailyRemaining: daily?.remaining ?? null,
+    dailyUsed: daily?.limit != null && daily.remaining != null ? daily.limit - daily.remaining : null,
+    dailyResetsIn: left(daily?.resetSeconds),
+    seenAt: new Date(hit.at).toISOString(),
+  };
+}
 
 /**
  * A Hardcover client. With no token, the server's own key from Settings (shared
@@ -19,6 +44,8 @@ export function hardcover(token = getSettings().hardcoverToken): HardcoverClient
   if (hit) return hit;
   const client = new HardcoverClient({
     ...(userId != null ? { auth: sessionFor(userId) } : { token }),
+    // Hardcover reports the plan, per-minute allowance and daily usage on each answer.
+    onRateLimit: (state) => usage.set(token, { state, at: Date.now() }),
     ...(process.env.HARDCOVER_ENDPOINT ? { endpoint: process.env.HARDCOVER_ENDPOINT } : {}),
     userAgent: `shelfhelp/${config.version}`,
     onWarning: (m) => console.warn(`[hardcover] ${m}`),
