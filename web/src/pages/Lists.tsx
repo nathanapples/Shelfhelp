@@ -9,6 +9,8 @@ import {
   PauseCircleIcon,
   PlusIcon,
   RectangleStackIcon,
+  FaceSmileIcon,
+  TagIcon,
 } from "@heroicons/react/24/outline";
 import { api, timeAgo, type BookStatus, type List, type Status } from "../lib/api";
 import { jobStarted, useApi } from "../lib/hooks";
@@ -34,6 +36,7 @@ function ListCard({ list, onSynced }: { list: List; onSynced: () => void }) {
   const inLibrary = pct(counts.matched, counts.total);
   const isShelf = list.sourceType === "hardcover_status";
   const isRequests = list.sourceType === "requests";
+  const tagKind = list.sourceType === "hardcover_tag" ? (list.hcSlug?.startsWith("mood:") ? "mood" : "genre") : null;
 
   const sync = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -77,12 +80,16 @@ function ListCard({ list, onSynced }: { list: List; onSynced: () => void }) {
           <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400">
             {isRequests ? (
               <InboxArrowDownIcon className="h-3.5 w-3.5 text-indigo-400" />
+            ) : tagKind === "mood" ? (
+              <FaceSmileIcon className="h-3.5 w-3.5 text-amber-400" />
+            ) : tagKind === "genre" ? (
+              <TagIcon className="h-3.5 w-3.5 text-pink-400" />
             ) : isShelf ? (
               <BookmarkIcon className="h-3.5 w-3.5 text-purple-400" />
             ) : (
               <RectangleStackIcon className="h-3.5 w-3.5 text-indigo-400" />
             )}
-            {isRequests ? "Requests" : isShelf ? "Shelf" : "List"}
+            {isRequests ? "Requests" : tagKind === "mood" ? "Mood" : tagKind === "genre" ? "Genre" : isShelf ? "Shelf" : "List"}
           </div>
           <h2 className="truncate text-xl font-bold text-white group-hover:underline">{list.name}</h2>
           <div className="truncate text-sm text-gray-400">Collection "{list.collectionName}"</div>

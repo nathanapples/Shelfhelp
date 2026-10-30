@@ -2,6 +2,7 @@ import { Abs } from "./abs.js";
 import { db, json, tx } from "./db.js";
 import { fetchSource, type ListBook } from "./hardcover.js";
 import { requestSource } from "./requests.js";
+import { tagSource } from "./discover.js";
 import { idLinks, libraryIndex, refreshLibrary, rejectedPairs } from "./library.js";
 import { matchBook, type Candidate } from "./matcher.js";
 import { getSettings, isConfigured } from "./settings.js";
@@ -71,7 +72,12 @@ export async function syncList(listId: number, { forceLibrary = false } = {}) {
       token = readerById(list.user_id)?.hardcoverToken || undefined;
       if (!token) throw new Error("This reader hasn't connected Hardcover.");
     }
-    const { info, books } = list.source_type === "requests" ? requestSource(list.hc_list_id) : await fetchSource(list.source_type, list.hc_list_id, token);
+    const { info, books } =
+      list.source_type === "requests"
+        ? requestSource(list.hc_list_id)
+        : list.source_type === "hardcover_tag"
+          ? await tagSource(list.hc_slug ?? "", list.hc_list_id)
+          : await fetchSource(list.source_type, list.hc_list_id, token);
     await refreshLibrary(list.abs_library_id, { force: forceLibrary, job });
     step(job, `Matching ${books.length} books`);
     rematch(list, books);
@@ -212,6 +218,10 @@ export async function pushCollection(listId: number): Promise<string> {
 }
 
 export function hardcoverUrl(list: Pick<ListRow, "source_type" | "hc_owner" | "hc_slug">) {
+  if (list.source_type === "hardcover_tag") {
+    const m = list.hc_slug?.match(/^(genre|mood):(.+)$/);
+    return m ? `https://hardcover.app/${m[1] === "genre" ? "genres" : "moods"}/${m[2]}` : null;
+  }
   if (!list.hc_owner || !list.hc_slug) return null;
   return list.source_type === "hardcover_status"
     ? `https://hardcover.app/@${list.hc_owner}/books/${list.hc_slug}`

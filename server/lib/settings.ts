@@ -52,6 +52,8 @@ export interface Settings {
   discoverRows: unknown[];
   /** Default genre and mood chips for Discover's Browse sections. Null uses Shelfhelp's top 20. */
   discoverTags: unknown;
+  /** List collections made before 0.25.0 have been added to the default Discover rows. */
+  discoverListRowsAdded: boolean;
   /** How people sign in: none (shared password or open), oidc (Pocket ID), cloudflare (Cloudflare Access). */
   authMode: AuthMode;
   oidcIssuer: string;
@@ -103,6 +105,7 @@ const defaults: Settings = {
   autoWantToRead: true,
   discoverRows: [],
   discoverTags: null,
+  discoverListRowsAdded: false,
   authMode: "none",
   oidcIssuer: "",
   oidcClientId: "",

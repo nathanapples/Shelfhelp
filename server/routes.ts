@@ -12,7 +12,7 @@ import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
-import { BUILTINS, PAGE, PERSONAL, hasHardcover, isTagRange, defaultRows, loadFeaturedPrompt, discoverRow, tagRows, tagsFor, allTags, listRow, searchLists, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
+import { BUILTINS, PAGE, PERSONAL, hasHardcover, isTagRange, defaultRows, loadFeaturedPrompt, discoverRow, tagRows, tagsFor, allTags, listRow, searchLists, addDefaultListRow, backfillDefaultListRows, parseTagRef, tagSource, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
 import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
 import { ISSUE_KINDS, addComment, createIssue, deleteIssue, issueCounts, issueDetail, listIssues, setIssueStatus } from "./lib/issues.js";
 import { canSeeRequest, editionLabel, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
@@ -191,6 +191,11 @@ function fail(reply: FastifyReply, err: unknown, code = 400) {
 }
 
 export async function routes(app: FastifyInstance) {
+  try {
+    backfillDefaultListRows();
+  } catch (err) {
+    log("warn", `Couldn't add list collections to the Discover rows: ${(err as Error).message}`);
+  }
   app.addHook("onRequest", async (req, reply) => {
     if (!req.url.startsWith("/api/")) return;
     const path = req.url.split("?")[0];
@@ -1119,11 +1124,40 @@ export async function routes(app: FastifyInstance) {
   });
 
   app.post<{
-    Body: { sourceType?: "hardcover_list" | "hardcover_status" | "requests"; hcListId: number; hcOwner?: string | null; absLibraryId: string; collectionName?: string; removeMissing?: boolean; keepOrder?: boolean };
+    Body: {
+      sourceType?: "hardcover_list" | "hardcover_status" | "requests" | "hardcover_tag";
+      hcListId: number;
+      hcOwner?: string | null;
+      /** For hardcover_tag: "genre:<slug>" or "mood:<slug>". hcListId is then 0 (top, all time) or 1 (trending this month). */
+      tagRef?: string;
+      absLibraryId: string;
+      collectionName?: string;
+      removeMissing?: boolean;
+      keepOrder?: boolean;
+    };
   }>("/api/lists", async (req, reply) => {
     try {
       const b = req.body;
-      const sourceType = b.sourceType === "hardcover_status" || b.sourceType === "requests" ? b.sourceType : "hardcover_list";
+      const sourceType = b.sourceType === "hardcover_status" || b.sourceType === "requests" || b.sourceType === "hardcover_tag" ? b.sourceType : "hardcover_list";
+      if (sourceType === "hardcover_tag") {
+        if (!parseTagRef(b.tagRef)) return reply.code(400).send({ error: "Pick a genre or mood." });
+        const range = b.hcListId === 1 ? 1 : 0;
+        const dup = db
+          .prepare("SELECT id FROM lists WHERE source_type = 'hardcover_tag' AND hc_slug = ? AND hc_list_id = ? AND abs_library_id = ?")
+          .get(b.tagRef!, range, b.absLibraryId) as { id: number } | undefined;
+        if (dup) return reply.code(409).send({ error: "That's already synced to this library.", id: dup.id });
+        const { info } = await tagSource(b.tagRef!, range);
+        const res = db
+          .prepare(
+            `INSERT INTO lists (source_type, hc_list_id, hc_slug, hc_owner, name, description, abs_library_id, collection_name, remove_missing, keep_order, user_id)
+             VALUES ('hardcover_tag', ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL)`,
+          )
+          .run(range, info.slug, info.name, info.description, b.absLibraryId, (b.collectionName || info.name).trim(), b.removeMissing === false ? 0 : 1, b.keepOrder === false ? 0 : 1);
+        const id = Number(res.lastInsertRowid);
+        log("info", `Added "${info.name}"`, id);
+        syncList(id, { forceLibrary: true }).catch(() => {});
+        return listView(getList(id)!);
+      }
       // Shelves are read with your own Hardcover connection; lists with the server's key, or yours for a private list.
       const mine = readerById(req.viewer.user.id)?.hardcoverToken || "";
       let userId: number | null = sourceType === "hardcover_status" ? req.viewer.user.id : null;
@@ -1160,6 +1194,14 @@ export async function routes(app: FastifyInstance) {
         );
       const id = Number(res.lastInsertRowid);
       log("info", `Added list "${info.name}"`, id);
+      // A public list collection also becomes one of everyone's default Discover rows.
+      if (sourceType === "hardcover_list" && userId === null) {
+        try {
+          addDefaultListRow({ id: b.hcListId, name: info.name, owner: b.hcOwner ?? info.owner ?? null, slug: info.slug });
+        } catch (err) {
+          log("warn", `Couldn't add "${info.name}" to the Discover rows: ${(err as Error).message}`);
+        }
+      }
       syncList(id, { forceLibrary: true }).catch(() => {});
       return listView(getList(id)!);
     } catch (err) {

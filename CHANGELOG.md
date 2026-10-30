@@ -2,6 +2,11 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.25.0 (2026-10-30)
+
+- New Collection: the search also finds Hardcover genres and moods. A genre or mood collection holds up to 100 books; whoever adds it picks **Top, all time** (the most-read books with that genre or mood) or **Trending this month** (what's popular in it now, so books come and go). Collections show them as Genre or Mood.
+- A collection made from a public Hardcover list also becomes one of everyone's default Discover rows. People who picked their own rows keep theirs. List collections made before this version are added once when Shelfhelp starts; removing one from the defaults afterwards keeps it removed.
+
 ## 0.24.0 (2026-10-30)
 
 - New Collection: your shelves and lists are one section (shelves first, then your lists, then the ones you follow). The link box is now a search box: type to filter your shelves, lists and requests, and to search all of Hardcover's public lists, the same way Add a row does. Pasting a list link still works.

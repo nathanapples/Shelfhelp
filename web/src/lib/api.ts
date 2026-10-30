@@ -8,7 +8,7 @@ export interface Counts {
   total: number;
 }
 
-export type SourceType = "hardcover_list" | "hardcover_status" | "requests";
+export type SourceType = "hardcover_list" | "hardcover_status" | "requests" | "hardcover_tag";
 
 export interface List {
   id: number;

@@ -4,7 +4,7 @@
  * list. Hardcover answers are cached for a few hours.
  */
 import { db, json } from "./db.js";
-import { fetchList, hardcover, missingScopes, resolveList, type ListBook } from "./hardcover.js";
+import { fetchList, hardcover, missingScopes, resolveList, type ListBook, type ListInfo } from "./hardcover.js";
 import { inLibrary, requestsFor, summarizeBook, type HcSummary } from "./requests.js";
 import { myShelfStatus, refreshShelves } from "./reading.js";
 import { recentlyAdded } from "./linking.js";
@@ -683,4 +683,85 @@ async function buildRow(key: string, userId: number, limit: number, range: TagRa
     default:
       throw new Error("No such row");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Genres and moods as collection sources
+
+/** How a genre or mood collection picks its books. Stored as the list's hc_list_id. */
+export const TAG_RANGES = { 0: "all", 1: "month" } as const;
+export type TagSourceRange = keyof typeof TAG_RANGES;
+/** How many books a genre or mood collection holds. */
+const TAG_SOURCE_SIZE = 100;
+
+/** "genre:fantasy" in a list's hc_slug, back to its kind and slug. */
+export function parseTagRef(ref: string | null | undefined): { kind: TagKind; slug: string } | null {
+  const m = ref?.match(/^(genre|mood):(.+)$/);
+  return m ? { kind: m[1] as TagKind, slug: m[2] } : null;
+}
+
+export function tagSourceName(kind: TagKind, name: string, range: TagSourceRange) {
+  return range === 1 ? `Trending ${name}` : kind === "genre" ? `Top ${name}` : `${name} reads`;
+}
+
+const toListBook = (b: HcSummary, position: number): ListBook => ({
+  id: b.id,
+  position,
+  slug: b.slug,
+  title: b.title,
+  subtitle: b.subtitle,
+  authors: b.authors,
+  seriesName: b.seriesName,
+  seriesPosition: b.seriesPosition == null || b.seriesPosition === "" ? null : Number(b.seriesPosition) || null,
+  coverUrl: b.coverUrl,
+  releaseYear: b.releaseYear,
+  audioSeconds: null,
+});
+
+/**
+ * A genre or mood as a collection source: its most-read books of all time
+ * (range 0) or what's trending in it this month (range 1).
+ */
+export async function tagSource(ref: string, range: number): Promise<{ info: ListInfo; books: ListBook[] }> {
+  const t = parseTagRef(ref);
+  if (!t) throw new Error(`Not a genre or mood: ${ref}`);
+  const name = tagName(t.kind, t.slug) ?? (await allTags(t.kind)).find((x) => x.slug === t.slug)?.name;
+  if (!name) throw new Error(`Hardcover has no ${t.kind} "${t.slug}".`);
+  const r: TagSourceRange = range === 1 ? 1 : 0;
+  const found = r === 1 ? await trendingTagBooks(t.kind, name, "month", TAG_SOURCE_SIZE) : await tagBooks(t.kind, name, TAG_SOURCE_SIZE);
+  const books = found.map(toListBook);
+  const label = t.kind === "genre" ? "genre" : "mood";
+  return {
+    info: {
+      id: r,
+      slug: `${t.kind}:${t.slug}`,
+      name: tagSourceName(t.kind, name, r),
+      description: r === 1 ? `What's trending this month in the ${name} ${label} on Hardcover.` : `The most-read books in the ${name} ${label} on Hardcover.`,
+      booksCount: books.length,
+      owner: null,
+      coverUrls: books.slice(0, 6).map((b) => b.coverUrl).filter((u): u is string => !!u),
+    },
+    books,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// List collections as default Discover rows
+
+/** Adds a Hardcover list to everyone's default Discover rows, unless it's there already. */
+export function addDefaultListRow(l: { id: number; name: string; owner?: string | null; slug?: string | null }) {
+  const rows = defaultRows();
+  const key = `list-${l.id}`;
+  if (rows.some((r) => r.key === key)) return;
+  saveSettings({ discoverRows: [...rows, { key, kind: "list", listId: l.id, title: l.name, owner: l.owner ?? null, slug: l.slug ?? null }] });
+}
+
+/** Once: every list collection made before list collections became default rows. */
+export function backfillDefaultListRows() {
+  if (getSettings().discoverListRowsAdded) return;
+  const lists = db
+    .prepare("SELECT hc_list_id, name, hc_owner, hc_slug FROM lists WHERE source_type = 'hardcover_list' AND user_id IS NULL ORDER BY id")
+    .all() as { hc_list_id: number; name: string; hc_owner: string | null; hc_slug: string | null }[];
+  for (const l of lists) addDefaultListRow({ id: l.hc_list_id, name: l.name, owner: l.hc_owner, slug: l.hc_slug });
+  saveSettings({ discoverListRowsAdded: true });
 }

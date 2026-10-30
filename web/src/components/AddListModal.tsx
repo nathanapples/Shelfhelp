@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { BookmarkIcon, CheckCircleIcon, InboxArrowDownIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
-import { api, type HcList, type Library, type List } from "../lib/api";
+import { BookmarkIcon, CheckCircleIcon, FaceSmileIcon, InboxArrowDownIcon, MagnifyingGlassIcon, TagIcon } from "@heroicons/react/24/outline";
+import { api, type HcList, type HcTag, type Library, type List, type TagKind } from "../lib/api";
+import { useAllTags } from "./TagSearch";
 import { Cover, Modal, Spinner, Toggle } from "./ui";
 import { useToast } from "./toast";
 
@@ -10,6 +11,21 @@ const looksLikeList = (q: string) => /@[^/\s]+\/lists\/[^/?#\s]+/i.test(q.trim()
 
 /** A public Hardcover list from search. */
 type ListHit = { id: number; name: string; owner: string | null; booksCount: number };
+
+/** A genre or mood collection's name, matching the server's. */
+const tagCollectionName = (kind: TagKind, name: string, range: number) => (range === 1 ? `Trending ${name}` : kind === "genre" ? `Top ${name}` : `${name} reads`);
+
+/** A genre or mood as something to pick, shaped like a list. `slug` holds "genre:<slug>". */
+const tagPick = (kind: TagKind, t: HcTag): HcList => ({
+  id: 0,
+  slug: `${kind}:${t.slug}`,
+  name: t.name,
+  description: null,
+  booksCount: t.count,
+  owner: null,
+  coverUrls: [],
+  sourceType: "hardcover_tag",
+});
 
 function Covers({ urls }: { urls: string[] }) {
   return (
@@ -42,6 +58,8 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
   const [removeMissing, setRemoveMissing] = useState(true);
   const [keepOrder, setKeepOrder] = useState(true);
   const [saving, setSaving] = useState(false);
+  /** For a genre or mood: 0 = top books of all time, 1 = trending this month. */
+  const [range, setRange] = useState(0);
   // Public lists from all of Hardcover, searched a moment after typing stops.
   const [found, setFound] = useState<{ q: string; lists: ListHit[] } | null>(null);
   const q = url.trim();
@@ -60,6 +78,8 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
     };
   }, [q, link]);
   const searching = !link && q.length >= 2 && found?.q !== q;
+  const genres = useAllTags("genre", open);
+  const moods = useAllTags("mood", open);
 
   useEffect(() => {
     if (!open) return;
@@ -79,8 +99,11 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
 
   const pick = (l: HcList) => {
     setPicked(l);
-    setCollectionName(l.defaultCollectionName ?? l.name);
+    setRange(0);
+    const tag = l.sourceType === "hardcover_tag" ? (l.slug?.split(":")[0] as TagKind) : null;
+    setCollectionName(tag ? tagCollectionName(tag, l.name, 0) : (l.defaultCollectionName ?? l.name));
   };
+  const pickedTag = picked?.sourceType === "hardcover_tag" ? (picked.slug?.split(":")[0] as TagKind) : null;
 
   const resolve = async (ref = url, owner?: string | null) => {
     if (!ref.trim()) return;
@@ -101,7 +124,16 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
     try {
       const list = await api<List>("/lists", {
         method: "POST",
-        body: { sourceType: picked.sourceType ?? "hardcover_list", hcListId: picked.id, hcOwner: picked.owner, absLibraryId: libraryId, collectionName, removeMissing, keepOrder },
+        body: {
+          sourceType: picked.sourceType ?? "hardcover_list",
+          hcListId: pickedTag ? range : picked.id,
+          tagRef: pickedTag ? picked.slug : undefined,
+          hcOwner: picked.owner,
+          absLibraryId: libraryId,
+          collectionName,
+          removeMissing,
+          keepOrder,
+        },
       });
       toast(`Syncing "${list.name}"`);
       onClose();
@@ -121,11 +153,33 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
       : `${l.booksCount} books${l.sourceType === "hardcover_status" ? " · shelf" : l.followed ? " · followed" : ""}`;
   const want = q.toLowerCase();
   const matches = q && !link ? [...mine, ...(requestLists ?? [])].filter((l) => l.name.toLowerCase().includes(want)) : [];
+  const tagMatches = (kind: TagKind, tags: HcTag[] | null) =>
+    q && !link ? (tags ?? []).filter((t) => t.name.toLowerCase().includes(want)).sort((a, b) => Number(!a.name.toLowerCase().startsWith(want)) - Number(!b.name.toLowerCase().startsWith(want))).slice(0, 6) : [];
+  const genreHits = tagMatches("genre", genres.tags);
+  const moodHits = tagMatches("mood", moods.tags);
   const ownIds = new Set((lists ?? []).map((l) => l.id));
   const others = found?.q === q && !link ? found.lists.filter((h) => !ownIds.has(h.id)) : [];
 
   const key = (type: string | undefined, id: number) => `${type ?? "hardcover_list"}:${id}`;
   const synced = new Set(existing.filter((l) => l.absLibraryId === libraryId).map((l) => key(l.sourceType, l.hcListId)));
+  const syncedTags = new Set(existing.filter((l) => l.absLibraryId === libraryId && l.sourceType === "hardcover_tag").map((l) => l.hcSlug));
+
+  const tagRow = (kind: TagKind, t: HcTag) => (
+    <button
+      key={`${kind}:${t.slug}`}
+      onClick={() => pick(tagPick(kind, t))}
+      className="flex w-full items-center gap-3 rounded-lg bg-gray-900/40 p-3 text-left ring-1 ring-gray-700 transition hover:bg-gray-700/60 hover:ring-gray-500"
+    >
+      {kind === "genre" ? <TagIcon className="h-5 w-5 flex-shrink-0 text-pink-400" /> : <FaceSmileIcon className="h-5 w-5 flex-shrink-0 text-amber-400" />}
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-semibold text-white">{t.name}</div>
+        <div className="text-xs text-gray-400">
+          {kind === "genre" ? "Genre" : "Mood"} · {t.count.toLocaleString()} books
+        </div>
+      </div>
+      {syncedTags.has(`${kind}:${t.slug}`) && <CheckCircleIcon className="h-6 w-6 text-green-400" title="Already synced" />}
+    </button>
+  );
 
   const row = (l: HcList, sub: string) => (
     <button
@@ -151,7 +205,7 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
       open={open}
       onClose={onClose}
       title={picked ? `Sync "${picked.name}"` : "New Collection"}
-      subtitle={picked ? `${picked.booksCount} books` : "Pick one of your shelves or lists, someone's requests, or search all of Hardcover's public lists."}
+      subtitle={picked ? (pickedTag ? `${pickedTag === "genre" ? "Genre" : "Mood"} · up to 100 books` : `${picked.booksCount} books`) : "Pick one of your shelves or lists, someone's requests, or search Hardcover's public lists, genres and moods."}
       footer={
         picked ? (
           <>
@@ -173,7 +227,7 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
             <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
             <input
               className="input pl-10"
-              placeholder="Search your shelves, your lists and all of Hardcover's lists, or paste a list link"
+              placeholder="Search your shelves and lists, Hardcover's lists, genres and moods, or paste a list link"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && link && resolve()}
@@ -201,7 +255,16 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
                   <div className="space-y-2">{matches.map((l) => row(l, sub(l)))}</div>
                 </>
               )}
-              <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">On Hardcover</h4>
+              {genreHits.length + moodHits.length > 0 && (
+                <>
+                  <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Genres and moods</h4>
+                  <div className="space-y-2">
+                    {genreHits.map((t) => tagRow("genre", t))}
+                    {moodHits.map((t) => tagRow("mood", t))}
+                  </div>
+                </>
+              )}
+              <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Lists on Hardcover</h4>
               {searching && (
                 <div className="flex items-center gap-2 py-2 text-sm text-gray-400">
                   <Spinner className="h-4 w-4" /> Searching Hardcover lists...
@@ -253,6 +316,29 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
 
       {picked && (
         <div className="pt-2">
+          {pickedTag && (
+            <div className="form-row">
+              <label>
+                Books
+                <span className="label-tip">Which {pickedTag} books the collection follows. Up to 100.</span>
+              </label>
+              <div className="form-input-area">
+                <select
+                  className="input"
+                  value={range}
+                  onChange={(e) => {
+                    const r = Number(e.target.value);
+                    // Keep the name in step unless it was changed by hand.
+                    if (collectionName === tagCollectionName(pickedTag, picked!.name, range)) setCollectionName(tagCollectionName(pickedTag, picked!.name, r));
+                    setRange(r);
+                  }}
+                >
+                  <option value={0}>Top, all time</option>
+                  <option value={1}>Trending this month</option>
+                </select>
+              </div>
+            </div>
+          )}
           <div className="form-row">
             <label>Audiobookshelf library</label>
             <div className="form-input-area">
