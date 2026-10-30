@@ -12,7 +12,7 @@ import { recentActivity, log } from "./lib/activity.js";
 import { reschedule } from "./lib/scheduler.js";
 import { jobsView } from "./lib/progress.js";
 import { Chaptarr, chooseFor, localOf, type Format } from "./lib/chaptarr.js";
-import { BUILTINS, PAGE, PERSONAL, hasHardcover, isTagRange, defaultRows, loadFeaturedPrompt, discoverRow, tagRows, tagsFor, allTags, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
+import { BROWSE_DEFAULT, topLists, searchLists, BUILTINS, PAGE, PERSONAL, hasHardcover, isTagRange, defaultRows, loadFeaturedPrompt, discoverRow, tagRows, tagsFor, allTags, listRow, resetRows, rowInfo, rowInfoFor, rowsFor, saveRows } from "./lib/discover.js";
 import { applyDecision, forgetRejection, linkLibrary, linkView, similarInLibrary, unlinkItem } from "./lib/linking.js";
 import { ISSUE_KINDS, addComment, createIssue, deleteIssue, issueCounts, issueDetail, listIssues, setIssueStatus } from "./lib/issues.js";
 import { canSeeRequest, editionLabel, forgetRequest, requestSource, requestSources, hardcoverBook, inLibrary, listRequests, parseHardcoverRef, refreshRequests, requestBook, requestCounts, requestsFor, retryRequest } from "./lib/requests.js";
@@ -65,6 +65,7 @@ const hcRedirectUri = (req: FastifyRequest) => `${publicBase(req)}${HC_FLOW_PATH
 const USER_ROUTES: [string, RegExp][] = [
   ["*", /^\/api\/discover(\/[^/]+)?$/],
   ["GET", /^\/api\/tags\/(genre|mood)$/],
+  ["GET", /^\/api\/browse\/lists$/],
   ["GET", /^\/api\/hardcover\/(search|book|editions|description)$/],
   ["GET", /^\/api\/hardcover\/oauth\/(start|callback)$/],
   ["GET", /^\/api\/abs\/cover\/[^/]+$/],
@@ -756,7 +757,19 @@ export async function routes(app: FastifyInstance) {
         .map(([id, b]) => ({ key: id, kind: "builtin", id, ...b })),
       genres: tagRows("genre", chips.genre),
       moods: tagRows("mood", chips.mood),
+      // Hardcover's most liked lists, for Browse lists. A failure just leaves the section out.
+      lists: chips.show.list ? await topLists(BROWSE_DEFAULT).catch(() => []) : [],
+      show: chips.show,
     };
+  });
+
+  /** Hardcover's top lists for All lists, or lists matching ?q=. */
+  app.get<{ Querystring: { q?: string } }>("/api/browse/lists", async (req, reply) => {
+    try {
+      return req.query.q?.trim() ? await searchLists(req.query.q) : await topLists(30);
+    } catch (err) {
+      return fail(reply, err);
+    }
   });
 
   /** Every genre or mood on Hardcover, most books first, for All genres / All moods and Customize. */

@@ -53,7 +53,7 @@ const slugify = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-")
 const tagList = (names: string[]) => names.map((name) => ({ slug: slugify(name), name }));
 
 /**
- * The default genres and moods to browse: the top 20 of each on Hardcover by
+ * Hardcover's top 20 genres and moods (the first BROWSE_DEFAULT are the defaults to browse), by
  * number of books (hardcover.app/browse/tags/genre and /mood, 2026-10-28;
  * "General" is skipped as a catch-all). Tags are matched ignoring case,
  * spaces and dashes. Admins and readers can change the chips in Customize.
@@ -68,6 +68,26 @@ export const TAGS: Record<TagKind, Tag[]> = {
     "Challenging", "Inspiring", "Informative", "Relaxing", "Fast-Paced", "Medium-Paced", "Suspenseful", "Slow-Paced", "Humorous", "Thought-Provoking",
   ]),
 };
+/** How many of the top genres, moods and lists Discover's Browse sections show by default. */
+export const BROWSE_DEFAULT = 15;
+const defaultTags = (kind: TagKind) => TAGS[kind].slice(0, BROWSE_DEFAULT);
+/** A saved chip list that's exactly the old built-in top 20 counts as "the defaults". */
+const isOldDefault = (kind: TagKind, list: Tag[] | null) =>
+  !!list && list.length === TAGS[kind].length && list.every((t, i) => t.slug === TAGS[kind][i].slug);
+
+/** Which Browse sections show at the bottom of Discover. */
+export interface BrowseShow {
+  genre: boolean;
+  mood: boolean;
+  list: boolean;
+}
+const SHOW_ALL: BrowseShow = { genre: true, mood: true, list: true };
+function cleanShow(v: unknown): BrowseShow | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Partial<Record<keyof BrowseShow, unknown>>;
+  return { genre: o.genre !== false, mood: o.mood !== false, list: o.list !== false };
+}
+
 // Genres offered before, still known by name in rows people saved.
 const OLD_GENRES = tagList(["Thriller", "Horror", "Historical Fiction", "Literary Fiction", "Self Help", "Humor"]);
 const known: Record<TagKind, Map<string, Tag>> = {
@@ -86,6 +106,71 @@ const allTagsCache: Partial<Record<TagKind, { at: number; tags: (Tag & { count: 
  * Every genre or mood on Hardcover with at least a few books, most books
  * first (up to 600). Cached for a day.
  */
+export interface TopList {
+  id: number;
+  slug: string | null;
+  name: string;
+  owner: string | null;
+  booksCount: number;
+  likesCount: number;
+  coverUrls: string[];
+}
+let topListsCache: { at: number; lists: TopList[] } | null = null;
+
+/** Hardcover's most liked public lists (with at least a few books). Cached for a day. */
+export async function topLists(limit = 30): Promise<TopList[]> {
+  if (topListsCache && Date.now() - topListsCache.at < 24 * 3600_000 && topListsCache.lists.length >= Math.min(limit, 30)) {
+    return topListsCache.lists.slice(0, limit);
+  }
+  type Row = {
+    id: number;
+    slug: string | null;
+    name: string | null;
+    books_count: number | null;
+    likes_count: number | null;
+    user?: { username?: string | null } | null;
+    list_books?: { book?: { cached_image?: { url?: string } | null } | null }[];
+  };
+  const data = await hardcover().graphql<{ lists: Row[] }>(
+    `query TopLists($limit: Int!) {
+       lists(where: { public: { _eq: true }, books_count: { _gte: 5 } }, order_by: { likes_count: desc }, limit: $limit) {
+         id slug name books_count likes_count
+         user { username }
+         list_books(order_by: { position: asc }, limit: 3) { book { cached_image } }
+       }
+     }`,
+    { limit: Math.max(limit, 30) },
+  );
+  const lists = data.lists
+    .filter((l) => l.name?.trim())
+    .map((l) => ({
+      id: l.id,
+      slug: l.slug,
+      name: l.name!.trim(),
+      owner: l.user?.username ?? null,
+      booksCount: l.books_count ?? 0,
+      likesCount: l.likes_count ?? 0,
+      coverUrls: (l.list_books ?? []).map((x) => x.book?.cached_image?.url).filter((u): u is string => !!u),
+    }));
+  topListsCache = { at: Date.now(), lists };
+  return lists.slice(0, limit);
+}
+
+/** Searches Hardcover's lists by name. */
+export async function searchLists(q: string): Promise<TopList[]> {
+  if (!q.trim()) return [];
+  const res = await hardcover().search.lists(q.trim(), { perPage: 30 });
+  return res.hits.map((h) => ({
+    id: h.id,
+    slug: h.slug ?? null,
+    name: h.name,
+    owner: h.user?.username ?? null,
+    booksCount: h.booksCount ?? 0,
+    likesCount: h.likesCount ?? 0,
+    coverUrls: [],
+  }));
+}
+
 export async function allTags(kind: TagKind): Promise<(Tag & { count: number })[]> {
   const hit = allTagsCache[kind];
   if (hit && Date.now() - hit.at < 24 * 3600_000) return hit.tags;
@@ -173,8 +258,10 @@ export function rowsFor(userId: number) {
 
 export function saveRows(userId: number, rows: unknown, asDefault: boolean, tags?: unknown) {
   const clean = valid(rows) ?? [];
-  const t = tags as Partial<Record<TagKind, unknown>> | undefined;
-  const chips = t ? { genre: cleanTags("genre", t.genre) ?? TAGS.genre, mood: cleanTags("mood", t.mood) ?? TAGS.mood } : null;
+  const t = tags as (Partial<Record<TagKind, unknown>> & { show?: unknown }) | undefined;
+  const chips = t
+    ? { genre: cleanTags("genre", t.genre) ?? defaultTags("genre"), mood: cleanTags("mood", t.mood) ?? defaultTags("mood"), show: cleanShow(t.show) ?? SHOW_ALL }
+    : null;
   if (asDefault) saveSettings({ discoverRows: clean, ...(chips ? { discoverTags: chips } : {}) });
   else updateUser(userId, { discover_rows: JSON.stringify(clean), ...(chips ? { discover_tags: JSON.stringify(chips) } : {}) });
   return clean;
@@ -184,12 +271,20 @@ export function resetRows(userId: number) {
   updateUser(userId, { discover_rows: null, discover_tags: null });
 }
 
-/** The genre and mood chips someone sees in Browse: their own, else the defaults, else the built-in top 20. */
-export function tagsFor(userId: number): Record<TagKind, Tag[]> {
-  const own = json<Partial<Record<TagKind, unknown>> | null>(getUser(userId)?.discover_tags ?? null, null);
-  const def = getSettings().discoverTags as Partial<Record<TagKind, unknown>> | null;
-  const pick = (kind: TagKind) => cleanTags(kind, own?.[kind]) ?? cleanTags(kind, def?.[kind]) ?? TAGS[kind];
-  return { genre: pick("genre"), mood: pick("mood") };
+/**
+ * The genre and mood chips someone sees in Browse, and which Browse sections
+ * show: their own, else the admin's defaults, else the built-in top 15.
+ */
+export function tagsFor(userId: number): Record<TagKind, Tag[]> & { show: BrowseShow } {
+  type Saved = Partial<Record<TagKind, unknown>> & { show?: unknown };
+  const own = json<Saved | null>(getUser(userId)?.discover_tags ?? null, null);
+  const def = getSettings().discoverTags as Saved | null;
+  const saved = (kind: TagKind, v: unknown) => {
+    const list = cleanTags(kind, v);
+    return isOldDefault(kind, list) ? null : list;
+  };
+  const pick = (kind: TagKind) => saved(kind, own?.[kind]) ?? saved(kind, def?.[kind]) ?? defaultTags(kind);
+  return { genre: pick("genre"), mood: pick("mood"), show: cleanShow(own?.show) ?? cleanShow(def?.show) ?? SHOW_ALL };
 }
 
 export function rowInfo(r: RowConfig) {

@@ -163,6 +163,26 @@ const genresOf = (b: MockBook) =>
 const moodsOf = (b: MockBook) => (b.id % 2 ? ["Adventurous", "Tense"] : ["Emotional", "Dark", "Reflective"]);
 const hit = (b: MockBook) => ({ document: { genres: genresOf(b), moods: moodsOf(b), users_count: 1000 - b.id, has_audiobook: true, id: String(b.id), title: b.title, slug: b.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"), author_names: [b.author], image: { url: `${HC}/cover/${b.id}.svg` }, series_names: b.series ? [b.series[0]] : [], featured_series_position: b.series?.[1] ?? null, release_year: 2010 } });
 
+// Hardcover's most liked lists, for Browse lists and All lists.
+const slugOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const mockLists = [
+  ["Classics everyone should read", "margaret", 412, 120], ["Gothic novels", "ravenreads", 88, 64], ["Great detective stories", "bakerstreet", 57, 51],
+  ["Adventure on the high seas", "captainb", 43, 47], ["Books for a rainy weekend", "cozyshelf", 120, 40], ["Victorian era favorites", "penny", 96, 38],
+  ["Fairy tales and fables", "grimmfan", 74, 33], ["Early science fiction", "nautilus", 61, 31], ["Coming of age classics", "jojo", 52, 29],
+  ["Books with unforgettable villains", "moriarty", 38, 27], ["Short novels under 200 pages", "brevity", 140, 25], ["Read aloud with kids", "storytime", 66, 24],
+  ["Letters and diaries", "inkwell", 30, 22], ["Lost worlds", "explorer", 28, 20], ["Romance before 1900", "austenite", 45, 18],
+  ["Monsters and the people who make them", "lab42", 19, 16], ["Books set in Paris", "boulevard", 35, 15], ["Journeys west", "frontier", 27, 13],
+  ["Best audiobook narrations of classics", "earbuds", 50, 12], ["Philosophy in fiction", "socrates", 22, 11], ["Islands", "castaway", 18, 10],
+  ["Poetry collections", "verse", 64, 9], ["Mars and beyond", "redplanet", 14, 8], ["Ghost stories", "candlelight", 41, 7],
+  ["Big family sagas", "household", 24, 6], ["Courtroom classics", "objection", 16, 5], ["Nature writing", "trailhead", 33, 4],
+  ["War and peace (and war)", "tolstoyish", 20, 3], ["Comfort rereads", "blanket", 75, 2], ["The first books I loved", "firstpage", 12, 1],
+  ["Books about books", "bibliophile", 26, 1], ["Mysteries in the countryside", "village", 21, 0],
+].map(([name, owner, books, likes], i) => ({ id: 500 + i, name: name as string, owner: owner as string, books: books as number, likes: likes as number }));
+const listRow = (l: (typeof mockLists)[number]) => ({
+  id: l.id, slug: slugOf(l.name), name: l.name, books_count: l.books, likes_count: l.likes, user: { username: l.owner },
+  list_books: books.slice(l.id % 10, (l.id % 10) + 3).map((b) => ({ book: { cached_image: { url: `${HC}/cover/${b.id}.svg` } } })),
+});
+
 function hardcover(body: { query: string; variables?: Record<string, unknown> }, token = "") {
   const q = body.query;
   const v = body.variables ?? {};
@@ -311,6 +331,14 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
     const ids = Number(v.id) === 1 ? [108, 112, 114, 111, 101] : [115, 109, 117, 112];
     return { vibes_by_pk: { id: Number(v.id), updatedAt: "2026-10-01T00:00:00Z", booksGeneratedAt: "2026-10-02T00:00:00Z", cachedBookIds: ids } };
   }
+  if (q.includes("query TopLists")) {
+    return { lists: mockLists.slice(0, Number(v.limit ?? 30)).map(listRow) };
+  }
+  if (q.includes("query Search") && /^lists?$/i.test(String(v.queryType))) {
+    const want = String(v.query).toLowerCase();
+    const found = mockLists.filter((l) => l.name.toLowerCase().includes(want));
+    return { search: { ids: found.map((l) => l.id), results: { hits: found.map((l) => ({ document: { id: String(l.id), name: l.name, slug: slugOf(l.name), books_count: l.books, likes_count: l.likes, user: { username: l.owner } } })), found: found.length }, query: v.query, queryType: "List", page: 1, perPage: 30, error: null } };
+  }
   if (q.includes("query Search")) {
     const words = String(v.query).toLowerCase().split(/\W+/).filter((w) => w.length > 3);
     const found = [...books, ...duplicates].filter((b) => words.some((w) => b.title.toLowerCase().includes(w)));
@@ -320,9 +348,12 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
   if (q.includes("query GetList")) {
     const offset = Number(v.offset ?? 0);
     const limit = Number(v.limit ?? 50);
+    const other = mockLists.find((l) => l.id === Number(v.id));
     return {
       lists_by_pk: {
-        id: 77, slug: "classics-to-listen-to", name: "Classics to Listen To", description: "Public-domain classics that make great audiobooks.",
+        ...(other
+          ? { id: other.id, slug: slugOf(other.name), name: other.name, description: null }
+          : { id: 77, slug: "classics-to-listen-to", name: "Classics to Listen To", description: "Public-domain classics that make great audiobooks." }),
         privacySettingId: 1, ranked: true, defaultView: "grid", booksCount: books.length, likesCount: 3, userId: 1,
         createdAt: "2026-01-01", updatedAt: "2026-01-01", listBooks: listBooks(offset, limit),
       },

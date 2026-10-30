@@ -3,7 +3,7 @@ import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, 
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Bars3Icon, FaceSmileIcon, MagnifyingGlassIcon, PlusIcon, RectangleStackIcon, SparklesIcon, TagIcon, XMarkIcon } from "@heroicons/react/24/outline";
-import { api, tagRowInfo, type DiscoverConfig, type DiscoverRowInfo, type HcList, type TagKind } from "../lib/api";
+import { api, tagRowInfo, type BrowseShow, type DiscoverConfig, type DiscoverRowInfo, type HcList, type TagKind } from "../lib/api";
 import { TagSearch, useAllTags } from "./TagSearch";
 import { Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
@@ -215,6 +215,7 @@ export function CustomizeDiscover({
   const [rows, setRows] = useState<DiscoverRowInfo[]>(config.allRows ?? config.rows);
   const toTags = (list: DiscoverRowInfo[] | undefined) => (list ?? []).map((g) => ({ slug: g.tag ?? "", name: g.name ?? g.title }));
   const [chips, setChips] = useState<Record<TagKind, { slug: string; name: string }[]>>({ genre: toTags(config.genres), mood: toTags(config.moods) });
+  const [show, setShow] = useState<BrowseShow>(config.show ?? { genre: true, mood: true, list: true });
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [asDefault, setAsDefault] = useState(false);
@@ -255,7 +256,7 @@ export function CustomizeDiscover({
   const save = async () => {
     setBusy(true);
     try {
-      await api("/discover/rows", { method: "PUT", body: { rows, asDefault, tags: chips } });
+      await api("/discover/rows", { method: "PUT", body: { rows, asDefault, tags: { ...chips, show } } });
       toast(asDefault ? "Saved as everyone's default" : "Discover saved");
       onSaved();
       onClose();
@@ -343,11 +344,30 @@ export function CustomizeDiscover({
           ))}
       </div>
 
-      <h4 className="mb-1 mt-8 text-sm font-semibold uppercase tracking-wider text-gray-400">Genres and moods to browse</h4>
+      <h4 className="mb-1 mt-8 text-sm font-semibold uppercase tracking-wider text-gray-400">Browse sections</h4>
       <p className="mb-3 text-xs text-gray-500">
-        The chips in Browse by genre and Browse by mood at the bottom of Discover. Each opens that genre or mood's page; they don't add rows.
+        The chips at the bottom of Discover. Each opens a genre, mood or list's page; they don't add rows.
       </p>
-      {(["genre", "mood"] as const).map((kind) => (
+      <div className="mb-4 flex flex-wrap gap-x-5 gap-y-2">
+        {(
+          [
+            ["genre", "Browse by genre"],
+            ["mood", "Browse by mood"],
+            ["list", "Browse lists"],
+          ] as const
+        ).map(([k, label]) => (
+          <label key={k} className="flex cursor-pointer items-center gap-2 text-sm text-gray-200">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500"
+              checked={show[k]}
+              onChange={(e) => setShow({ ...show, [k]: e.target.checked })}
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+      {(["genre", "mood"] as const).filter((kind) => show[kind]).map((kind) => (
         <div key={kind} className="mb-4">
           <div className="mb-1.5 text-xs font-semibold text-gray-300">{kind === "genre" ? "Genres" : "Moods"}</div>
           <div className="flex flex-wrap gap-2">

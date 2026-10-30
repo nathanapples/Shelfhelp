@@ -22,7 +22,7 @@ import { useToast } from "./toast";
 
 type NavEntry = { to: string; label: string; icon: React.ComponentType<{ className?: string }>; end?: boolean; count?: string; admin?: boolean };
 
-/** The sidebar, in groups. A group with nothing you can open is left out. */
+/** The sidebar, in groups separated by a line (labels kept for later). A group with nothing you can open is left out. */
 const groups: { label: string | null; items: NavEntry[] }[] = [
   {
     label: "Requests",
@@ -71,8 +71,7 @@ function NavItems({
         const items = g.items.filter((n) => (showRequests || n.to !== "/requests") && (admin || !n.admin));
         if (!items.length) return null;
         return (
-          <div key={g.label ?? gi} className={g.label ? "" : "border-t border-gray-700 pt-4"}>
-            {g.label && <div className="mb-1.5 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">{g.label}</div>}
+          <div key={g.label ?? gi} className={gi > 0 ? "border-t border-gray-700/70 pt-4" : ""}>
             <div className="space-y-1">
               {items.map((n) => {
                 const count = n.count ? (counts?.[n.count] ?? 0) : 0;

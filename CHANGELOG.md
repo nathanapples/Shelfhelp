@@ -2,6 +2,14 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.21.0 (2026-10-30)
+
+- Discover rows: "See all" is gone (the row title opens the full page). In its place, a small **Show owned** checkbox hides or shows books you already have in Audiobookshelf, remembered per row in your browser. It only appears on rows that have owned books.
+- Browse by genre and Browse by mood: the section title opens All genres / All moods; the separate link at the top right is gone.
+- New **Browse lists** section with Hardcover's most liked lists, each opening as its own page. Its title opens **All lists**: the top 30 lists, with a search for any other Hardcover list.
+- Browse sections default to the top 15 genres, moods and lists. Customize this page has checkboxes to turn each section off, saved with your rows (and as everyone's default for admins). A saved chip list that was exactly the old top 20 now follows the new defaults.
+- The sidebar groups are separated by lines without titles.
+
 ## 0.20.0 (2026-10-30)
 
 - The sidebar is grouped: Requests (Discover, Requests, Issues), Sync (Reading, Collections) and Tools (Library), with Settings below.
