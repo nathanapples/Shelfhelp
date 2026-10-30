@@ -2,6 +2,10 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.24.0 (2026-10-30)
+
+- New Collection: your shelves and lists are one section (shelves first, then your lists, then the ones you follow). The link box is now a search box: type to filter your shelves, lists and requests, and to search all of Hardcover's public lists, the same way Add a row does. Pasting a list link still works.
+
 ## 0.23.0 (2026-10-30)
 
 - Customize Discover: the Add a row search finds public lists from all of Hardcover, not just your own and the ones you follow. They show after your own matches, with who made each list and how many books it has. Pick one to add it as a row. Needs the server key's `read:social` (see 0.22.2).

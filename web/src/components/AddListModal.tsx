@@ -1,9 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { BookmarkIcon, CheckCircleIcon, InboxArrowDownIcon, LinkIcon } from "@heroicons/react/24/outline";
+import { BookmarkIcon, CheckCircleIcon, InboxArrowDownIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { api, type HcList, type Library, type List } from "../lib/api";
 import { Cover, Modal, Spinner, Toggle } from "./ui";
 import { useToast } from "./toast";
+
+/** A Hardcover list link (or just `@user/lists/slug`). */
+const looksLikeList = (q: string) => /@[^/\s]+\/lists\/[^/?#\s]+/i.test(q.trim());
+
+/** A public Hardcover list from search. */
+type ListHit = { id: number; name: string; owner: string | null; booksCount: number };
 
 function Covers({ urls }: { urls: string[] }) {
   return (
@@ -36,6 +42,24 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
   const [removeMissing, setRemoveMissing] = useState(true);
   const [keepOrder, setKeepOrder] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Public lists from all of Hardcover, searched a moment after typing stops.
+  const [found, setFound] = useState<{ q: string; lists: ListHit[] } | null>(null);
+  const q = url.trim();
+  const link = looksLikeList(q);
+  useEffect(() => {
+    if (link || q.length < 2) return;
+    let stale = false;
+    const t = setTimeout(() => {
+      api<ListHit[]>(`/discover/list-search?q=${encodeURIComponent(q)}`)
+        .catch(() => [] as ListHit[])
+        .then((lists) => !stale && setFound({ q, lists }));
+    }, 300);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [q, link]);
+  const searching = !link && q.length >= 2 && found?.q !== q;
 
   useEffect(() => {
     if (!open) return;
@@ -58,11 +82,12 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
     setCollectionName(l.defaultCollectionName ?? l.name);
   };
 
-  const resolve = async () => {
-    if (!url.trim()) return;
+  const resolve = async (ref = url, owner?: string | null) => {
+    if (!ref.trim()) return;
     setResolving(true);
     try {
-      pick(await api<HcList>("/hardcover/resolve", { method: "POST", body: { url } }));
+      const l = await api<HcList>("/hardcover/resolve", { method: "POST", body: { url: ref } });
+      pick(owner === undefined ? l : { ...l, owner });
     } catch (e) {
       toast((e as Error).message, "error");
     } finally {
@@ -87,6 +112,17 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
       setSaving(false);
     }
   };
+
+  // Shelves first, then your lists, then the ones you follow.
+  const mine = useMemo(() => [...(shelves ?? []), ...(lists ?? []).filter((l) => !l.followed), ...(lists ?? []).filter((l) => l.followed)], [shelves, lists]);
+  const sub = (l: HcList) =>
+    l.sourceType === "requests"
+      ? `${l.booksCount} requested · books join as they arrive in Audiobookshelf`
+      : `${l.booksCount} books${l.sourceType === "hardcover_status" ? " · shelf" : l.followed ? " · followed" : ""}`;
+  const want = q.toLowerCase();
+  const matches = q && !link ? [...mine, ...(requestLists ?? [])].filter((l) => l.name.toLowerCase().includes(want)) : [];
+  const ownIds = new Set((lists ?? []).map((l) => l.id));
+  const others = found?.q === q && !link ? found.lists.filter((h) => !ownIds.has(h.id)) : [];
 
   const key = (type: string | undefined, id: number) => `${type ?? "hardcover_list"}:${id}`;
   const synced = new Set(existing.filter((l) => l.absLibraryId === libraryId).map((l) => key(l.sourceType, l.hcListId)));
@@ -115,7 +151,7 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
       open={open}
       onClose={onClose}
       title={picked ? `Sync "${picked.name}"` : "New Collection"}
-      subtitle={picked ? `${picked.booksCount} books` : "Pick a Hardcover shelf or list, someone's requests, or paste a link to anyone's public list."}
+      subtitle={picked ? `${picked.booksCount} books` : "Pick one of your shelves or lists, someone's requests, or search all of Hardcover's public lists."}
       footer={
         picked ? (
           <>
@@ -133,47 +169,85 @@ export function AddListModal({ open, onClose, existing }: { open: boolean; onClo
 
       {!picked && (
         <>
-          <div className="mt-4 flex gap-2">
-            <div className="relative flex-1">
-              <LinkIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
-              <input
-                className="input pl-10"
-                placeholder="https://hardcover.app/@someone/lists/best-sci-fi"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && resolve()}
-              />
-            </div>
-            <button className="btn btn-primary" onClick={resolve} disabled={resolving || !url.trim()}>
-              {resolving ? <Spinner className="h-4 w-4 text-white" /> : "Find"}
-            </button>
+          <div className="relative mt-4">
+            <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+            <input
+              className="input pl-10"
+              placeholder="Search your shelves, your lists and all of Hardcover's lists, or paste a list link"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && link && resolve()}
+              autoCapitalize="off"
+              autoCorrect="off"
+            />
           </div>
 
-          <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Your shelves</h4>
-          {!shelves && !loadError && (
-            <div className="flex justify-center py-4">
-              <Spinner />
-            </div>
+          {link && (
+            <button
+              className="mt-4 flex w-full items-center gap-3 rounded-lg bg-gray-900/40 p-3 text-left text-sm text-gray-200 ring-1 ring-gray-700 hover:bg-gray-700/60"
+              onClick={() => resolve()}
+              disabled={resolving}
+            >
+              {resolving ? <Spinner className="h-4 w-4" /> : <MagnifyingGlassIcon className="h-4 w-4 text-gray-400" />}
+              Open the list at this link
+            </button>
           )}
-          <div className="space-y-2">{shelves?.map((l) => row(l, `${l.booksCount} books`))}</div>
 
-          {requestLists && requestLists.length > 1 && (
+          {q && !link && (
             <>
-              <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Requests</h4>
+              {matches.length > 0 && (
+                <>
+                  <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Yours</h4>
+                  <div className="space-y-2">{matches.map((l) => row(l, sub(l)))}</div>
+                </>
+              )}
+              <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">On Hardcover</h4>
+              {searching && (
+                <div className="flex items-center gap-2 py-2 text-sm text-gray-400">
+                  <Spinner className="h-4 w-4" /> Searching Hardcover lists...
+                </div>
+              )}
+              {!searching && others.length === 0 && <div className="text-sm text-gray-500">No public lists match.</div>}
               <div className="space-y-2">
-                {requestLists.map((l) => row(l, `${l.booksCount} requested · books join as they arrive in Audiobookshelf`))}
+                {others.map((h) => (
+                  <button
+                    key={`hit:${h.id}`}
+                    onClick={() => resolve(String(h.id), h.owner)}
+                    disabled={resolving}
+                    className="flex w-full items-center gap-4 rounded-lg bg-gray-900/40 p-3 text-left ring-1 ring-gray-700 transition hover:bg-gray-700/60 hover:ring-gray-500"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-semibold text-white">{h.name}</div>
+                      <div className="text-xs text-gray-400">
+                        {h.owner ? `@${h.owner} · ` : ""}
+                        {h.booksCount.toLocaleString()} books
+                      </div>
+                    </div>
+                    {synced.has(key("hardcover_list", h.id)) && <CheckCircleIcon className="h-6 w-6 text-green-400" title="Already synced" />}
+                  </button>
+                ))}
               </div>
             </>
           )}
 
-          <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Your lists</h4>
-          {!lists && !loadError && (
-            <div className="flex justify-center py-8">
-              <Spinner />
-            </div>
+          {!q && (
+            <>
+              <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Your shelves and lists</h4>
+              {(!shelves || !lists) && !loadError && (
+                <div className="flex justify-center py-8">
+                  <Spinner />
+                </div>
+              )}
+              <div className="space-y-2">{shelves && lists && mine.map((l) => row(l, sub(l)))}</div>
+
+              {requestLists && requestLists.length > 1 && (
+                <>
+                  <h4 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-gray-400">Requests</h4>
+                  <div className="space-y-2">{requestLists.map((l) => row(l, sub(l)))}</div>
+                </>
+              )}
+            </>
           )}
-          {lists?.length === 0 && <div className="text-sm text-gray-500">You don't have any lists on Hardcover yet.</div>}
-          <div className="space-y-2">{lists?.map((l) => row(l, `${l.booksCount} books${l.followed ? " · followed" : ""}`))}</div>
         </>
       )}
 
