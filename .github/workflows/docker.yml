@@ -9,6 +9,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# One build at a time, in push order, so :latest always ends up as the newest
+# commit (two quick pushes used to race, and the older build could finish last).
+concurrency:
+  group: docker-publish
+  cancel-in-progress: false
+
 permissions:
   contents: write
   packages: write
