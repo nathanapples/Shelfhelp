@@ -1,6 +1,6 @@
 # Shelfhelp
 
-A Seerr-style home for your audiobooks. Shelfhelp connects [Audiobookshelf](https://www.audiobookshelf.org/), [Hardcover](https://hardcover.app) and [Chaptarr](https://github.com/Chaptarr/chaptarr): discover and request books, send your Audiobookshelf listening progress to Hardcover, and keep Audiobookshelf collections in step with Hardcover lists.
+Shelfhelp connects [Audiobookshelf](https://www.audiobookshelf.org/), [Hardcover](https://hardcover.app) and [Chaptarr](https://github.com/Chaptarr/chaptarr): discover and request books, send your Audiobookshelf listening progress to Hardcover, and keep Audiobookshelf collections in sync with Hardcover lists.
 
 ![Discover](docs/screenshots/discover.webp)
 
