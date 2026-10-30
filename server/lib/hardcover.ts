@@ -275,41 +275,33 @@ export async function resolveList(input: string): Promise<number> {
   if (/^\d+$/.test(trimmed)) return Number(trimmed);
   const m = trimmed.match(/@([^/\s]+)\/lists\/([^/?#\s]+)/);
   if (!m) throw new Error("Paste a Hardcover list link, like https://hardcover.app/@you/lists/my-list");
-  const [, username, slug] = m;
+  const username = decodeURIComponent(m[1]);
+  const slug = decodeURIComponent(m[2]);
   const hc = hardcover();
-  const users = await hc.graphql<{ users: { id: number }[] }>(
-    `query FindUser($username: citext!) { users(where: { username: { _eq: $username } }, limit: 1) { id } }`,
-    { username: decodeURIComponent(username) },
-  );
-  const userId = users.users[0]?.id;
-  if (!userId) throw new Error(`Couldn't find the Hardcover user @${username}.`);
-  const data = await hc.graphql<{ lists: { id: number }[] }>(
-    `query FindList($userId: Int!, $slug: String!) {
-       lists(where: { user_id: { _eq: $userId }, slug: { _eq: $slug } }, limit: 1) { id }
-     }`,
-    { userId, slug: decodeURIComponent(slug) },
-  );
-  const id = data.lists[0]?.id;
-  if (id) return id;
 
-  // No exact slug match. Walk the owner's lists and match loosely (case, a
-  // renamed list whose name still slugifies to the link) so a stale or
-  // hand-typed link still works, and say what the key could see if not.
-  const want = norm(decodeURIComponent(slug));
-  let seen = 0;
-  for (let offset = 0; offset < 1000; offset += 100) {
-    const page = await hc.lists.forUser(userId, { limit: 100, offset });
-    const items = page.items as { id: number; slug?: string | null; name?: string | null }[];
-    seen += items.length;
-    const hit = items.find((l) => norm(l.slug ?? "") === want || norm(l.name ?? "") === want);
+  // Hardcover only lets a key query lists by owner for its own account, so a
+  // lookup by user and slug can't find anyone else's list. Search can: it
+  // covers every public list and needs only read:catalog. Search by the
+  // slug's words, then pick the hit with this owner and slug.
+  const want = norm(slug);
+  const isMatch = (l: { slug?: string | null; name?: string | null; user?: { username?: string } | null }) =>
+    (l.user?.username ?? "").toLowerCase() === username.toLowerCase() && (norm(l.slug ?? "") === want || norm(l.name ?? "") === want);
+  for (const q of [slug.replace(/-/g, " "), `${slug.replace(/-/g, " ")} ${username}`]) {
+    const res = await hc.search.lists(q, { perPage: 25 });
+    const hit = res.hits.find(isMatch);
     if (hit) return hit.id;
-    if (items.length < 100) break;
   }
-  throw new Error(
-    seen
-      ? `@${username} has ${seen} list${seen === 1 ? "" : "s"} Shelfhelp can see, but none called "${slug}". Check the link, or paste the list's number instead.`
-      : `Shelfhelp can't see any lists by @${username}. Their lists may be private, or the server key may be missing read:lists.`,
-  );
+
+  // The server account's own lists don't always show up in search.
+  const own = await hc.graphql<{ lists: { id: number }[] }>(
+    `query FindList($username: citext!, $slug: String!) {
+       lists(where: { user: { username: { _eq: $username } }, slug: { _eq: $slug } }, limit: 1) { id }
+     }`,
+    { username, slug },
+  ).catch(() => null);
+  const id = own?.lists[0]?.id;
+  if (id) return id;
+  throw new Error(`Couldn't find @${username}/lists/${slug} on Hardcover. Check that the list is public, or search for it by name above.`);
 }
 
 function norm(s: string) {
@@ -407,7 +399,6 @@ export async function testServerKey(token: string): Promise<{ username: string |
   }
   await probe(() => hc.search.books("dune", { perPage: 1 }), ["read:catalog"]);
   await probe(() => hc.prompts.list({ featured: true, limit: 1 }), ["read:prompts"]);
-  await probe(() => hc.users.getByUsername("hardcover"), ["read:users"]);
   // Only a permission error counts here; anything else about this query isn't the key's fault.
   await probe(() => hc.graphql("query ServerKeyLists { lists(limit: 1) { id } }").catch((err) => {
     if (missingScopes(err, ["read:lists"])) throw err;

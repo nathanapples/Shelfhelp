@@ -2,6 +2,11 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.22.1 (2026-10-30)
+
+- Adding a row from a Hardcover list link works for anyone's public list. The link is now matched through Hardcover's list search, since Hardcover only lets a key look up lists by owner for its own account. The server key no longer needs `read:users`.
+- A key pasted under My account is asked for `read:lists` too, for picking your own lists.
+
 ## 0.22.0 (2026-10-30)
 
 - Settings, Hardcover: a new **API usage** panel shows how many requests the server key has used today out of the daily limit, the per-minute allowance and when the count resets, as Hardcover reports it with each answer. Each person's connection shows the same as last seen. The daily count is per Hardcover account, so it includes other apps and keys on that account.
