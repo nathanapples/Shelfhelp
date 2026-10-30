@@ -290,8 +290,30 @@ export async function resolveList(input: string): Promise<number> {
     { userId, slug: decodeURIComponent(slug) },
   );
   const id = data.lists[0]?.id;
-  if (!id) throw new Error(`Couldn't find that list on Hardcover (@${username}/lists/${slug}). Is it private?`);
-  return id;
+  if (id) return id;
+
+  // No exact slug match. Walk the owner's lists and match loosely (case, a
+  // renamed list whose name still slugifies to the link) so a stale or
+  // hand-typed link still works, and say what the key could see if not.
+  const want = norm(decodeURIComponent(slug));
+  let seen = 0;
+  for (let offset = 0; offset < 1000; offset += 100) {
+    const page = await hc.lists.forUser(userId, { limit: 100, offset });
+    const items = page.items as { id: number; slug?: string | null; name?: string | null }[];
+    seen += items.length;
+    const hit = items.find((l) => norm(l.slug ?? "") === want || norm(l.name ?? "") === want);
+    if (hit) return hit.id;
+    if (items.length < 100) break;
+  }
+  throw new Error(
+    seen
+      ? `@${username} has ${seen} list${seen === 1 ? "" : "s"} Shelfhelp can see, but none called "${slug}". Check the link, or paste the list's number instead.`
+      : `Shelfhelp can't see any lists by @${username}. Their lists may be private, or the server key may be missing read:lists.`,
+  );
+}
+
+function norm(s: string) {
+  return s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 /**
@@ -385,6 +407,7 @@ export async function testServerKey(token: string): Promise<{ username: string |
   }
   await probe(() => hc.search.books("dune", { perPage: 1 }), ["read:catalog"]);
   await probe(() => hc.prompts.list({ featured: true, limit: 1 }), ["read:prompts"]);
+  await probe(() => hc.users.getByUsername("hardcover"), ["read:users"]);
   // Only a permission error counts here; anything else about this query isn't the key's fault.
   await probe(() => hc.graphql("query ServerKeyLists { lists(limit: 1) { id } }").catch((err) => {
     if (missingScopes(err, ["read:lists"])) throw err;
@@ -402,7 +425,7 @@ export async function testServerKey(token: string): Promise<{ username: string |
  * The Hardcover permissions (scopes) a reader's key needs: their shelves and
  * Want to Read, reading progress, Top picks (vibes) and book details.
  */
-export const READER_SCOPES = ["read:me:content", "read:library", "write:library", "read:vibes", "read:catalog"] as const;
+export const READER_SCOPES = ["read:me:content", "read:library", "write:library", "read:vibes", "read:catalog", "read:lists"] as const;
 
 /** The scopes a Hardcover error says are missing, or null when it isn't a missing-permission error. */
 export function missingScopes(err: unknown, fallback: string[]): string[] | null {

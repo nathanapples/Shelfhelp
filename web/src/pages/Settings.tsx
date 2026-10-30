@@ -101,7 +101,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
       const who = r.username ? <> as <b>@{r.username}</b></> : null;
       setTest(
         r.missing.length
-          ? { ok: false, message: <>Hardcover accepted the key{who}, but it's missing {r.missing.join(", ")}. Make a new key with read:catalog, read:lists and read:prompts.</> }
+          ? { ok: false, message: <>Hardcover accepted the key{who}, but it's missing {r.missing.join(", ")}. Make a new key with read:catalog, read:lists, read:prompts and read:users.</> }
           : { ok: true, message: <>The server key works{who}: it can read the catalog, search, public lists and prompts.</> },
       );
     } catch (e) {
@@ -295,7 +295,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
                 Shelfhelp's own Hardcover key, for shared data: trending, genres and moods, book details, editions and public lists. It never
                 reads anyone's shelves; each person connects their own account under My account. Use a Hardcover account made just for
                 Shelfhelp so it stays separate from yours, and give its key only <span className="font-mono">read:catalog</span>,{" "}
-                <span className="font-mono">read:lists</span> and <span className="font-mono">read:prompts</span>. Keys are at{" "}
+                <span className="font-mono">read:lists</span>, <span className="font-mono">read:prompts</span> and <span className="font-mono">read:users</span>. Keys are at{" "}
                 <a className="text-indigo-400 hover:underline" href="https://hardcover.app/account/api" target="_blank" rel="noreferrer">
                   hardcover.app/account/api
                 </a>
