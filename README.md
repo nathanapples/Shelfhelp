@@ -44,7 +44,7 @@ services:
 
 `docker compose up -d`, open `http://<host>:5075`, and Settings walks you through:
 
-1. **Hardcover server key** from [hardcover.app/account/api](https://hardcover.app/account/api), with `read:catalog`, `read:lists` and `read:prompts`. Used for shared data only.
+1. **Hardcover server key** from [hardcover.app/account/api](https://hardcover.app/account/api), with `read:catalog`, `read:lists`, `read:prompts` and `read:social`. Used for shared data only. `read:social` is what lets it read other people's public lists; `read:lists` alone covers only the key's own account.
 2. **Audiobookshelf** URL and an admin API key.
 3. Optional: **Chaptarr** for requests, a **sign-in** (Pocket ID or Cloudflare Access), and **Sign in with Hardcover** (make a web app under Developer apps on hardcover.app with the redirect link Settings shows).
 

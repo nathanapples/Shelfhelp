@@ -2,6 +2,10 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.22.2 (2026-10-30)
+
+- The server key needs `read:social` to read other people's public lists, such as Hardcover's own. Without it, Hardcover only shows the key its own account's lists, so adding a row from someone else's list link failed with "wasn't found". The README and Settings now list it, and the key test checks for it.
+
 ## 0.22.1 (2026-10-30)
 
 - Adding a row from a Hardcover list link works for anyone's public list. The link is now matched through Hardcover's list search, since Hardcover only lets a key look up lists by owner for its own account. The server key no longer needs `read:users`.

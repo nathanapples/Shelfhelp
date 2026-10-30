@@ -399,6 +399,7 @@ export async function testServerKey(token: string): Promise<{ username: string |
   }
   await probe(() => hc.search.books("dune", { perPage: 1 }), ["read:catalog"]);
   await probe(() => hc.prompts.list({ featured: true, limit: 1 }), ["read:prompts"]);
+  await probe(() => hc.activities.forBook(1, { limit: 1 }), ["read:social"]);
   // Only a permission error counts here; anything else about this query isn't the key's fault.
   await probe(() => hc.graphql("query ServerKeyLists { lists(limit: 1) { id } }").catch((err) => {
     if (missingScopes(err, ["read:lists"])) throw err;
