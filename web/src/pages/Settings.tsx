@@ -2,14 +2,14 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import ActivityLog from "./Activity";
 import { ChaptarrSettings, testMessage } from "./ChaptarrSettings";
-import { UsersSettings } from "./UsersSettings";
+import { AuthSettings, UsersSettings } from "./UsersSettings";
 import { CheckCircleIcon, ExclamationTriangleIcon, LockClosedIcon } from "@heroicons/react/24/outline";
 import { api, type Library, type Settings, type Status } from "../lib/api";
 import { ErrorBlock, LoadingBlock, PageTitle, Spinner, Tabs, Toggle } from "../components/ui";
 import { useToast } from "../components/toast";
 
-type Tab = "general" | "users" | "hardcover" | "abs" | "chaptarr" | "activity" | "about";
-const TABS: Tab[] = ["general", "users", "hardcover", "abs", "chaptarr", "activity", "about"];
+type Tab = "general" | "auth" | "users" | "hardcover" | "abs" | "chaptarr" | "activity" | "about";
+const TABS: Tab[] = ["general", "auth", "users", "hardcover", "abs", "chaptarr", "activity", "about"];
 
 function Section({ title, description, children }: { title: string; description: ReactNode; children: ReactNode }) {
   return (
@@ -208,6 +208,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
         onChange={setTab}
         tabs={[
           { id: "general", label: "General" },
+          { id: "auth", label: "Authentication" },
           { id: "users", label: "Users" },
           { id: "hardcover", label: status.configured.hardcover ? "Hardcover" : "Hardcover ●" },
           { id: "abs", label: status.configured.abs ? "Audiobookshelf" : "Audiobookshelf ●" },
@@ -466,9 +467,9 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
         </Section>
       )}
 
-      {tab === "users" && (
-        <Section title="Users and sign-in" description="Who can use Shelfhelp and how they sign in.">
-          <UsersSettings
+      {tab === "auth" && (
+        <Section title="Authentication" description="How people sign in to Shelfhelp.">
+          <AuthSettings
             s={s}
             set={set}
             locked={locked}
@@ -480,6 +481,8 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
           />
         </Section>
       )}
+
+      {tab === "users" && <UsersSettings status={status} />}
 
       {tab === "chaptarr" && (
         <Section

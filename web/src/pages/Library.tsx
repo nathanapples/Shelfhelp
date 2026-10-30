@@ -191,10 +191,12 @@ export default function LibraryPage({ status }: { status: Status }) {
     if (!job) reload();
   }, [job, reload]);
 
+  // The first run links the whole library; after that it's a sync of what's new or changed.
+  const linkedBefore = !!last || (!!data?.counts && data.counts.matched + data.counts.review + data.counts.missing + data.counts.ignored > 0);
   const start = async () => {
     try {
       const r = await api<{ result: string }>("/library/link", { method: "POST", body: {} });
-      toast(r.result === "running" ? "Already linking" : "Linking your library in the background");
+      toast(r.result === "running" ? "Already running" : linkedBefore ? "Syncing your library in the background" : "Linking your library in the background");
       jobStarted();
     } catch (e) {
       toast((e as Error).message, "error");
@@ -228,7 +230,7 @@ export default function LibraryPage({ status }: { status: Status }) {
       <PageTitle
         extra={
           <button className="btn btn-primary" onClick={start} disabled={!!job}>
-            <ArrowPathIcon className={`h-5 w-5 ${job ? "animate-spin" : ""}`} /> {job ? "Linking..." : "Link now"}
+            <ArrowPathIcon className={`h-5 w-5 ${job ? "animate-spin" : ""}`} /> {job ? (linkedBefore ? "Syncing..." : "Linking...") : linkedBefore ? "Sync now" : "Link now"}
           </button>
         }
       >
@@ -239,14 +241,14 @@ export default function LibraryPage({ status }: { status: Status }) {
         only looks up books that are new or changed. Matches here, in Reading and in Collections are shared.
       </p>
       {libs && libs.length > 1 && (
-        <div className="mb-4 flex max-w-5xl gap-1 overflow-x-auto border-b border-gray-700">
+        <div className="hide-scrollbar mb-4 flex max-w-5xl gap-1 overflow-x-auto overflow-y-hidden border-b border-gray-700">
           {[{ id: "all", name: "All libraries" }, ...libs].map((l) => {
             const n = l.id === "all" ? undefined : data?.libraries?.[l.id];
             return (
               <button
                 key={l.id}
                 onClick={() => setLibrary(l.id)}
-                className={`-mb-px flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-semibold transition ${
+                className={`flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-semibold transition ${
                   lib === l.id ? "border-indigo-500 text-white" : "border-transparent text-gray-400 hover:border-gray-500 hover:text-gray-200"
                 }`}
               >
@@ -259,14 +261,19 @@ export default function LibraryPage({ status }: { status: Status }) {
       )}
       {c && total > 0 && (
         <div className="mb-5 max-w-3xl">
-          <div className="flex h-2 overflow-hidden rounded-full bg-gray-700">
-            <div className="bg-green-500" style={{ width: `${(c.matched / total) * 100}%` }} />
-            <div className="bg-yellow-500" style={{ width: `${(c.review / total) * 100}%` }} />
-            <div className="bg-red-500" style={{ width: `${(c.missing / total) * 100}%` }} />
+          <div className="flex items-baseline justify-between gap-3 text-sm">
+            <span className="font-semibold text-white">
+              {Math.round((c.matched / total) * 100)}% linked
+              <span className="ml-2 font-normal text-gray-400">
+                {c.matched.toLocaleString()} of {total.toLocaleString()} books
+              </span>
+            </span>
           </div>
-          <p className="mt-1.5 text-xs text-gray-400">
-            {Math.round((c.matched / total) * 100)}% linked
-            {job ? ` · ${job.phase}${job.total ? ` (${job.current}/${job.total})` : ""}` : last ? ` · Last run: ${last.message}` : ""}
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-700/70">
+            <div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${(c.matched / total) * 100}%` }} />
+          </div>
+          <p className="mt-1.5 text-xs text-gray-500">
+            {job ? `${job.phase}${job.total ? ` (${job.current}/${job.total})` : ""}` : last ? `Last run: ${last.message}` : ""}
           </p>
         </div>
       )}
@@ -290,7 +297,7 @@ export default function LibraryPage({ status }: { status: Status }) {
       </div>
       {loading && <LoadingBlock />}
       {error && <ErrorBlock message={error} />}
-      {data && rows.length === 0 && <Empty title="Nothing here">{total ? "No books in this group." : "Run Link now to start."}</Empty>}
+      {data && rows.length === 0 && <Empty title="Nothing here">{total ? "No books in this group." : "Press Link now to start."}</Empty>}
       <ul className="max-w-5xl divide-y divide-gray-700 overflow-hidden rounded-xl bg-gray-800 ring-1 ring-gray-700">
         {rows.map((r) => (
           <li key={r.absItemId}>

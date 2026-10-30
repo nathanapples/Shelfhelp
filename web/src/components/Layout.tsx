@@ -20,14 +20,27 @@ import { jobStarted, useApi, useBackToClose, useJobs } from "../lib/hooks";
 import { Spinner } from "./ui";
 import { useToast } from "./toast";
 
-const nav: { to: string; label: string; icon: React.ComponentType<{ className?: string }>; end?: boolean; count?: string; admin?: boolean }[] = [
-  { to: "/", label: "Discover", icon: SparklesIcon, end: true },
-  { to: "/requests", label: "Requests", icon: InboxArrowDownIcon, count: "requests" },
-  { to: "/issues", label: "Issues", icon: ExclamationTriangleIcon, count: "issues" },
-  { to: "/reading", label: "Reading", icon: BookOpenIcon },
-  { to: "/collections", label: "Collections", icon: RectangleStackIcon, admin: true },
-  { to: "/library", label: "Library", icon: BuildingLibraryIcon, admin: true },
-  { to: "/settings", label: "Settings", icon: CogIcon, admin: true },
+type NavEntry = { to: string; label: string; icon: React.ComponentType<{ className?: string }>; end?: boolean; count?: string; admin?: boolean };
+
+/** The sidebar, in groups. A group with nothing you can open is left out. */
+const groups: { label: string | null; items: NavEntry[] }[] = [
+  {
+    label: "Requests",
+    items: [
+      { to: "/", label: "Discover", icon: SparklesIcon, end: true },
+      { to: "/requests", label: "Requests", icon: InboxArrowDownIcon, count: "requests" },
+      { to: "/issues", label: "Issues", icon: ExclamationTriangleIcon, count: "issues" },
+    ],
+  },
+  {
+    label: "Sync",
+    items: [
+      { to: "/reading", label: "Reading", icon: BookOpenIcon },
+      { to: "/collections", label: "Collections", icon: RectangleStackIcon, admin: true },
+    ],
+  },
+  { label: "Tools", items: [{ to: "/library", label: "Library", icon: BuildingLibraryIcon, admin: true }] },
+  { label: null, items: [{ to: "/settings", label: "Settings", icon: CogIcon, admin: true }] },
 ];
 
 export function Logo({ className = "" }: { className?: string }) {
@@ -53,31 +66,42 @@ function NavItems({
   admin: boolean;
 }) {
   return (
-    <nav className="mt-8 flex-1 space-y-2 px-4">
-      {nav.filter((n) => (showRequests || n.to !== "/requests") && (admin || !n.admin)).map((n) => {
-        const count = n.count ? (counts?.[n.count] ?? 0) : 0;
+    <nav className="mt-6 flex-1 space-y-5 px-4">
+      {groups.map((g, gi) => {
+        const items = g.items.filter((n) => (showRequests || n.to !== "/requests") && (admin || !n.admin));
+        if (!items.length) return null;
         return (
-          <NavLink
-            key={n.to}
-            to={n.to}
-            end={n.end}
-            // From the phone menu, replace the menu's Back step so Back doesn't stop on it later.
-            replace={!!onNavigate}
-            onClick={onNavigate}
-            className={({ isActive }) =>
-              `group flex items-center rounded-md px-3 py-2 text-lg font-medium leading-6 text-white transition duration-150 ${
-                isActive
-                  ? "bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
-                  : "hover:bg-gray-700 focus:bg-gray-700"
-              }`
-            }
-          >
-            <n.icon className="mr-3 h-6 w-6" />
-            <span className="flex-1">{n.label}</span>
-            {count > 0 && (
-              <span className="rounded-full bg-gray-900/60 px-2 text-xs font-semibold leading-5 text-gray-200 ring-1 ring-gray-600">{count}</span>
-            )}
-          </NavLink>
+          <div key={g.label ?? gi} className={g.label ? "" : "border-t border-gray-700 pt-4"}>
+            {g.label && <div className="mb-1.5 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">{g.label}</div>}
+            <div className="space-y-1">
+              {items.map((n) => {
+                const count = n.count ? (counts?.[n.count] ?? 0) : 0;
+                return (
+                  <NavLink
+                    key={n.to}
+                    to={n.to}
+                    end={n.end}
+                    // From the phone menu, replace the menu's Back step so Back doesn't stop on it later.
+                    replace={!!onNavigate}
+                    onClick={onNavigate}
+                    className={({ isActive }) =>
+                      `group flex items-center rounded-md px-3 py-2 text-base font-medium leading-6 text-white transition duration-150 ${
+                        isActive
+                          ? "bg-gradient-to-br from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
+                          : "hover:bg-gray-700 focus:bg-gray-700"
+                      }`
+                    }
+                  >
+                    <n.icon className="mr-3 h-6 w-6" />
+                    <span className="flex-1">{n.label}</span>
+                    {count > 0 && (
+                      <span className="rounded-full bg-gray-900/60 px-2 text-xs font-semibold leading-5 text-gray-200 ring-1 ring-gray-600">{count}</span>
+                    )}
+                  </NavLink>
+                );
+              })}
+            </div>
+          </div>
         );
       })}
     </nav>

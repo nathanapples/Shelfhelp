@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import { Abs, AbsError } from "./lib/abs.js";
 import { db, json } from "./lib/db.js";
 import { config } from "./lib/config.js";
-import { READER_SCOPES, forgetToken, addToWantToRead, hardcoverProblem, bookDescription, checkHardcoverToken, scopeHelp, bookEditions, fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover, testServerKey } from "./lib/hardcover.js";
+import { READER_SCOPES, hardcoverStatus, forgetToken, addToWantToRead, hardcoverProblem, bookDescription, checkHardcoverToken, scopeHelp, bookEditions, fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover, testServerKey } from "./lib/hardcover.js";
 import { getItems, refreshLibrary, searchLibrary } from "./lib/library.js";
 import { cleanIssuer, getSettings, isConfigured, lockedByEnv, saveSettings, type Settings } from "./lib/settings.js";
 import { ensureWantToRead } from "./lib/autolists.js";
@@ -209,6 +209,7 @@ export async function routes(app: FastifyInstance) {
       authMode: s.authMode,
       authRequired: s.authMode !== "none" || !!config.appPassword,
       passwordLogin: !!config.appPassword,
+      recoveryLink: config.logRecoveryLink,
       oidcLabel: s.oidcLabel || "Pocket ID",
       signedIn: !!v,
       signinProblem: !v && s.authMode === "cloudflare" ? cloudflareProblem() : null,
@@ -230,16 +231,20 @@ export async function routes(app: FastifyInstance) {
   });
 
   // Can't sign in: a one-time link goes to the container log.
-  app.post("/api/auth/recovery", async (req) => ({ result: requestRecoveryLink(req) }));
+  app.post("/api/auth/recovery", async (req, reply) => {
+    if (!config.logRecoveryLink) return reply.code(404).send({ error: "Sign-in links in the container log are turned off. Set LOG_RECOVERY_LINK=true to use them." });
+    return { result: requestRecoveryLink(req) };
+  });
 
   app.get<{ Params: { code: string } }>("/api/auth/recovery/:code", async (req, reply) => {
+    if (!config.logRecoveryLink) return reply.redirect("/");
     if (!useRecoveryLink(req.params.code)) {
       return reply.redirect(`/?signin_error=${encodeURIComponent("That sign-in link has expired or was already used. Ask for a new one.")}`);
     }
     await resolveOwner();
     createSession(req, reply, OWNER_ID, "recovery");
     log("warn", "Signed in with a one-time link from the container log");
-    return reply.redirect("/settings?tab=users");
+    return reply.redirect("/settings?tab=auth");
   });
 
   app.post("/api/auth/logout", async (req, reply) => {
@@ -382,13 +387,22 @@ export async function routes(app: FastifyInstance) {
   });
 
   // Users (admin)
-  app.get("/api/users", async (_req, reply) => {
+  app.get("/api/users", async (req, reply) => {
     try {
       await resolveOwner();
       const linked = new Map(allUsers().map((u) => [u.abs_user_id, u]));
       const abs = await absUsers(true).catch(() => []);
+      const fresh = (req.query as { fresh?: string } | undefined)?.fresh === "1";
+      // Whether each person's Hardcover connection works (checked at most hourly unless ?fresh=1).
+      const users = await Promise.all(
+        allUsers().map(async (u) => {
+          const token = readerById(u.id)?.hardcoverToken;
+          const hc = token ? await hardcoverStatus(token, fresh).catch((err: Error) => ({ problem: err.message, username: null, checkedAt: Date.now() })) : null;
+          return { ...userView(u), hardcoverUser: hc?.username ?? null, hardcoverProblem: hc?.problem ?? null, hardcoverCheckedAt: hc ? new Date(hc.checkedAt).toISOString() : null };
+        }),
+      );
       return {
-        users: allUsers().map(userView),
+        users,
         absUsers: abs.map((a) => ({ ...a, shelfhelpId: linked.get(a.id)?.id ?? null })),
       };
     } catch (err) {

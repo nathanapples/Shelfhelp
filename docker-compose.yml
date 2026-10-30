@@ -5,9 +5,10 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
-      - TZ=America/Denver
+      - TZ=Etc/UTC
+      # - LOG_RECOVERY_LINK=true   # lets "Can't sign in?" put a one-time admin link in the container log
     volumes:
-      - /apps/shelfhelp:/config
+      - ./config:/config
     ports:
       - 5075:5075
     restart: unless-stopped

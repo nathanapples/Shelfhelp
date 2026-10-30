@@ -2,6 +2,14 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.20.0 (2026-10-30)
+
+- The sidebar is grouped: Requests (Discover, Requests, Issues), Sync (Reading, Collections) and Tools (Library), with Settings below.
+- Settings has a separate **Authentication** tab for how people sign in. **Users** lists everyone with their Hardcover connection: signed in or API key, and whether it's active or not working (with the reason). Connections are checked at most hourly, or now with Check Hardcover now.
+- "Can't sign in?" (a one-time admin link in the container log) is off unless `LOG_RECOVERY_LINK=true` is set on the container, and the link is hidden on the sign-in page when it's off.
+- Library: the button says Sync now once the library has been linked, the library tabs no longer show scroll bars, and the progress bar is a single, quieter bar with the count of linked books.
+- README trimmed, with screenshots. The mock servers now use public-domain books, and personal names and settings were taken out of the example and test data.
+
 ## 0.19.3 (2026-10-29)
 
 - Settings, Hardcover: a Test button for Sign in with Hardcover checks the saved client ID and secret with Hardcover without anyone signing in, and shows Hardcover's answer for each way of sending the secret, plus the saved secret's length.
@@ -142,7 +150,7 @@ Versions follow [semantic versioning](https://semver.org/). Raising the version 
 
 ## 0.4.0 (2026-10-28)
 
-- Requested books are tagged in Audiobookshelf with who asked for them ("Requested by sage"), like Seerr tags requests in Sonarr and Radarr. Existing tags are kept, and the wording can be changed under Settings, Chaptarr.
+- Requested books are tagged in Audiobookshelf with who asked for them ("Requested by alex"), like Seerr tags requests in Sonarr and Radarr. Existing tags are kept, and the wording can be changed under Settings, Chaptarr.
 - New Collection has a Requests section: make a collection from one person's requests or everyone's. Books join as they arrive in Audiobookshelf.
 
 ## 0.3.0 (2026-10-28)

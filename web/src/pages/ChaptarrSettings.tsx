@@ -302,7 +302,7 @@ export function ChaptarrSettings({
             <>
               <input className="input max-w-xs" value={s.chaptarrTagFormat} onChange={(e) => set("chaptarrTagFormat", e.target.value)} placeholder="{user}" />
               <p className="text-xs text-gray-400">
-                Looks like: <span className="badge badge-dark">{(s.chaptarrTagFormat || "{user}").replace(/\{user\}/g, "nathan").toLowerCase()}</span>
+                Looks like: <span className="badge badge-dark">{(s.chaptarrTagFormat || "{user}").replace(/\{user\}/g, "robin").toLowerCase()}</span>
               </p>
             </>
           )}

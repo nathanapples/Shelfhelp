@@ -171,7 +171,7 @@ export function fetchSource(type: string, id: number, token?: string) {
 }
 
 /** Your status shelves with counts and a few covers, for the picker. */
-/** "Nathan's Want to Read": the default collection name for a shelf. */
+/** "Robin's Want to Read": the default collection name for a shelf. */
 export function shelfCollectionName(username: string | null | undefined, shelf: string) {
   if (!username) return shelf;
   const who = username.charAt(0).toUpperCase() + username.slice(1);
@@ -411,23 +411,31 @@ export async function checkHardcoverToken(token: string): Promise<{ username: st
   return { username, missing: [...missing] };
 }
 
-const checks = new Map<string, { at: number; problem: string | null }>();
+const checks = new Map<string, { at: number; problem: string | null; username: string | null }>();
 
 /** What's wrong with a reader's key, if anything, checked at most once an hour. */
 export async function hardcoverProblem(token: string): Promise<string | null> {
+  return (await hardcoverStatus(token)).problem;
+}
+
+/** Whether a reader's Hardcover connection works, and as whom. Checked at most once an hour. */
+export async function hardcoverStatus(token: string, fresh = false): Promise<{ problem: string | null; username: string | null; checkedAt: number }> {
   const hit = checks.get(token);
-  if (hit && Date.now() - hit.at < 3600_000) return hit.problem;
+  if (!fresh && hit && Date.now() - hit.at < 3600_000) return { problem: hit.problem, username: hit.username, checkedAt: hit.at };
   let problem: string | null = null;
+  let username: string | null = null;
   try {
     const c = await checkHardcoverToken(token);
+    username = c.username;
     if (c.missing.length) problem = scopeHelp(c.missing, oauthUserId(token) != null);
   } catch (err) {
     problem = oauthUserId(token) != null
       ? `Hardcover didn't accept your sign-in: ${(err as Error).message}. Connect Hardcover again in My account.`
       : `Hardcover didn't accept your key: ${(err as Error).message}`;
   }
-  checks.set(token, { at: Date.now(), problem });
-  return problem;
+  const at = Date.now();
+  checks.set(token, { at, problem, username });
+  return { problem, username, checkedAt: at };
 }
 
 /** One line telling someone how to fix a key that's missing permissions. */

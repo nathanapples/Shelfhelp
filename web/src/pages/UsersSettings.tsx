@@ -23,7 +23,7 @@ function Field({ label, tip, children }: { label: string; tip?: ReactNode; child
   );
 }
 
-export function UsersSettings({
+export function AuthSettings({
   s,
   set,
   locked,
@@ -42,10 +42,6 @@ export function UsersSettings({
   save: (keys: (keyof Settings)[]) => Promise<void>;
   saving: boolean;
 }) {
-  const toast = useToast();
-  const { data, reload } = useApi<{ users: UserView[]; absUsers: { id: string; username: string; email: string | null; type: string; shelfhelpId: number | null }[] }>(
-    "/users",
-  );
   const [testing, setTesting] = useState(false);
   const redirect = `${window.location.origin}/api/auth/oidc/callback`;
 
@@ -71,25 +67,6 @@ export function UsersSettings({
     }
   };
 
-  const setRole = async (u: UserView, role: "admin" | "user") => {
-    try {
-      await api(`/users/${u.id}`, { method: "PUT", body: { role } });
-      reload();
-    } catch (e) {
-      toast((e as Error).message, "error");
-    }
-  };
-
-  const remove = async (u: UserView) => {
-    try {
-      await api(`/users/${u.id}`, { method: "DELETE" });
-      toast(`Removed ${u.name}. Their Audiobookshelf account isn't touched.`, "info");
-      reload();
-    } catch (e) {
-      toast((e as Error).message, "error");
-    }
-  };
-
   const keys: (keyof Settings)[] = [
     "authMode",
     "oidcIssuer",
@@ -101,7 +78,6 @@ export function UsersSettings({
     "cfTeamDomain",
     "cfAudience",
   ];
-  const absById = new Map((data?.absUsers ?? []).map((a) => [a.id, a]));
 
   return (
     <>
@@ -196,52 +172,117 @@ export function UsersSettings({
         </button>
       </div>
 
-      <section className="mt-12">
-        <h3 className="heading">People</h3>
-        <p className="description">
-          Everyone who has signed in or been added as a reader. People are matched to Audiobookshelf accounts by email, then username. Audiobookshelf
-          admins are admins here.
-        </p>
-        <ul className="mt-5 max-w-6xl divide-y divide-gray-700 overflow-hidden rounded-xl bg-gray-800 ring-1 ring-gray-700">
-          {(data?.users ?? []).map((u) => {
-            const abs = u.absUserId ? absById.get(u.absUserId) : null;
-            return (
-              <li key={u.id} className="flex flex-wrap items-center gap-3 p-3 sm:p-4">
-                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 font-bold uppercase text-white">
-                  {u.name.slice(0, 1)}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-white">
-                    {u.name}
-                    {u.isOwner && <span className="ml-2 text-xs text-gray-400">owner</span>}
-                  </div>
-                  <div className="truncate text-xs text-gray-400">
-                    {[abs ? `Audiobookshelf ${abs.username}` : u.absUserId ? "Audiobookshelf user gone" : null, u.email, u.hasHardcover ? "Hardcover connected" : "no Hardcover", u.lastLoginAt ? `signed in ${timeAgo(u.lastLoginAt)}` : "never signed in"]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </div>
-                </div>
-                <select
-                  className="input w-auto py-1 text-xs"
-                  value={u.role}
-                  disabled={u.isOwner || u.id === status.user?.id}
-                  onChange={(e) => setRole(u, e.target.value as "admin" | "user")}
-                  aria-label={`Role for ${u.name}`}
-                >
-                  <option value="user">Reader</option>
-                  <option value="admin">Admin</option>
-                </select>
-                {!u.isOwner && u.id !== status.user?.id && (
-                  <button className="btn btn-sm btn-ghost" onClick={() => remove(u)} title="Remove from Shelfhelp">
-                    <TrashIcon className="h-4 w-4" />
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-        <p className="mt-3 text-xs text-gray-500">Add someone as a reader from the Reading page.</p>
-      </section>
     </>
+  );
+}
+
+type PersonRow = UserView & { hardcoverUser: string | null; hardcoverProblem: string | null; hardcoverCheckedAt: string | null };
+
+function HardcoverState({ u }: { u: PersonRow }) {
+  if (!u.hasHardcover) return <span className="badge badge-dark">No Hardcover</span>;
+  const how = u.hardcoverVia === "signin" ? "Signed in" : "API key";
+  if (u.hardcoverProblem) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-yellow-900/40 px-2 py-0.5 text-xs font-medium text-yellow-200 ring-1 ring-yellow-700" title={u.hardcoverProblem}>
+        <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" /> {how} · not working
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-green-900/30 px-2 py-0.5 text-xs font-medium text-green-200 ring-1 ring-green-800">
+      <span className="h-1.5 w-1.5 rounded-full bg-green-400" /> {how} · active{u.hardcoverUser ? ` as @${u.hardcoverUser}` : ""}
+    </span>
+  );
+}
+
+export function UsersSettings({ status }: { status: Status }) {
+  const toast = useToast();
+  const [fresh, setFresh] = useState(0);
+  const { data, reload, loading } = useApi<{ users: PersonRow[]; absUsers: { id: string; username: string; email: string | null; type: string; shelfhelpId: number | null }[] }>(
+    fresh ? `/users?fresh=1&n=${fresh}` : "/users",
+  );
+
+  const setRole = async (u: UserView, role: "admin" | "user") => {
+    try {
+      await api(`/users/${u.id}`, { method: "PUT", body: { role } });
+      reload();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
+
+  const remove = async (u: UserView) => {
+    try {
+      await api(`/users/${u.id}`, { method: "DELETE" });
+      toast(`Removed ${u.name}. Their Audiobookshelf account isn't touched.`, "info");
+      reload();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
+
+  const absById = new Map((data?.absUsers ?? []).map((a) => [a.id, a]));
+
+  return (
+    <section>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="heading">People</h3>
+          <p className="description">
+            Everyone who has signed in or been added as a reader, and whether their Hardcover connection works. People are matched to Audiobookshelf
+            accounts by email, then username. Audiobookshelf admins are admins here.
+          </p>
+        </div>
+        <button className="btn btn-default btn-sm" onClick={() => setFresh((n) => n + 1)} disabled={loading}>
+          {loading ? <Spinner className="h-4 w-4" /> : null} Check Hardcover now
+        </button>
+      </div>
+      <ul className="mt-5 max-w-6xl divide-y divide-gray-700 overflow-hidden rounded-xl bg-gray-800 ring-1 ring-gray-700">
+        {(data?.users ?? []).map((u) => {
+          const abs = u.absUserId ? absById.get(u.absUserId) : null;
+          return (
+            <li key={u.id} className="flex flex-wrap items-center gap-3 p-3 sm:p-4">
+              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 font-bold uppercase text-white">
+                {u.name.slice(0, 1)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="truncate font-medium text-white">{u.name}</span>
+                  {u.isOwner && <span className="text-xs text-gray-400">owner</span>}
+                  <HardcoverState u={u} />
+                </div>
+                <div className="mt-0.5 truncate text-xs text-gray-400">
+                  {[abs ? `Audiobookshelf ${abs.username}` : u.absUserId ? "Audiobookshelf user gone" : null, u.email, u.lastLoginAt ? `signed in ${timeAgo(u.lastLoginAt)}` : "never signed in"]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </div>
+                {u.hardcoverProblem && <p className="mt-1 text-xs text-yellow-200/90">{u.hardcoverProblem}</p>}
+              </div>
+              <select
+                className="input w-auto py-1 text-xs"
+                value={u.role}
+                disabled={u.isOwner || u.id === status.user?.id}
+                onChange={(e) => setRole(u, e.target.value as "admin" | "user")}
+                aria-label={`Role for ${u.name}`}
+              >
+                <option value="user">Reader</option>
+                <option value="admin">Admin</option>
+              </select>
+              {!u.isOwner && u.id !== status.user?.id && (
+                <button className="btn btn-sm btn-ghost" onClick={() => remove(u)} title="Remove from Shelfhelp">
+                  <TrashIcon className="h-4 w-4" />
+                </button>
+              )}
+            </li>
+          );
+        })}
+        {!data && (
+          <li className="p-4">
+            <Spinner className="h-5 w-5" />
+          </li>
+        )}
+      </ul>
+      <p className="mt-3 text-xs text-gray-500">Add someone as a reader from the Reading page. Connections are checked at most once an hour unless you press Check Hardcover now.</p>
+    </section>
   );
 }

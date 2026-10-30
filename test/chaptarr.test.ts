@@ -113,16 +113,16 @@ test("an ASIN link counts as owned unless the linker rejected it", async () => {
 test("requester tags and request collections", async () => {
   const { db } = await import("../server/lib/db.ts");
   const { requesterTag, requestSource } = await import("../server/lib/requests.ts");
-  assert.equal(requesterTag("Sage", "{user}"), "sage");
-  assert.equal(requesterTag("Sage", "req-{user}"), "req-sage");
-  db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (7, 'sage', 'user')").run();
+  assert.equal(requesterTag("Alex", "{user}"), "alex");
+  assert.equal(requesterTag("Alex", "req-{user}"), "req-alex");
+  db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (7, 'alex', 'user')").run();
   const now = new Date().toISOString();
   db.prepare(
     "INSERT INTO requests (id, hc_book_id, format, title, authors, status, requested_at, updated_at) VALUES (901, 55, 'audiobook', 'Dune', '[\"Frank Herbert\"]', 'requested', ?, ?)",
   ).run(now, now);
   db.prepare("INSERT INTO request_users (request_id, user_id) VALUES (901, 7)").run();
   const mine = requestSource(7);
-  assert.equal(mine.info.name, "Sage's requests");
+  assert.equal(mine.info.name, "Alex's requests");
   assert.deepEqual(mine.books.map((b) => b.id), [55]);
   assert.ok(requestSource(0).books.some((b) => b.id === 55));
 });
@@ -163,7 +163,7 @@ test("Not the same book: no matcher links them again", async () => {
 test("issues: report, comment, resolve, reopen", async () => {
   const { db } = await import("../server/lib/db.ts");
   const { addComment, issueCounts, issueDetail, listIssues, setIssueStatus } = await import("../server/lib/issues.ts");
-  db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (9, 'sage', 'user')").run();
+  db.prepare("INSERT OR IGNORE INTO users (id, username, role) VALUES (9, 'alex', 'user')").run();
   const r = db.prepare("INSERT INTO issues (hc_book_id, title, kind, created_by) VALUES (110, 'The Way of Kings', 'audio', 9)").run();
   const id = Number(r.lastInsertRowid);
   db.prepare("INSERT INTO issue_comments (issue_id, user_id, body) VALUES (?, 9, 'Skips at 3h')").run(id);

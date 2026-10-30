@@ -81,7 +81,7 @@ export default function LoginPage({ status, onSignedIn }: { status: Status; onSi
             )}
           </>
         )}
-        {status.authMode !== "none" && (
+        {status.authMode !== "none" && status.recoveryLink && (
           <div className="mt-6 border-t border-gray-700 pt-4 text-center text-xs text-gray-400">
             {recovery === "sent" ? (
               <p className="text-gray-300">

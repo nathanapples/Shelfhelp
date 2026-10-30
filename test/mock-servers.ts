@@ -40,47 +40,70 @@ interface MockBook {
 }
 
 const HC = "http://localhost:5091";
+// Public-domain classics, so screenshots of the mock servers show nothing under copyright.
 const books: MockBook[] = [
-  { id: 101, title: "Project Hail Mary", author: "Andy Weir", audioSeconds: 58000 },
-  { id: 102, title: "The Final Empire", author: "Brandon Sanderson", series: ["Mistborn", 1] },
-  { id: 103, title: "The Well of Ascension", author: "Brandon Sanderson", series: ["Mistborn", 2] },
-  { id: 104, title: "Red Rising", author: "Pierce Brown", series: ["Red Rising Saga", 1] },
-  { id: 105, title: "Golden Son", author: "Pierce Brown", series: ["Red Rising Saga", 2] },
-  { id: 106, title: "Dune", author: "Frank Herbert", series: ["Dune", 1] },
-  { id: 107, title: "The Martian", author: "Andy Weir" },
-  { id: 108, title: "Children of Time", author: "Adrian Tchaikovsky", series: ["Children of Time", 1] },
-  { id: 109, title: "Leviathan Wakes", author: "James S. A. Corey", series: ["The Expanse", 1] },
-  { id: 110, title: "The Way of Kings", author: "Brandon Sanderson", series: ["The Stormlight Archive", 1] },
-  { id: 111, title: "Hyperion", author: "Dan Simmons", series: ["Hyperion Cantos", 1] },
-  { id: 112, title: "A Memory Called Empire", author: "Arkady Martine", series: ["Teixcalaan", 1] },
-  { id: 113, title: "Recursion", author: "Blake Crouch" },
-  { id: 114, title: "The Three-Body Problem", author: "Cixin Liu", series: ["Remembrance of Earth's Past", 1] },
-  { id: 115, title: "Old Man's War", author: "John Scalzi", series: ["Old Man's War", 1] },
-  { id: 116, title: "Ender's Game", author: "Orson Scott Card", series: ["Ender's Saga", 1] },
-  { id: 117, title: "Dark Matter", author: "Blake Crouch" },
-  { id: 118, title: "Klara and the Sun", author: "Kazuo Ishiguro" },
+  { id: 101, title: "Frankenstein", author: "Mary Shelley", audioSeconds: 31000 },
+  { id: 102, title: "A Study in Scarlet", author: "Arthur Conan Doyle", series: ["Sherlock Holmes", 1] },
+  { id: 103, title: "The Sign of the Four", author: "Arthur Conan Doyle", series: ["Sherlock Holmes", 2] },
+  { id: 104, title: "The Three Musketeers", author: "Alexandre Dumas", series: ["The d'Artagnan Romances", 1] },
+  { id: 105, title: "Twenty Years After", author: "Alexandre Dumas", series: ["The d'Artagnan Romances", 2] },
+  { id: 106, title: "Alice's Adventures in Wonderland", author: "Lewis Carroll", series: ["Alice", 1] },
+  { id: 107, title: "The Last Man", author: "Mary Shelley" },
+  { id: 108, title: "Anne of Green Gables", author: "L. M. Montgomery", series: ["Anne of Green Gables", 1] },
+  { id: 109, title: "Twenty Thousand Leagues Under the Sea", author: "Jules Verne", series: ["Extraordinary Voyages", 1] },
+  { id: 110, title: "Little Women", author: "Louisa May Alcott", series: ["Little Women", 1] },
+  { id: 111, title: "The Wonderful Wizard of Oz", author: "L. Frank Baum", series: ["Oz", 1] },
+  { id: 112, title: "Tarzan of the Apes", author: "Edgar Rice Burroughs", series: ["Tarzan", 1] },
+  { id: 113, title: "Dracula", author: "Bram Stoker" },
+  { id: 114, title: "A Princess of Mars", author: "Edgar Rice Burroughs", series: ["Barsoom", 1] },
+  { id: 115, title: "The Lost World", author: "Arthur Conan Doyle", series: ["Professor Challenger", 1] },
+  { id: 116, title: "The Adventures of Tom Sawyer", author: "Mark Twain", series: ["Tom Sawyer and Huck Finn", 1] },
+  { id: 117, title: "The Jewel of Seven Stars", author: "Bram Stoker" },
+  { id: 118, title: "Pride and Prejudice", author: "Jane Austen" },
 ];
-// Hardcover sometimes lists a book twice; 120 is a second Project Hail Mary.
-const duplicates: MockBook[] = [{ id: 120, title: "Project Hail Mary", author: "Andy Weir" }];
+// Short descriptions for the book popup (written for these mocks).
+const blurbs: Record<number, string> = {
+  101: "A young scientist builds a living being from the dead, then flees from what he has made. Abandoned and hunted, the creature sets out to learn what it means to be human.",
+  102: "A doctor back from the war takes rooms with an eccentric consulting detective, and a body in an empty house in Brixton starts their first case together.",
+  103: "A young woman receives a pearl every year from an unknown sender. The trail leads Holmes and Watson to stolen treasure and an old promise.",
+  104: "A hot-headed young Gascon arrives in Paris and falls in with three of the king's musketeers, on the wrong side of a powerful cardinal.",
+  105: "Two decades on, the four friends find themselves on opposite sides of a civil war.",
+  106: "A bored girl follows a white rabbit down a hole into a world where nothing makes sense and everyone has an opinion about it.",
+  107: "In the late twenty-first century a plague sweeps the world, and one man is left to tell the story.",
+  108: "An elderly brother and sister ask for an orphan boy to help on their farm, and get a talkative, imaginative girl instead.",
+  109: "A professor, his servant and a harpooner are taken aboard the submarine of the mysterious Captain Nemo.",
+  110: "Four sisters grow up in New England while their father is away at war.",
+  111: "A cyclone carries a Kansas girl and her dog to a strange country, and the way home runs through the Emerald City.",
+  112: "An English child raised by apes in the African jungle grows up to meet his own kind for the first time.",
+  113: "A young solicitor travels to Transylvania to close a property sale, and his client has plans of his own for England.",
+  114: "A Civil War veteran wakes on Mars, where the low gravity makes him a warrior among its peoples.",
+  115: "An expedition sets out for a remote South American plateau where creatures thought extinct may still live.",
+  116: "A mischievous boy on the Mississippi whitewashes fences, plays pirate and stumbles into real danger.",
+  117: "An Egyptologist's daughter is drawn into his plan to wake an ancient queen.",
+  118: "The witty second of five daughters crosses paths with a proud, wealthy gentleman, and neither likes the other at first.",
+};
+
+// Hardcover sometimes lists a book twice; 120 is a second Frankenstein.
+const duplicates: MockBook[] = [{ id: 120, title: "Frankenstein", author: "Mary Shelley" }];
 
 // The library: messy titles, a wrong ASIN, a Last, First author, a missing few.
 const items = [
-  { id: "li_1", title: "Project Hail Mary (Unabridged)", authorName: "Andy Weir", asin: "B08G9PRS1K", duration: 58140 },
-  { id: "li_2", title: "Mistborn: The Final Empire", authorName: "Brandon Sanderson", seriesName: "Mistborn #1", asin: "B002UZMLXM" },
-  { id: "li_3", title: "The Well of Ascension", authorName: "Brandon Sanderson", seriesName: "Mistborn #2" },
-  { id: "li_4", title: "Red Rising", authorName: "Pierce Brown", seriesName: "Red Rising Saga #1", asin: "B00I8QS6UU" },
-  { id: "li_5", title: "Morning Star", authorName: "Pierce Brown", seriesName: "Red Rising Saga #3", asin: "GOLDENSON1" },
-  { id: "li_6", title: "Dune Messiah", authorName: "Frank Herbert", seriesName: "Dune #2" },
-  { id: "li_7", title: "The Martian", authorName: "Weir, Andy" },
-  { id: "li_8", title: "Children of Time", authorName: "Adrian Tchaikovsky", seriesName: "Children of Time #1" },
-  { id: "li_9", title: "Leviathan Wakes: The Expanse, Book 1", authorName: "James S.A. Corey" },
-  { id: "li_10", title: "The Way of Kings", authorName: "Brandon Sanderson", seriesName: "The Stormlight Archive #1" },
-  { id: "li_11", title: "Hyperion [Dramatized Adaptation]", authorName: "Dan Simmons" },
-  { id: "li_12", title: "Recursion: A Novel", authorName: "Blake Crouch" },
-  { id: "li_13", title: "The Three Body Problem", authorName: "Liu Cixin, Ken Liu" },
-  { id: "li_14", title: "Ender's Game", authorName: "Orson Scott Card", seriesName: "Ender Quintet #1" },
-  { id: "li_15", title: "The Hobbit", authorName: "J.R.R. Tolkien" },
-  { id: "li_16", title: "Dark Matter", authorName: "Blake Crouch" },
+  { id: "li_1", title: "Frankenstein (Unabridged)", authorName: "Mary Shelley", asin: "B08G9PRS1K", duration: 31140 },
+  { id: "li_2", title: "Sherlock Holmes: A Study in Scarlet", authorName: "Arthur Conan Doyle", seriesName: "Sherlock Holmes #1", asin: "B002UZMLXM" },
+  { id: "li_3", title: "The Sign of the Four", authorName: "Arthur Conan Doyle", seriesName: "Sherlock Holmes #2" },
+  { id: "li_4", title: "The Three Musketeers", authorName: "Alexandre Dumas", seriesName: "The d'Artagnan Romances #1", asin: "B00I8QS6UU" },
+  { id: "li_5", title: "The Vicomte of Bragelonne", authorName: "Alexandre Dumas", seriesName: "The d'Artagnan Romances #3", asin: "WRONGASIN5" },
+  { id: "li_6", title: "Through the Looking-Glass", authorName: "Lewis Carroll", seriesName: "Alice #2" },
+  { id: "li_7", title: "The Last Man", authorName: "Shelley, Mary" },
+  { id: "li_8", title: "Anne of Green Gables", authorName: "L. M. Montgomery", seriesName: "Anne of Green Gables #1" },
+  { id: "li_9", title: "Twenty Thousand Leagues Under the Sea: Extraordinary Voyages, Book 1", authorName: "Jules Verne" },
+  { id: "li_10", title: "Little Women", authorName: "Louisa May Alcott", seriesName: "Little Women #1" },
+  { id: "li_11", title: "The Wonderful Wizard of Oz [Dramatized Adaptation]", authorName: "L. Frank Baum" },
+  { id: "li_12", title: "Dracula: A Novel", authorName: "Bram Stoker" },
+  { id: "li_13", title: "A Princess of Mars", authorName: "Edgar Rice Burroughs, Frank Schoonover" },
+  { id: "li_14", title: "The Adventures of Tom Sawyer", authorName: "Mark Twain", seriesName: "Tom Sawyer and Huck Finn #1" },
+  { id: "li_15", title: "The Secret Garden", authorName: "Frances Hodgson Burnett" },
+  { id: "li_16", title: "The Jewel of Seven Stars", authorName: "Bram Stoker" },
 ];
 
 const seriesId = (name: string) => 3000 + [...new Set(books.filter((b) => b.series).map((b) => b.series![0]))].indexOf(name);
@@ -110,10 +133,10 @@ const listBooks = (offset: number, limit: number) =>
     },
   }));
 
-// Hardcover says which book each ASIN belongs to. GOLDENSON1 is the "wrong" ASIN in the library.
-const asinMap: Record<string, number> = { B08G9PRS1K: 101, B002UZMLXM: 102, B00I8QS6UU: 104, GOLDENSON1: 105 };
+// Hardcover says which book each ASIN belongs to. WRONGASIN5 is the "wrong" ASIN in the library.
+const asinMap: Record<string, number> = { B08G9PRS1K: 101, B002UZMLXM: 102, B00I8QS6UU: 104, WRONGASIN5: 105 };
 
-// Your Hardcover library: Red Rising already Read, Project Hail Mary on Want to Read.
+// Your Hardcover library: The Three Musketeers already Read, Frankenstein on Want to Read.
 interface MockRead { id: number; userBookId: number; editionId: number | null; startedAt: string | null; finishedAt: string | null; progress: number | null; progressSeconds: number | null; edition: unknown }
 interface MockEntry { id: number; bookId: number; statusId: number; editionId: number | null; reads: MockRead[] }
 const userBooks = new Map<number, MockEntry>();
@@ -136,7 +159,7 @@ for (const [bookId, status] of [[104, 3], [101, 1]] as const) {
 }
 const entryJson = (e: MockEntry) => ({ id: e.id, bookId: e.bookId, statusId: e.statusId, editionId: e.editionId, userId: 1, userBookReads: e.reads });
 const genresOf = (b: MockBook) =>
-  b.author === "Brandon Sanderson" ? ["Fantasy", "Fiction"] : b.author === "Blake Crouch" ? ["Thriller", "Science Fiction"] : b.id === 113 ? ["Urban Fantasy"] : ["Science Fiction", "Fiction"];
+  b.author === "Arthur Conan Doyle" ? ["Mystery", "Fiction"] : b.author === "Bram Stoker" ? ["Horror", "Classics"] : b.author === "Edgar Rice Burroughs" ? ["Adventure", "Science Fiction"] : ["Classics", "Fiction"];
 const moodsOf = (b: MockBook) => (b.id % 2 ? ["Adventurous", "Tense"] : ["Emotional", "Dark", "Reflective"]);
 const hit = (b: MockBook) => ({ document: { genres: genresOf(b), moods: moodsOf(b), users_count: 1000 - b.id, has_audiobook: true, id: String(b.id), title: b.title, slug: b.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"), author_names: [b.author], image: { url: `${HC}/cover/${b.id}.svg` }, series_names: b.series ? [b.series[0]] : [], featured_series_position: b.series?.[1] ?? null, release_year: 2010 } });
 
@@ -195,7 +218,7 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
   }
   if (/query GetBook\(/.test(q)) {
     const i = books.findIndex((b) => b.id === Number(v.id));
-    return { books_by_pk: i < 0 ? null : { ...listBooks(i, 1)[0].book, description: `${books[i].title} is a mock description. `.repeat(8).trim(), headline: null, releaseDate: "2020-01-01", cachedTags: { Genre: genresOf(books[i]).map((tag) => ({ tag, tagSlug: tag.toLowerCase().replace(/[^a-z0-9]+/g, "-"), count: 9 })), Mood: moodsOf(books[i]).map((tag) => ({ tag, count: 4 })), Tag: [{ tag: "Space", count: 3 }] } } };
+    return { books_by_pk: i < 0 ? null : { ...listBooks(i, 1)[0].book, description: blurbs[books[i].id] ?? `${books[i].title} is a mock description.`, headline: null, releaseDate: "2020-01-01", cachedTags: { Genre: genresOf(books[i]).map((tag) => ({ tag, tagSlug: tag.toLowerCase().replace(/[^a-z0-9]+/g, "-"), count: 9 })), Mood: moodsOf(books[i]).map((tag) => ({ tag, count: 4 })), Tag: [{ tag: "Space", count: 3 }] } } };
   }
   if (q.includes("query GetUserBookForBook")) {
     const e = userBooks.get(Number(v.bookId));
@@ -293,13 +316,13 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
     const found = [...books, ...duplicates].filter((b) => words.some((w) => b.title.toLowerCase().includes(w)));
     return { search: { ids: found.map((b) => b.id), results: { hits: found.map(hit), found: found.length }, query: v.query, queryType: "book", page: 1, perPage: 8, error: null } };
   }
-  if (q.includes("query Me")) return { me: [token === "hc-sage" ? { id: 2, username: "sage", name: "Sage" } : { id: 1, username: "nathan", name: "Nathan" }] };
+  if (q.includes("query Me")) return { me: [token === "hc-alex" ? { id: 2, username: "alex", name: "Alex" } : { id: 1, username: "robin", name: "Robin" }] };
   if (q.includes("query GetList")) {
     const offset = Number(v.offset ?? 0);
     const limit = Number(v.limit ?? 50);
     return {
       lists_by_pk: {
-        id: 77, slug: "sci-fi-to-listen-to", name: "Sci-Fi to Listen To", description: "The best science fiction audiobooks, in the order I'd recommend them.",
+        id: 77, slug: "classics-to-listen-to", name: "Classics to Listen To", description: "Public-domain classics that make great audiobooks.",
         privacySettingId: 1, ranked: true, defaultView: "grid", booksCount: books.length, likesCount: 3, userId: 1,
         createdAt: "2026-01-01", updatedAt: "2026-01-01", listBooks: listBooks(offset, limit),
       },
@@ -326,10 +349,10 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
     const covers = books.slice(0, 4).map((b) => ({ book: { cached_image: { url: `${HC}/cover/${b.id}.svg` } } }));
     return {
       mine: [
-        { id: 77, slug: "sci-fi-to-listen-to", name: "Sci-Fi to Listen To", description: null, books_count: books.length, list_books: covers },
+        { id: 77, slug: "classics-to-listen-to", name: "Classics to Listen To", description: null, books_count: books.length, list_books: covers },
         { id: 78, slug: "book-club-2026", name: "Book Club 2026", description: null, books_count: 12, list_books: covers.slice(2) },
       ],
-      followed: [{ list: { id: 90, slug: "hugo-winners", name: "Hugo Award Winners", description: null, books_count: 70, list_books: covers.slice(1) } }],
+      followed: [{ list: { id: 90, slug: "gothic-novels", name: "Gothic Novels", description: null, books_count: 70, list_books: covers.slice(1) } }],
     };
   }
   if (q.includes("query Identify")) {
@@ -350,7 +373,7 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
 const OAUTH_ISSUER = "http://localhost:5091";
 const OAUTH_CLIENT = { id: "shelfhelp-test", secret: "s3cret" };
 const OAUTH_TTL = Number(process.env.MOCK_OAUTH_TTL_S ?? 120);
-let oauthAs = "hc-sage";
+let oauthAs = "hc-alex";
 let oauthDeny = false;
 const oauthLog: string[] = [];
 const oauthCodes = new Map<string, { as: string; challenge: string; redirect: string; scope: string }>();
@@ -373,7 +396,7 @@ function oauth(req: http.IncomingMessage, res: http.ServerResponse) {
   };
   const url = new URL(req.url!, OAUTH_ISSUER);
   if (url.pathname === "/test/oauth/as") {
-    oauthAs = url.searchParams.get("user") === "nathan" ? "hc-nathan" : "hc-sage";
+    oauthAs = url.searchParams.get("user") === "robin" ? "hc-robin" : "hc-alex";
     oauthDeny = url.searchParams.get("deny") === "1";
     return send(200, { ok: true, as: oauthAs, deny: oauthDeny });
   }
@@ -511,8 +534,8 @@ http
 const collections = new Map<string, { id: string; libraryId: string; name: string; description: string | null; books: string[] }>();
 // A second library, so the Library page can be split by library.
 const kidsItems: (typeof items)[number][] = [
-  { id: "lk_1", title: "Charlotte's Web", authorName: "E. B. White" } as (typeof items)[number],
-  { id: "lk_2", title: "Matilda", authorName: "Roald Dahl" } as (typeof items)[number],
+  { id: "lk_1", title: "The Velveteen Rabbit", authorName: "Margery Williams" } as (typeof items)[number],
+  { id: "lk_2", title: "The Tale of Peter Rabbit", authorName: "Beatrix Potter" } as (typeof items)[number],
 ];
 const itemJson = (i: (typeof items)[number]) => ({
   id: i.id,
@@ -523,7 +546,7 @@ const itemJson = (i: (typeof items)[number]) => ({
   media: {
     duration: i.duration ?? 36000,
     numAudioFiles: i.id === "li_16" ? 0 : 1,
-    metadata: { title: i.title, authorName: i.authorName, narratorName: "Ray Porter", seriesName: i.seriesName ?? "", asin: i.asin ?? null, isbn: null, publishedYear: "2015" },
+    metadata: { title: i.title, authorName: i.authorName, narratorName: "Ada Reader", seriesName: i.seriesName ?? "", asin: i.asin ?? null, isbn: null, publishedYear: "2015" },
   },
 });
 const collJson = (c: { id: string; libraryId: string; name: string; description: string | null; books: string[] }) => ({
@@ -578,8 +601,8 @@ http
       if (p === "/api/users") {
         return send(200, {
           users: [
-            { id: "u1", username: "root", email: "nathan@example.com", type: "root", isActive: true, hasOpenIDLink: true },
-            { id: "u2", username: "sage", email: "sage@example.com", type: "user", isActive: true, hasOpenIDLink: true },
+            { id: "u1", username: "root", email: "robin@example.com", type: "root", isActive: true, hasOpenIDLink: true },
+            { id: "u2", username: "alex", email: "alex@example.com", type: "user", isActive: true, hasOpenIDLink: true },
             { id: "u3", username: "guest", email: null, type: "guest", isActive: true },
           ],
         });
@@ -591,7 +614,7 @@ http
           isFinished: finished, lastUpdate: now - daysAgo * 86400000, startedAt: now - (daysAgo + 10) * 86400000,
           finishedAt: finished ? now - daysAgo * 86400000 : null,
         });
-        if (m[1] === "u2") return send(200, { id: "u2", username: "sage", mediaProgress: [prog("li_2", 0.55, false, 0), prog("li_6", 1, true, 6), prog("li_8", 0.25, false, 2)] });
+        if (m[1] === "u2") return send(200, { id: "u2", username: "alex", mediaProgress: [prog("li_2", 0.55, false, 0), prog("li_6", 1, true, 6), prog("li_8", 0.25, false, 2)] });
         if (m[1] === "u3") return send(200, { id: "u3", username: "guest", mediaProgress: [] });
         return send(404, "Not found");
       }
@@ -672,8 +695,8 @@ function mockEditions(bookId: number) {
   if (!b) return [];
   const who = (name: string, contribution: string | null) => ({ contribution, author: { name } });
   return [
-    { id: 90000 + bookId * 10 + 1, title: b.title, asin: `B0${bookId}AUD1`, isbn_13: null, isbn_10: null, audio_seconds: 58000, pages: null, release_date: "2021-05-04", edition_format: "Audible Audio", reading_format_id: 2, users_count: 900, publisher: { name: "Audible Studios" }, language: { language: "English" }, image: { url: `${HC}/cover/${bookId}.svg` }, contributions: [who(b.author, null), who("Ray Porter", "Narrator")] },
-    { id: 90000 + bookId * 10 + 2, title: b.title, asin: `B0${bookId}AUD2`, isbn_13: null, isbn_10: null, audio_seconds: 61000, pages: null, release_date: "2023-02-01", edition_format: "Audiobook", reading_format_id: 2, users_count: 120, publisher: { name: "Penguin Audio" }, language: { language: "English" }, image: null, contributions: [who(b.author, null), who("Jane Reader", "Narrator"), who("Sam Voice", "Narrator")] },
+    { id: 90000 + bookId * 10 + 1, title: b.title, asin: `B0${bookId}AUD1`, isbn_13: null, isbn_10: null, audio_seconds: 58000, pages: null, release_date: "2021-05-04", edition_format: "Audible Audio", reading_format_id: 2, users_count: 900, publisher: { name: "Audible Studios" }, language: { language: "English" }, image: { url: `${HC}/cover/${bookId}.svg` }, contributions: [who(b.author, null), who("Ada Reader", "Narrator")] },
+    { id: 90000 + bookId * 10 + 2, title: b.title, asin: `B0${bookId}AUD2`, isbn_13: null, isbn_10: null, audio_seconds: 61000, pages: null, release_date: "2023-02-01", edition_format: "Audiobook", reading_format_id: 2, users_count: 120, publisher: { name: "Penguin Audio" }, language: { language: "English" }, image: null, contributions: [who(b.author, null), who("Ada Reader", "Narrator"), who("Felix Voice", "Narrator")] },
     { id: 90000 + bookId * 10 + 3, title: b.title, asin: null, isbn_13: `978000${bookId}0003`, isbn_10: null, audio_seconds: null, pages: 480, release_date: "2021-05-04", edition_format: "Kindle Edition", reading_format_id: 4, users_count: 300, publisher: { name: "Ballantine" }, language: { language: "English" }, image: null, contributions: [who(b.author, null)] },
     { id: 90000 + bookId * 10 + 4, title: b.title, asin: null, isbn_13: `978000${bookId}0004`, isbn_10: null, audio_seconds: null, pages: 496, release_date: "2021-05-04", edition_format: "Hardcover", reading_format_id: 1, users_count: 2000, publisher: { name: "Ballantine" }, language: { language: "English" }, image: null, contributions: [who(b.author, null)] },
   ];
@@ -693,7 +716,7 @@ function cResource(b: MockBook, mediaType: "audiobook" | "ebook") {
     hasFiles: own?.hasFiles ?? false,
     grabbed: own?.grabbed ?? false,
     remoteCover: `${HC}/cover/${b.id}.svg`,
-    narrator: mediaType === "audiobook" ? "Ray Porter" : null,
+    narrator: mediaType === "audiobook" ? "Ada Reader" : null,
     authorId: own ? authorIdOf(b.author) : 0,
     author: { id: own ? authorIdOf(b.author) : 0, authorName: b.author, foreignAuthorId: `hc:${2000 + b.id}`, audiobookRootFolderPath: null, ebookRootFolderPath: null },
     // Chaptarr lists the first audiobook edition by Hardcover id, the second only by ASIN, and the ebook by ISBN.
@@ -775,7 +798,7 @@ http
         if (!body?.author?.[`${mt}RootFolderPath`] || !body?.author?.[`${mt}QualityProfileId`])
           return send(400, "No media type is configured (audiobook/ebook). Configure at least one root folder + quality profile for this instance.");
         const hc = Number(body.foreignBookId.slice(3));
-        if (hc === 116) return send(409, { error: "Ambiguous provider identity", message: "More than one local author matches hc:2116.", candidates: [{ id: 7, title: "Orson Scott Card", authorName: "Orson Scott Card" }, { id: 8, title: "Orson S. Card", authorName: "Orson S. Card" }] });
+        if (hc === 116) return send(409, { error: "Ambiguous provider identity", message: "More than one local author matches hc:2116.", candidates: [{ id: 7, title: "Mark Twain", authorName: "Mark Twain" }, { id: 8, title: "Orson S. Card", authorName: "Orson S. Card" }] });
         if (hc === 115) {
           const pid = cNextId++;
           cPending.set(pid, { hc, mediaType: mt, lookups: 0 });
@@ -849,8 +872,8 @@ import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import { createHash, randomBytes } from "node:crypto";
 const OIDC = "http://localhost:5094";
 const people: Record<string, { sub: string; email: string; name: string; preferred_username: string; groups: string[] }> = {
-  nathan: { sub: "pid-nathan", email: "nathan@example.com", name: "Nathan", preferred_username: "nathan", groups: [] },
-  sage: { sub: "pid-sage", email: "sage@example.com", name: "Sage", preferred_username: "sage", groups: [] },
+  robin: { sub: "pid-robin", email: "robin@example.com", name: "Robin", preferred_username: "robin", groups: [] },
+  alex: { sub: "pid-alex", email: "alex@example.com", name: "Alex", preferred_username: "alex", groups: [] },
   stranger: { sub: "pid-stranger", email: "stranger@example.com", name: "Stranger", preferred_username: "stranger", groups: [] },
 };
 const codes = new Map<string, { who: string; nonce: string; challenge: string; redirect: string }>();

@@ -21,6 +21,8 @@ export const config = {
   configDir: process.env.CONFIG_DIR ?? "/config",
   /** Optional login for the web UI. */
   appPassword: process.env.APP_PASSWORD ?? "",
+  /** "Can't sign in?" on the sign-in page writes a one-time admin link to the container log. Off unless LOG_RECOVERY_LINK=true. */
+  logRecoveryLink: /^(1|true|yes|on)$/i.test(process.env.LOG_RECOVERY_LINK ?? ""),
   /** Built frontend, served as static files. */
   webDir: process.env.WEB_DIR ?? path.resolve(here, "../../web"),
   version: readVersion(),

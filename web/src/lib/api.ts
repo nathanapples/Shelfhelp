@@ -240,6 +240,8 @@ export interface Status {
   authMode: AuthMode;
   authRequired: boolean;
   passwordLogin: boolean;
+  /** LOG_RECOVERY_LINK is on: "Can't sign in?" can put a one-time link in the container log. */
+  recoveryLink?: boolean;
   oidcLabel: string;
   signedIn: boolean;
   signinProblem: string | null;
