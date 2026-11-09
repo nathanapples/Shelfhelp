@@ -73,7 +73,7 @@ function UserCard({ user, onChecked }: { user: ReadingUser; onChecked: () => voi
           <h2 className="truncate text-xl font-bold text-white group-hover:underline">{user.name}</h2>
           <div className="truncate text-sm text-gray-400">
             {user.hardcoverUser ? `Hardcover @${user.hardcoverUser}` : user.hasHardcover ? "Hardcover connected" : "Hardcover not connected"}
-            {user.enabled ? (user.autoSend ? " · sends automatically" : " · changes wait for review") : ""}
+            {user.enabled ? (user.autoSend ? " · sends automatically" : " · changes wait for review") : user.hasHardcover ? " · sync off, nothing sent" : ""}
           </div>
         </div>
         <div className="relative hidden text-right sm:block">
@@ -126,8 +126,12 @@ function UserCard({ user, onChecked }: { user: ReadingUser; onChecked: () => voi
               <Spinner className="h-4 w-4" /> Checking now
             </>
           ) : !user.enabled ? (
-            <span className="flex items-center gap-1">
-              <PauseCircleIcon className="h-4 w-4" /> Reading sync is off
+            <span className="flex min-w-0 items-center gap-1">
+              <PauseCircleIcon className="h-4 w-4 flex-shrink-0" />
+              <span className="truncate">
+                Sync off, showing what would be sent
+                {lastRun ? ` · checked ${timeAgo(new Date(lastRun.finishedAt).toISOString())}` : ""}
+              </span>
             </span>
           ) : lastRun && !lastRun.ok ? (
             <span className="flex min-w-0 items-center gap-1 text-red-400" title={lastRun.message}>
@@ -141,7 +145,7 @@ function UserCard({ user, onChecked }: { user: ReadingUser; onChecked: () => voi
             </span>
           )}
         </div>
-        <button className="btn btn-sm btn-default" onClick={check} disabled={user.running || !user.enabled || !user.hasHardcover}>
+        <button className="btn btn-sm btn-default" onClick={check} disabled={user.running || !user.hasHardcover}>
           <ArrowPathIcon className="h-4 w-4" /> Check
         </button>
       </div>

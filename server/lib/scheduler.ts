@@ -1,7 +1,7 @@
 import { getSettings } from "./settings.js";
 import { syncAll } from "./sync.js";
 import { syncReading } from "./reading.js";
-import { linkLibrary } from "./linking.js";
+import { linkLibraryAndWait } from "./linking.js";
 
 let timer: NodeJS.Timeout | null = null;
 let currentMinutes = -1;
@@ -18,9 +18,10 @@ export function reschedule() {
       syncAll("scheduled")
         .catch(() => {})
         .finally(() =>
-          syncReading("scheduled")
+          // Library links first, so Reading uses the same matches.
+          linkLibraryAndWait("scheduled")
             .catch(() => {})
-            .finally(() => linkLibrary("scheduled")),
+            .finally(() => syncReading("scheduled").catch(() => {})),
         );
     }, minutes * 60_000);
     timer.unref();

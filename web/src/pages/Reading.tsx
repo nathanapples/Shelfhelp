@@ -16,7 +16,7 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { CheckIcon as CheckSolid, EyeSlashIcon as EyeSlashSolid, XMarkIcon as XSolid, ArrowUpIcon as ArrowUpSolid, ExclamationTriangleIcon as WarnSolid, PauseIcon as PauseSolid, NoSymbolIcon as NoSymbolSolid, ClockIcon as HourglassIcon } from "@heroicons/react/24/solid";
+import { CheckIcon as CheckSolid, EyeSlashIcon as EyeSlashSolid, XMarkIcon as XSolid, ArrowUpIcon as ArrowUpSolid, ExclamationTriangleIcon as WarnSolid, PauseIcon as PauseSolid, NoSymbolIcon as NoSymbolSolid, ClockIcon as HourglassIcon, EllipsisHorizontalIcon as DotsSolid } from "@heroicons/react/24/solid";
 import {
   api,
   duration,
@@ -106,6 +106,7 @@ function IssueFilters({
 
 /** One state per card, combining "is it matched?" and "is it in sync?". */
 function cardState(b: ReadingBook) {
+  if (!b.checked) return { key: "unchecked", label: "Not checked yet", dot: "bg-gray-600 ring-gray-500 text-gray-200", Icon: DotsSolid };
   if (b.matchStatus === "ignored") return { key: "skipped", label: "Not synced (your choice)", dot: "bg-gray-600 ring-gray-500 text-gray-200", Icon: EyeSlashSolid };
   if (b.matchStatus === "missing") return { key: "notfound", label: "Not found on Hardcover", dot: "bg-red-600 ring-red-500 text-red-100", Icon: XSolid };
   if (b.matchStatus === "review") return { key: "review", label: "Needs review", dot: "bg-yellow-500 ring-yellow-400 text-yellow-100", Icon: null };
@@ -289,7 +290,7 @@ export function HcRow({
   );
 }
 
-function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; onClose: () => void; onChanged: () => void }) {
+function ReadingModal({ book, enabled, onClose, onChanged }: { book: ReadingBook | null; enabled: boolean; onClose: () => void; onChanged: () => void }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
@@ -409,7 +410,7 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
               <CheckIcon className="h-4 w-4" /> Approve match
             </button>
           )}
-          {book.matchStatus === "matched" && book.syncStatus === "pending" && (
+          {book.matchStatus === "matched" && book.syncStatus === "pending" && enabled && (
             <>
               <button className="btn btn-default" onClick={skipOne} disabled={busy}>
                 Skip this change
@@ -448,7 +449,9 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
         <p className="mt-1 text-sm text-gray-400">
           {book.matchStatus === "matched"
             ? book.syncStatus === "pending"
-              ? `Ready to send: ${book.syncAction}.`
+              ? enabled
+                ? `Ready to send: ${book.syncAction}.`
+                : `Would send: ${book.syncAction}. Nothing is sent while reading sync is off.`
               : book.syncStatus === "error"
                 ? book.syncAction
                 : book.syncStatus === "held"
@@ -460,7 +463,9 @@ function ReadingModal({ book, onClose, onChanged }: { book: ReadingBook | null; 
                 : book.syncStatus === "skipped"
                   ? `${book.syncAction}. Shelfhelp never moves a book backward.`
                   : `Hardcover shows ${hcLine(book)}${book.syncedAt ? `, updated ${timeAgo(book.syncedAt)}` : ""}.`
-            : sentences(book.reasons)}
+            : !book.checked
+              ? "Shelfhelp hasn't looked for this book on Hardcover yet. It will on the next check."
+              : sentences(book.reasons)}
         </p>
       </div>
 
@@ -879,7 +884,7 @@ export default function ReadingPage() {
             <button className="btn btn-default" onClick={sync} disabled={data.running}>
               {data.running ? <Spinner className="h-5 w-5" /> : <ArrowPathIcon className="h-5 w-5" />} {data.running ? "Checking" : "Check Now"}
             </button>
-            {pending.length > 0 && (
+            {pending.length > 0 && data.enabled && (
               <button className="btn btn-primary" onClick={() => setSending(true)} disabled={data.running}>
                 <ArrowUpIcon className="h-5 w-5" /> Review and send ({pending.length})
               </button>
@@ -909,7 +914,7 @@ export default function ReadingPage() {
 
       {!data.enabled && (
         <div className="mb-6 rounded-xl bg-gray-800 p-4 text-sm text-gray-300 ring-1 ring-gray-700">
-          Reading progress is off.{" "}
+          Reading sync is off, so nothing is sent to Hardcover. Books are still matched, and Waiting shows what would be sent.{" "}
           <button className="text-indigo-400 hover:underline" onClick={() => setSettingsOpen(true)}>
             Turn it on
           </button>
@@ -933,7 +938,7 @@ export default function ReadingPage() {
             <Stat
               label="Waiting"
               value={waiting}
-              sub={c.errors ? `${c.errors} couldn't be sent` : data.autoSend ? "sends on the next sync" : "waiting for you"}
+              sub={c.errors ? `${c.errors} couldn't be sent` : !data.enabled ? "sent once sync is on" : data.autoSend ? "sends on the next sync" : "waiting for you"}
               accent={waiting ? "text-indigo-400" : undefined}
               onClick={() => setTab("waiting")}
             />
@@ -958,7 +963,9 @@ export default function ReadingPage() {
             ]}
           />
           <div className="-mt-3 mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-gray-400">{TAB_HELP[tab]}</p>
+            <p className="text-sm text-gray-400">
+              {tab === "waiting" && !data.enabled ? "Matched books with a change ready for Hardcover. They're sent once reading sync is on." : TAB_HELP[tab]}
+            </p>
           </div>
 
           {tab === "history" ? (
@@ -1003,9 +1010,9 @@ export default function ReadingPage() {
         </p>
       )}
 
-      <ReadingModal book={open} onClose={() => setOpenId(null)} onChanged={reload} />
+      <ReadingModal book={open} enabled={data.enabled} onClose={() => setOpenId(null)} onChanged={reload} />
       {settingsOpen && <ReadingSettings onClose={() => setSettingsOpen(false)} onSaved={() => setTimeout(reload, 800)} />}
-      {sending && <SendModal books={pending} onClose={() => setSending(false)} onSent={reload} />}
+      {sending && data.enabled && <SendModal books={pending} onClose={() => setSending(false)} onSent={reload} />}
     </div>
   );
 }

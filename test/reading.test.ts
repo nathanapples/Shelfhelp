@@ -110,7 +110,7 @@ test("prefers the copy on your shelves when Hardcover lists a book twice", () =>
 
 test("reading groups match the cards", async () => {
   const { readingState } = await import("../server/lib/reading.ts");
-  const b = (o: Record<string, unknown>) => ({ matchStatus: "matched", hcStatus: 2, syncStatus: "synced", heldReason: null, ...o }) as never;
+  const b = (o: Record<string, unknown>) => ({ matchStatus: "matched", checked: true, hcStatus: 2, syncStatus: "synced", heldReason: null, ...o }) as never;
   assert.equal(readingState(b({})), "synced");
   assert.equal(readingState(b({ syncStatus: "pending" })), "waiting");
   assert.equal(readingState(b({ syncStatus: "error" })), "waiting");
@@ -118,6 +118,8 @@ test("reading groups match the cards", async () => {
   assert.equal(readingState(b({ syncStatus: "held", heldReason: "threshold" })), "under");
   assert.equal(readingState(b({ matchStatus: "review" })), "review");
   assert.equal(readingState(b({ matchStatus: "missing" })), "notfound");
+  // Never looked up yet: not an issue.
+  assert.equal(readingState(b({ matchStatus: "missing", checked: false })), "unchecked");
 });
 
 test("reading data is kept per reader", async () => {

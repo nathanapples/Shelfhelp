@@ -115,10 +115,12 @@ export async function syncReading(
 
 async function syncOne(reason: string, force: boolean): Promise<"started" | "running" | "off" | "not-configured"> {
   const me = reader();
-  if (!me.enabled) return "off";
-  if (!me.hardcoverToken) return "not-configured";
+  if (!me.hardcoverToken) return me.enabled ? "not-configured" : "off";
   if (runningFor.has(me.id)) return "running";
   runningFor.add(me.id);
+  // With reading sync off, books are still matched and planned so the page
+  // shows what would happen, but nothing is ever sent to Hardcover.
+  const preview = !me.enabled;
   startJob(job(), me.isOwner ? "Reading" : `Reading for ${me.name}`);
   try {
     step(job(), "Getting listening progress from Audiobookshelf");
@@ -147,8 +149,8 @@ async function syncOne(reason: string, force: boolean): Promise<"started" | "run
     await matchAll();
     step(job(), "Getting book details from Hardcover");
     await fillBookDetails();
-    const summary = await plan(me.autoSend, library);
-    log("info", `Reading progress${me.isOwner ? "" : ` for ${me.name}`} (${reason}): ${summary}`);
+    const summary = await plan(me.autoSend && !preview, library);
+    log("info", `Reading progress${me.isOwner ? "" : ` for ${me.name}`} (${reason}${preview ? ", sync off, nothing sent" : ""}): ${summary}`);
     finishJob(job(), true, summary);
   } catch (err) {
     const message = (err as Error).message;
@@ -204,6 +206,11 @@ async function matchAll() {
     // A collection's match is a good hint, but if that book isn't on your
     // shelves, look for the copy that is (Hardcover can list a book twice).
     if (decided?.source === "collection" && decided.hcBookId && !shelved.has(decided.hcBookId)) decided = null;
+    // Same for the Library page's match, using the candidates it already found.
+    if (decided?.source === "library" && decided.hcBookId && !shelved.has(decided.hcBookId)) {
+      const alt = preferShelved(libraryCandidates(row.abs_item_id, decided.hcBookId), shelved);
+      if (alt) decided = { ...decided, hcBookId: alt.id, reason: `${decided.reason}, ${SHELF_NOTE}` };
+    }
     if (decided) {
       saveMatch(row.abs_item_id, decided);
       continue;
@@ -239,6 +246,14 @@ async function matchAll() {
     }
     saveAuto(row.abs_item_id, status, status === "missing" ? null : (ranked[0] ?? null), reasons, ranked, key, true);
   }
+}
+
+/** The Library page's candidates for an item, its match first. */
+function libraryCandidates(itemId: string, matchId: number) {
+  const r = db.prepare("SELECT candidates FROM library_links WHERE abs_item_id = ?").get(itemId) as { candidates: string | null } | undefined;
+  const all = json<{ id: number; titleSim: number; authorSim: number | null }[]>(r?.candidates ?? null, []);
+  const best = all.find((c) => c.id === matchId);
+  return best ? [best, ...all.filter((c) => c !== best)] : [];
 }
 
 const DAY_MS = 24 * 3600_000;
@@ -351,6 +366,12 @@ function decidedMatch(itemId: string, libraryId: string): Decided | null {
     .get(itemId, libraryId) as { hc_book_id: number } | undefined;
   if (fromCollection) return { status: "matched", source: "manual", hcBookId: fromCollection.hc_book_id, reason: "matched by you in a collection" };
 
+  // The Library page already linked this book: use the same match everywhere.
+  const linked = db
+    .prepare("SELECT hc_book_id FROM library_links WHERE abs_item_id = ? AND status = 'matched' AND hc_book_id IS NOT NULL")
+    .get(itemId) as { hc_book_id: number } | undefined;
+  if (linked) return { status: "matched", source: "library", hcBookId: linked.hc_book_id, reason: "matched on the Library page" };
+
   const listed = db
     .prepare(
       `SELECT b.hc_book_id FROM list_books b JOIN lists l ON l.id = b.list_id
@@ -366,6 +387,13 @@ function saveMatch(itemId: string, d: Decided) {
     | { hc_book_id: number | null; hc_book: string | null }
     | undefined;
   let keepBook = current?.hc_book_id === d.hcBookId ? current?.hc_book : null;
+  if (!keepBook && d.hcBookId) {
+    // The Library page may already have this book's details.
+    const ll = db.prepare("SELECT hc_book FROM library_links WHERE hc_book_id = ? AND hc_book IS NOT NULL LIMIT 1").get(d.hcBookId) as
+      | { hc_book: string }
+      | undefined;
+    if (ll) keepBook = ll.hc_book;
+  }
   if (!keepBook && d.hcBookId) {
     // A collection already has this book's details.
     const lb = db
@@ -662,7 +690,7 @@ async function plan(autoSend: boolean, known?: Map<number, Entry>): Promise<stri
     const result = await send(null, library);
     return `${result.sent} sent automatically${result.failed ? `, ${result.failed} failed` : ""}${held ? `, ${held} held back` : ""}`;
   }
-  return `${pending} change${pending === 1 ? "" : "s"} waiting for you${held ? `, ${held} held back` : ""}`;
+  return `${pending} change${pending === 1 ? "" : "s"} waiting${held ? `, ${held} held back` : ""}`;
 }
 
 /**
@@ -671,6 +699,7 @@ async function plan(autoSend: boolean, known?: Map<number, Entry>): Promise<stri
  * back to waiting with the new plan.
  */
 export async function send(ids: string[] | null, library?: Map<number, Entry>) {
+  if (!reader().enabled) throw new Error("Reading sync is off, so nothing is sent to Hardcover. Turn it on with the gear button first.");
   const hc = hcFor();
   const waiting = rows().filter((r) => r.match_status === "matched" && r.sync_status === "pending" && (!ids || ids.includes(r.abs_item_id)));
   if (!waiting.length) return { sent: 0, failed: 0, changed: 0 };
@@ -939,6 +968,8 @@ export function readingView() {
         lastUpdate: r.last_update,
         duration: r.duration,
         matchStatus: r.match_status,
+        // Shelfhelp hasn't looked for this book on Hardcover yet.
+        checked: !!(r.match_source || r.searched_at),
         matchSource: r.match_source,
         hcBookId: r.hc_book_id,
         hcBook: json<HcBookView | null>(r.hc_book, null),
@@ -968,8 +999,9 @@ export function readingView() {
       listening: count((b) => !b.isFinished),
       finished: count((b) => b.isFinished),
       matched: count((b) => b.matchStatus === "matched"),
-      review: count((b) => b.matchStatus === "review"),
-      missing: count((b) => b.matchStatus === "missing"),
+      review: count((b) => b.checked && b.matchStatus === "review"),
+      missing: count((b) => b.checked && b.matchStatus === "missing"),
+      unchecked: count((b) => !b.checked),
       ignored: count((b) => b.matchStatus === "ignored"),
       synced: count((b) => b.matchStatus === "matched" && b.syncStatus === "synced"),
       pending: count((b) => b.matchStatus === "matched" && b.syncStatus === "pending"),
@@ -982,7 +1014,8 @@ export function readingView() {
 }
 
 /** Which group a book falls in on the Reading page. Mirrors the cards there. */
-export function readingState(b: { matchStatus: string; hcStatus: number | null; syncStatus: string; heldReason: string | null }) {
+export function readingState(b: { matchStatus: string; checked: boolean; hcStatus: number | null; syncStatus: string; heldReason: string | null }) {
+  if (!b.checked) return "unchecked";
   if (b.matchStatus === "ignored") return "skipped";
   if (b.matchStatus === "missing") return "notfound";
   if (b.matchStatus === "review") return "review";
@@ -1014,7 +1047,7 @@ export async function readingUsers(visible: Reader[], viewerId: number) {
     visible.map((r) =>
       asReader(r, async () => {
         const view = readingView();
-        const groups: Record<string, number> = { synced: 0, waiting: 0, review: 0, notfound: 0, skipped: 0, under: 0, dnf: 0 };
+        const groups: Record<string, number> = { synced: 0, waiting: 0, review: 0, notfound: 0, skipped: 0, under: 0, dnf: 0, unchecked: 0 };
         for (const b of view.books) groups[readingState(b)]++;
         const errors = view.books.filter((b) => b.matchStatus === "matched" && b.syncStatus === "error").length;
         const counted = view.books.filter((b) => !["under", "dnf"].includes(readingState(b)));

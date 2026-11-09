@@ -2,6 +2,13 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.27.0 (2026-11-09)
+
+- Reading uses the Library page's matches. A book already linked to Hardcover on the Library page is matched the same way on Reading (still preferring the copy on that reader's Hardcover shelves when Hardcover lists a book twice). Reading only searches Hardcover for books the Library page hasn't matched.
+- With reading sync off, Shelfhelp still matches each reader's books and works out what would be sent, so the Reading page shows real Waiting and In sync counts instead of every book as an issue. Nothing is ever sent while it's off: sending is refused, the send buttons are hidden, and a note at the top says so. Check works while sync is off too.
+- Books Shelfhelp hasn't looked up yet show as "Not checked yet" instead of "Not found on Hardcover", and don't count as issues.
+- Library linking now runs before Reading on startup and on the schedule, so Reading gets the latest links.
+
 ## 0.26.0 (2026-11-09)
 
 - Discover rows: the Show owned checkbox is now an eye button. An open eye shows books you already have in Audiobookshelf, a crossed out eye hides them. Hover over it to see "Show books in Audiobookshelf".

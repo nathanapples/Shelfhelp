@@ -7,7 +7,7 @@ import { sessionSecret } from "./lib/settings.js";
 import { routes } from "./routes.js";
 import { reschedule } from "./lib/scheduler.js";
 import { startRequestWatcher } from "./lib/requests.js";
-import { linkLibrary } from "./lib/linking.js";
+import { linkLibraryAndWait } from "./lib/linking.js";
 import { resolveOwner, splitOwnerKey } from "./lib/users.js";
 import { syncAll } from "./lib/sync.js";
 import { backfillHistory, syncReading } from "./lib/reading.js";
@@ -40,9 +40,10 @@ setTimeout(() => {
   syncAll("startup")
     .catch(() => {})
     .finally(() =>
-      syncReading("startup")
+      // Library links first, so Reading uses the same matches.
+      linkLibraryAndWait("startup")
         .catch(() => {})
-        .finally(() => linkLibrary("startup")),
+        .finally(() => syncReading("startup").catch(() => {})),
     );
 }, 15_000).unref();
 

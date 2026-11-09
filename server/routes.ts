@@ -1371,7 +1371,6 @@ export async function routes(app: FastifyInstance) {
   app.post("/api/reading/sync", async (req, reply) => {
     try {
       const r = targetReader(req);
-      if (!r.enabled) return reply.code(409).send({ error: "Reading progress is turned off. Turn it on with the gear button." });
       if (!r.hardcoverToken) return reply.code(409).send({ error: "Connect a Hardcover account first, under My account." });
       if (readingRunning(r.id)) return { started: false, running: true };
       // Check Now always re-reads Audiobookshelf, so metadata you just fixed is used.

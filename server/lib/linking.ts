@@ -104,13 +104,15 @@ export function linkingRunning() {
   return currentJob(JOB) !== null;
 }
 
+let linking: Promise<void> | null = null;
+
 /** Starts linking in the background. */
 export function linkLibrary(reason: string, { force = false } = {}): "started" | "running" | "not-configured" {
   const c = isConfigured();
   if (!c.hardcover || !c.abs) return "not-configured";
   if (linkingRunning()) return "running";
   startJob(JOB, "Linking your library");
-  run(force)
+  linking = run(force)
     .then((msg) => {
       finishJob(JOB, true, msg);
       log("info", `Library linking (${reason}): ${msg}`);
@@ -118,8 +120,17 @@ export function linkLibrary(reason: string, { force = false } = {}): "started" |
     .catch((err) => {
       finishJob(JOB, false, (err as Error).message);
       log("error", `Library linking failed: ${(err as Error).message}`);
+    })
+    .finally(() => {
+      linking = null;
     });
   return "started";
+}
+
+/** Links the library (or waits for the run already going), then resolves. */
+export async function linkLibraryAndWait(reason: string): Promise<void> {
+  linkLibrary(reason);
+  await linking;
 }
 
 async function run(force: boolean): Promise<string> {

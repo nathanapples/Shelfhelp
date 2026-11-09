@@ -370,7 +370,9 @@ export interface ReadingBook {
   lastUpdate: number | null;
   duration: number | null;
   matchStatus: ReadingMatch;
-  matchSource: "auto" | "manual" | "collection" | null;
+  matchSource: "auto" | "manual" | "collection" | "library" | null;
+  /** False until Shelfhelp has looked for this book on Hardcover. */
+  checked: boolean;
   hcBookId: number | null;
   hcBook: HcBookRef | null;
   score: number | null;
@@ -392,7 +394,7 @@ export interface ReadingData {
   minProgress: number;
   running: boolean;
   counts: Record<
-    "total" | "listening" | "finished" | "matched" | "review" | "missing" | "ignored" | "synced" | "pending" | "skipped" | "errors" | "held",
+    "total" | "listening" | "finished" | "matched" | "review" | "missing" | "unchecked" | "ignored" | "synced" | "pending" | "skipped" | "errors" | "held",
     number
   >;
   books: ReadingBook[];
