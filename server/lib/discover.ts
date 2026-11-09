@@ -31,7 +31,7 @@ export const BUILTINS: Record<BuiltinId, { title: string; subtitle: string }> = 
   trending: { title: "Trending on Hardcover", subtitle: "Read the most in the last three months" },
   week: { title: "Trending this week", subtitle: "Hardcover's hottest books right now" },
   year: { title: "Popular this year", subtitle: "Trending on Hardcover over the past year" },
-  want: { title: "From your Want to Read", subtitle: "On your Hardcover shelf, not in Audiobookshelf yet" },
+  want: { title: "From your Want to Read", subtitle: "Books on your Hardcover Want to Read shelf" },
   new: { title: "Recent releases", subtitle: "Popular books released in the last three months" },
   toprated: { title: "Highest rated new books", subtitle: "Released in the last year, best rated on Hardcover" },
   authors: { title: "New from authors you listen to", subtitle: "Recent and upcoming books by authors in your library" },
@@ -39,7 +39,7 @@ export const BUILTINS: Record<BuiltinId, { title: string; subtitle: string }> = 
   added: { title: "Recently added", subtitle: "Newest in Audiobookshelf" },
   soon: { title: "Upcoming releases", subtitle: "The most anticipated books releasing soon" },
   requests: { title: "Your recent requests", subtitle: "What you've asked for" },
-  foryou: { title: "Top picks for you", subtitle: "From your vibes on Hardcover, not in Audiobookshelf yet" },
+  foryou: { title: "Top picks for you", subtitle: "Recommended from your vibes on Hardcover" },
   continue: { title: "Pick up where you left off", subtitle: "The next unread book in series you've been reading" },
   prompt: { title: "Featured prompt", subtitle: "Hardcover's featured prompt, most picked books first" },
 };
@@ -532,6 +532,18 @@ async function vibeBooks(userId: number, limit: number): Promise<HcSummary[]> {
   return out;
 }
 
+/** The books in order until `limit` of them aren't in Audiobookshelf; owned ones in between stay. */
+function untilUnowned<T extends { absItemId: string | null }>(books: T[], limit: number): T[] {
+  const out: T[] = [];
+  let unowned = 0;
+  for (const b of books) {
+    if (unowned >= limit) break;
+    out.push(b);
+    if (!b.absItemId) unowned++;
+  }
+  return out;
+}
+
 /** One row's books. `key` is a built-in id, list-<id>, genre-<slug> or mood-<slug>. `limit` is bigger on the row's own page. */
 export async function discoverRow(key: string, userId: number, limit = ROW, range: TagRange = "month", nameHint?: string | null) {
   // Rows built from your own Hardcover account need your own token.
@@ -579,9 +591,8 @@ async function buildRow(key: string, userId: number, limit: number, range: TagRa
       return annotate(await cached(`prompt:${p.id}:${L}`, async () => (await hc().prompts.books(p.id, { limit: L })).items.map((x) => summarizeBook(x.book))), userId);
     }
     case "foryou":
-      return annotate(await cached(`foryou:${userId}:${L}`, () => vibeBooks(userId, L)), userId)
-        .filter((b) => !b.absItemId)
-        .slice(0, L);
+      // Books already in Audiobookshelf come along too; Discover hides them unless you show them.
+      return untilUnowned(annotate(await cached(`foryou:${userId}:${L}`, () => vibeBooks(userId, L)), userId), L);
     case "trending":
       return annotate(await cached(`${key}:${L}`, async () => (await hc().books.trending({ duration: "three_month", limit: L })).items.map(summarizeBook)), userId);
     case "week":
@@ -635,10 +646,18 @@ async function buildRow(key: string, userId: number, limit: number, range: TagRa
         db.prepare("SELECT book_id FROM hc_library WHERE user_id = ? AND status = 1 ORDER BY refreshed_at DESC").all(userId) as { book_id: number }[]
       ).map((r) => r.book_id);
       const have = inLibrary(ids);
-      const missing = ids.filter((i) => !have.has(i)).slice(0, L * 2);
-      if (!missing.length) return [];
-      const books = await cached(`want:${missing.join(",")}`, async () => (await hc().books.getMany(missing)).map(summarizeBook));
-      return annotate(books, userId).slice(0, L);
+      // Your shelf in order, up to L books you don't have yet, with the ones you do have in between.
+      const pick: number[] = [];
+      let unowned = 0;
+      for (const i of ids) {
+        if (unowned >= L || pick.length >= L * 4) break;
+        pick.push(i);
+        if (!have.has(i)) unowned++;
+      }
+      if (!pick.length) return [];
+      const books = await cached(`want:${pick.join(",")}`, async () => (await hc().books.getMany(pick)).map(summarizeBook));
+      const order = new Map(pick.map((id, n) => [id, n]));
+      return annotate([...books].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)), userId);
     }
     case "added":
       return recentlyAdded(L).map((r) => ({

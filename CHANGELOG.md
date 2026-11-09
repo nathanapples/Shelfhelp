@@ -2,6 +2,13 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.26.0 (2026-11-09)
+
+- Discover rows: the Show owned checkbox is now an eye button. An open eye shows books you already have in Audiobookshelf, a crossed out eye hides them. Hover over it to see "Show books in Audiobookshelf".
+- The same eye is on each row's full page, and it shares its setting with the row on Discover.
+- Top picks for you and From your Want to Read now have the eye too. They still hide books you already have unless you open the eye.
+- Rows made from a Hardcover list have an order picker: List order, Newest first, Oldest first, Title or Author. It's remembered per row in your browser and shared with the row's full page.
+
 ## 0.25.0 (2026-10-30)
 
 - New Collection: the search also finds Hardcover genres and moods. A genre or mood collection holds up to 100 books; whoever adds it picks **Top, all time** (the most-read books with that genre or mood) or **Trending this month** (what's popular in it now, so books come and go). Collections show them as Genre or Mood.

@@ -7,6 +7,7 @@ import { BookCard } from "../components/BookCard";
 import { BookTile } from "../components/BookTile";
 import { RequestModal } from "../components/Request";
 import { Empty, ErrorBlock, LoadingBlock, PageTitle } from "../components/ui";
+import { OrderPicker, OwnedToggle, sortBooks, useListOrder, useOwnedFilter } from "../components/RowControls";
 import { afterRequest } from "./Discover";
 
 /** A Discover row on its own page, with more of its books. */
@@ -23,6 +24,15 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
   const [open, setOpen] = useState<{ book: SearchHit; replace: (b: SearchHit) => void } | null>(null);
   const info = data?.info;
   const replace = (b: SearchHit) => setData((d) => (d ? { ...d, books: d.books.map((x) => (x.id === b.id ? { ...x, ...b } : x)) } : d));
+  // Same eye and list order as the row on Discover, remembered together.
+  const [owned, setOwned] = useOwnedFilter(key);
+  const [order, setOrder] = useListOrder(key);
+  const isList = info?.kind === "list";
+  const all = data?.books;
+  const hasOwned = key !== "added" && !!all?.some((b) => b.absItemId);
+  const visible = owned === "hide" && hasOwned ? all?.filter((b) => !b.absItemId) : all;
+  const books = visible && isList ? sortBooks(visible, order) : visible;
+  const controls = isList && !!all?.length ? true : hasOwned;
   const hcList = info?.kind === "list" && info.owner && info.slug ? `https://hardcover.app/@${info.owner}/lists/${info.slug}` : null;
 
   return (
@@ -46,8 +56,10 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
           )}
         </p>
       )}
-      {isTag && (
-        <div className="mb-5 inline-flex overflow-hidden rounded-md ring-1 ring-gray-600" role="radiogroup" aria-label="Time range">
+      {(isTag || controls) && (
+        <div className="mb-5 flex flex-wrap items-center gap-2">
+          {isTag && (
+        <div className="inline-flex overflow-hidden rounded-md ring-1 ring-gray-600" role="radiogroup" aria-label="Time range">
           {(
             [
               ["month", "This month"],
@@ -73,6 +85,12 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
             </button>
           ))}
         </div>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            {isList && !!all?.length && <OrderPicker order={order} onChange={setOrder} />}
+            {hasOwned && <OwnedToggle owned={owned} onChange={setOwned} />}
+          </div>
+        </div>
       )}
       {loading && <LoadingBlock />}
       {error && <ErrorBlock message={error} />}
@@ -85,8 +103,11 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
               : "Hardcover didn't return any books for this."}
         </Empty>
       )}
+      {!!all?.length && books?.length === 0 && (
+        <p className="rounded-lg bg-gray-800/60 p-3 text-sm text-gray-400 ring-1 ring-gray-700">You already have everything here. Press the eye to show them.</p>
+      )}
       <ul className="grid grid-cols-3 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] sm:gap-4">
-        {data?.books.map((b, i) => (
+        {books?.map((b, i) => (
           <li key={`${b.id}-${b.absItemId ?? i}`}>
             {key === "added" && !b.id ? (
               <BookCard book={{ ...b, status: "matched" }} pill="Added" fit="contain" size="sm" width="w-full" />

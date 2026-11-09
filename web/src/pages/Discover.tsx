@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { AdjustmentsHorizontalIcon, ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 import { hardcoverSignInUrl, isAdmin, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type RequestOutcome, type SearchHit, type Status, type TagKind, tagLink } from "../lib/api";
 import { CustomizeDiscover } from "../components/CustomizeDiscover";
-import { useApi, useStoredState } from "../lib/hooks";
+import { useApi } from "../lib/hooks";
+import { OrderPicker, OwnedToggle, sortBooks, useListOrder, useOwnedFilter } from "../components/RowControls";
 import { BookCard } from "../components/BookCard";
 import { BookTile } from "../components/BookTile";
 import { RequestModal } from "../components/Request";
@@ -107,7 +108,7 @@ const tagChips = (kind: TagKind, tags: DiscoverRowInfo[]) =>
 /** Why a personal row is empty, shown instead of hiding it. */
 const EMPTY_NOTES: Record<string, string> = {
   foryou: "No picks yet. Hardcover makes these from your vibes: open hardcover.app and visit Vibes once, then check back in a few minutes.",
-  want: "Nothing to show. Books on your Hardcover Want to Read shelf that aren't in Audiobookshelf yet show up here.",
+  want: "Nothing to show. Books on your Hardcover Want to Read shelf show up here.",
   continue: "Nothing to pick up yet. When you've read a book in a series on Hardcover, the next one shows up here.",
 };
 
@@ -123,10 +124,12 @@ function Shelf({
   version: number;
 }) {
   const { data: all, error, loading, setData } = useApi<DiscoverBook[]>(`/discover/${row.key}?v=${version}`);
-  // Per row, remembered in this browser: whether books already in Audiobookshelf show.
-  const [owned, setOwned] = useStoredState<"show" | "hide">(`discover.owned.${row.key}`, "show", ["show", "hide"]);
+  const [owned, setOwned] = useOwnedFilter(row.key);
+  const [order, setOrder] = useListOrder(row.key);
+  const isList = row.kind === "list";
   const hasOwned = !!all?.some((b) => b.absItemId);
-  const data = owned === "hide" ? all?.filter((b) => !b.absItemId) : all;
+  const visible = owned === "hide" ? all?.filter((b) => !b.absItemId) : all;
+  const data = visible && isList ? sortBooks(visible, order) : visible;
   const scroller = useRef<HTMLDivElement>(null);
   const scroll = (dir: number) => scroller.current?.scrollBy({ left: dir * scroller.current.clientWidth * 0.8, behavior: "smooth" });
   // Your own rows stay, with a line saying why they're empty; other empty rows are hidden.
@@ -146,20 +149,8 @@ function Shelf({
           <p className="truncate text-xs text-gray-400 sm:text-sm">{row.subtitle}</p>
         </div>
         <div className="flex flex-shrink-0 items-center gap-1">
-          {(hasOwned || owned === "hide") && row.key !== "added" && (
-            <label
-              className="mr-1 flex cursor-pointer select-none items-center gap-1.5 whitespace-nowrap text-xs text-gray-400 hover:text-gray-200"
-              title="Show books you already have in Audiobookshelf"
-            >
-              <input
-                type="checkbox"
-                className="h-3.5 w-3.5 rounded border-gray-500 bg-gray-700 text-indigo-600 focus:ring-indigo-500"
-                checked={owned === "show"}
-                onChange={(e) => setOwned(e.target.checked ? "show" : "hide")}
-              />
-              Show owned
-            </label>
-          )}
+          {isList && !!all?.length && <OrderPicker order={order} onChange={setOrder} />}
+          {hasOwned && row.key !== "added" && <OwnedToggle owned={owned} onChange={setOwned} />}
           <button className="hidden rounded-full p-1.5 text-gray-400 ring-1 ring-gray-700 hover:bg-gray-700 hover:text-white sm:block" onClick={() => scroll(-1)} aria-label="Scroll left">
             <ChevronLeftIcon className="h-5 w-5" />
           </button>
@@ -178,7 +169,7 @@ function Shelf({
         <p className="rounded-lg bg-gray-800/60 p-3 text-sm text-gray-400 ring-1 ring-gray-700">{emptyNote}</p>
       )}
       {!loading && !error && !!all?.length && data?.length === 0 && (
-        <p className="rounded-lg bg-gray-800/60 p-3 text-sm text-gray-400 ring-1 ring-gray-700">You already have everything in this row.</p>
+        <p className="rounded-lg bg-gray-800/60 p-3 text-sm text-gray-400 ring-1 ring-gray-700">You already have everything in this row. Press the eye to show them.</p>
       )}
       <div ref={scroller} className="hide-scrollbar -mx-4 flex snap-x scroll-px-4 gap-2 overflow-x-auto px-4 pb-2 pt-1.5 sm:-mx-6 sm:scroll-px-6 sm:gap-2.5 sm:px-6 lg:-mx-8 lg:scroll-px-8 lg:px-8">
         {data?.map((b, i) => (
