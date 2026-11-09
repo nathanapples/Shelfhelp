@@ -4,7 +4,7 @@ import { AdjustmentsHorizontalIcon, ChevronLeftIcon, ChevronRightIcon } from "@h
 import { hardcoverSignInUrl, isAdmin, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type RequestOutcome, type SearchHit, type Status, type TagKind, tagLink } from "../lib/api";
 import { CustomizeDiscover } from "../components/CustomizeDiscover";
 import { useApi } from "../lib/hooks";
-import { OrderPicker, OwnedToggle, sortBooks, useListOrder, useOwnedFilter } from "../components/RowControls";
+import { OrderPicker, OwnedToggle, orderQuery, useListOrder, useOwnedFilter } from "../components/RowControls";
 import { BookCard } from "../components/BookCard";
 import { BookTile } from "../components/BookTile";
 import { RequestModal } from "../components/Request";
@@ -123,13 +123,12 @@ function Shelf({
   onOpen: (b: SearchHit, replace: (b: SearchHit) => void) => void;
   version: number;
 }) {
-  const { data: all, error, loading, setData } = useApi<DiscoverBook[]>(`/discover/${row.key}?v=${version}`);
-  const [owned, setOwned] = useOwnedFilter(row.key);
-  const [order, setOrder] = useListOrder(row.key);
   const isList = row.kind === "list";
+  const [order, setOrder] = useListOrder(row.key, row.order ?? "list");
+  const { data: all, error, loading, setData } = useApi<DiscoverBook[]>(`/discover/${row.key}?v=${version}${isList ? `&${orderQuery(order)}` : ""}`);
+  const [owned, setOwned] = useOwnedFilter(row.key);
   const hasOwned = !!all?.some((b) => b.absItemId);
-  const visible = owned === "hide" ? all?.filter((b) => !b.absItemId) : all;
-  const data = visible && isList ? sortBooks(visible, order) : visible;
+  const data = owned === "hide" ? all?.filter((b) => !b.absItemId) : all;
   const scroller = useRef<HTMLDivElement>(null);
   const scroll = (dir: number) => scroller.current?.scrollBy({ left: dir * scroller.current.clientWidth * 0.8, behavior: "smooth" });
   // Your own rows stay, with a line saying why they're empty; other empty rows are hidden.
@@ -149,7 +148,7 @@ function Shelf({
           <p className="truncate text-xs text-gray-400 sm:text-sm">{row.subtitle}</p>
         </div>
         <div className="flex flex-shrink-0 items-center gap-1">
-          {isList && !!all?.length && <OrderPicker order={order} onChange={setOrder} />}
+          {isList && (!!all?.length || order !== "list") && <OrderPicker order={order} onChange={setOrder} />}
           {hasOwned && row.key !== "added" && <OwnedToggle owned={owned} onChange={setOwned} />}
           <button className="hidden rounded-full p-1.5 text-gray-400 ring-1 ring-gray-700 hover:bg-gray-700 hover:text-white sm:block" onClick={() => scroll(-1)} aria-label="Scroll left">
             <ChevronLeftIcon className="h-5 w-5" />
@@ -245,7 +244,7 @@ export default function DiscoverPage({ status }: { status: Status }) {
         </div>
       )}
       {shown.map((r) => (
-        <Shelf key={r.key} row={r} status={status} version={r.key === "requests" ? version : 0} onOpen={(book, replace) => setOpen({ book, replace })} />
+        <Shelf key={`${r.key}:${r.order ?? ""}`} row={r} status={status} version={r.key === "requests" ? version : 0} onOpen={(book, replace) => setOpen({ book, replace })} />
       ))}
       {config && shown.length === 0 && (
         <div className="py-16 text-center text-sm text-gray-500">No rows. Use Customize this page to add some.</div>

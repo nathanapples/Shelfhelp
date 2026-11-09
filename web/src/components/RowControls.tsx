@@ -1,5 +1,4 @@
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
-import type { DiscoverBook } from "../lib/api";
 import { useStoredState } from "../lib/hooks";
 
 /** Rows that hide books already in Audiobookshelf until you show them. */
@@ -38,43 +37,48 @@ export function OwnedToggle({ owned, onChange }: { owned: "show" | "hide"; onCha
   );
 }
 
-/** Ways to order a Hardcover list row. */
-export const LIST_ORDERS = ["list", "newest", "oldest", "title", "author"] as const;
+/** Ways to order a Hardcover list row. The server sorts the whole list, then trims it. */
+export const LIST_ORDERS = ["list", "newest", "oldest", "title", "author", "random"] as const;
 export type ListOrder = (typeof LIST_ORDERS)[number];
-const ORDER_LABELS: Record<ListOrder, string> = {
+export const ORDER_LABELS: Record<ListOrder, string> = {
   list: "List order",
   newest: "Newest first",
   oldest: "Oldest first",
   title: "Title",
   author: "Author",
+  random: "Random",
 };
 
-/** Per list row, remembered in this browser and shared with the row's own page. */
-export function useListOrder(key: string) {
-  return useStoredState<ListOrder>(`discover.order.${key}`, "list", LIST_ORDERS);
+/** One shuffle per visit, so a Random row and its full page show the same order until you reload. */
+export const SHUFFLE_SEED = Math.floor(Math.random() * 1_000_000_000) + 1;
+
+/**
+ * Per list row: the order picked on Discover or the row's page, remembered in
+ * this browser. Until you pick one, the row's default from Customize.
+ */
+export function useListOrder(key: string, fallback: ListOrder = "list") {
+  return useStoredState<ListOrder>(`discover.order.${key}`, fallback, LIST_ORDERS);
 }
 
-const text = (s: string | null | undefined) => (s ?? "").replace(/^(the|a|an)\s+/i, "");
-const surname = (b: DiscoverBook) => (b.authors[0] ?? "").split(" ").pop() ?? "";
-
-export function sortBooks(books: DiscoverBook[], order: ListOrder): DiscoverBook[] {
-  if (order === "list") return books;
-  const out = [...books];
-  const year = (b: DiscoverBook, missing: number) => b.releaseYear ?? missing;
-  if (order === "newest") out.sort((a, b) => year(b, -Infinity) - year(a, -Infinity));
-  if (order === "oldest") out.sort((a, b) => year(a, Infinity) - year(b, Infinity));
-  if (order === "title") out.sort((a, b) => text(a.title).localeCompare(text(b.title)));
-  if (order === "author") out.sort((a, b) => surname(a).localeCompare(surname(b)) || text(a.title).localeCompare(text(b.title)));
-  return out;
+/** Forgets an order picked in this browser, so the row follows its default again. */
+export function forgetListOrder(key: string) {
+  try {
+    localStorage.removeItem(`shelfhelp.discover.order.${key}`);
+  } catch {
+    /* private mode */
+  }
 }
+
+/** Query string for a list row's books in this order. */
+export const orderQuery = (order: ListOrder) => `order=${order}${order === "random" ? `&seed=${SHUFFLE_SEED}` : ""}`;
 
 /** Order picker for a list row. */
-export function OrderPicker({ order, onChange }: { order: ListOrder; onChange: (o: ListOrder) => void }) {
+export function OrderPicker({ order, onChange, label = "Order of books" }: { order: ListOrder; onChange: (o: ListOrder) => void; label?: string }) {
   return (
     <select
       value={order}
       onChange={(e) => onChange(e.target.value as ListOrder)}
-      aria-label="Order of books"
+      aria-label={label}
       className="rounded-full border-0 bg-gray-800 py-1 pl-3 pr-8 text-xs text-gray-200 ring-1 ring-gray-700 focus:ring-indigo-500"
     >
       {LIST_ORDERS.map((o) => (

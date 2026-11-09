@@ -2,6 +2,13 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.28.0 (2026-11-09)
+
+- List rows sort the whole Hardcover list, not just the books already shown. Before, a list row on Discover only held its first 30 books, and Newest first only reordered those 30, so a long list like award winners never showed its recent books. The full page now shows up to 500 books of a list.
+- New **Random** order for list rows. The shuffle stays the same between a row and its full page until you reload.
+- Customize this page: each Hardcover list row has a default order. Admins can save it as part of everyone's defaults. Picking an order on the row itself still works and is remembered in your browser; saving a new default in Customize replaces it.
+- Top picks for you, From your Want to Read and list rows stay full when you already own most of their books. They now fetch enough books that you don't have, instead of a fixed number of which most were then hidden.
+
 ## 0.27.0 (2026-11-09)
 
 - Reading uses the Library page's matches. A book already linked to Hardcover on the Library page is matched the same way on Reading (still preferring the copy on that reader's Hardcover shelves when Hardcover lists a book twice). Reading only searches Hardcover for books the Library page hasn't matched.

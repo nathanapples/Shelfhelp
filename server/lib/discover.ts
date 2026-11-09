@@ -146,9 +146,14 @@ function cleanTags(kind: TagKind, list: unknown): Tag[] | null {
   return out;
 }
 
+/** Ways to order a Hardcover list row. */
+export const LIST_ORDERS = ["list", "newest", "oldest", "title", "author", "random"] as const;
+export type ListOrder = (typeof LIST_ORDERS)[number];
+export const isListOrder = (o: unknown): o is ListOrder => typeof o === "string" && (LIST_ORDERS as readonly string[]).includes(o);
+
 export type RowConfig =
   | { key: string; kind: "builtin"; id: BuiltinId }
-  | { key: string; kind: "list"; listId: number; title: string; owner?: string | null; slug?: string | null }
+  | { key: string; kind: "list"; listId: number; title: string; owner?: string | null; slug?: string | null; order?: ListOrder }
   | { key: string; kind: TagKind; tag: string; name: string };
 
 const tagRow = (kind: TagKind, slug: string, name: string): RowConfig => ({ key: `${kind}-${slug}`, kind, tag: slug, name });
@@ -165,7 +170,16 @@ function valid(rows: unknown): RowConfig[] | null {
     if (!r || seen.has(r.key)) continue;
     if (r.kind === "builtin" && r.id in BUILTINS) out.push(builtin(r.id));
     else if (r.kind === "list" && Number(r.listId) > 0) {
-      out.push({ key: `list-${Number(r.listId)}`, kind: "list", listId: Number(r.listId), title: String(r.title || "Hardcover list"), owner: r.owner ?? null, slug: r.slug ?? null });
+      out.push({
+        key: `list-${Number(r.listId)}`,
+        kind: "list",
+        listId: Number(r.listId),
+        title: String(r.title || "Hardcover list"),
+        owner: r.owner ?? null,
+        slug: r.slug ?? null,
+        // The row's default order, set in Customize. List order when not set.
+        ...(isListOrder(r.order) && r.order !== "list" ? { order: r.order } : {}),
+      });
     } else if (r.kind === "genre" || r.kind === "mood") {
       // Rows saved before 0.11.0 kept the slug in `genre`.
       const slug = r.tag ?? (r as { genre?: string }).genre ?? "";
@@ -532,25 +546,65 @@ async function vibeBooks(userId: number, limit: number): Promise<HcSummary[]> {
   return out;
 }
 
-/** The books in order until `limit` of them aren't in Audiobookshelf; owned ones in between stay. */
-function untilUnowned<T extends { absItemId: string | null }>(books: T[], limit: number): T[] {
-  const out: T[] = [];
+/**
+ * Up to `limit` books you don't have in Audiobookshelf and up to `limit` you do,
+ * in their order. Discover hides the owned ones unless you show them, so a row
+ * stays full either way.
+ */
+export function mixOwned<T extends { absItemId: string | null }>(books: T[], limit: number): T[] {
+  let owned = 0;
   let unowned = 0;
-  for (const b of books) {
-    if (unowned >= limit) break;
-    out.push(b);
-    if (!b.absItemId) unowned++;
+  return books.filter((b) => (b.absItemId ? owned++ < limit : unowned++ < limit));
+}
+
+/** A shuffle that's the same for the same seed, so a row and its page agree while you look. */
+function shuffled<T>(items: T[], seed: number): T[] {
+  let a = seed >>> 0 || 1;
+  const rand = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
 }
 
+const plain = (s: string | null | undefined) => (s ?? "").replace(/^(the|a|an)\s+/i, "");
+const surname = (b: HcSummary) => (b.authors[0] ?? "").trim().split(/\s+/).pop() ?? "";
+
+/** A whole list in the order asked for. Books without a year go last. */
+export function sortList<T extends HcSummary>(books: T[], order: ListOrder, seed = 1): T[] {
+  if (order === "list") return books;
+  if (order === "random") return shuffled(books, seed);
+  const out = [...books];
+  const year = (b: HcSummary, missing: number) => b.releaseYear ?? missing;
+  const byTitle = (a: HcSummary, b: HcSummary) => plain(a.title).localeCompare(plain(b.title));
+  if (order === "newest") out.sort((a, b) => year(b, -Infinity) - year(a, -Infinity) || byTitle(a, b));
+  if (order === "oldest") out.sort((a, b) => year(a, Infinity) - year(b, Infinity) || byTitle(a, b));
+  if (order === "title") out.sort(byTitle);
+  if (order === "author") out.sort((a, b) => surname(a).localeCompare(surname(b)) || byTitle(a, b));
+  return out;
+}
+
 /** One row's books. `key` is a built-in id, list-<id>, genre-<slug> or mood-<slug>. `limit` is bigger on the row's own page. */
-export async function discoverRow(key: string, userId: number, limit = ROW, range: TagRange = "month", nameHint?: string | null) {
+export async function discoverRow(
+  key: string,
+  userId: number,
+  limit = ROW,
+  range: TagRange = "month",
+  nameHint?: string | null,
+  sort?: { order?: string; seed?: number },
+) {
   // Rows built from your own Hardcover account need your own token.
   if (PERSONAL.has(key) && !hasHardcover(userId)) return [];
-  if (!PERSONAL.has(key)) return buildRow(key, userId, limit, range, nameHint);
+  if (!PERSONAL.has(key)) return buildRow(key, userId, limit, range, nameHint, sort);
   try {
-    return await buildRow(key, userId, limit, range, nameHint);
+    return await buildRow(key, userId, limit, range, nameHint, sort);
   } catch (err) {
     // A key missing permissions: Discover's banner explains it, so the row is just empty.
     if (missingScopes(err, [])) return [];
@@ -558,13 +612,17 @@ export async function discoverRow(key: string, userId: number, limit = ROW, rang
   }
 }
 
-async function buildRow(key: string, userId: number, limit: number, range: TagRange, nameHint?: string | null) {
+async function buildRow(key: string, userId: number, limit: number, range: TagRange, nameHint?: string | null, sort?: { order?: string; seed?: number }) {
   const hc = () => hardcover();
   const L = limit;
   const list = key.match(/^list-(\d+)$/);
   if (list) {
     const id = Number(list[1]);
-    return annotate(await cached(key, async () => (await fetchList(id)).books.map(fromList)), userId).slice(0, limit === ROW ? 30 : 200);
+    // The whole list is sorted first, then trimmed, so Newest first really starts at the newest book.
+    const saved = rowsFor(userId).rows.find((r) => r.key === key) as { order?: ListOrder } | undefined;
+    const order = isListOrder(sort?.order) ? sort.order : (saved?.order ?? "list");
+    const books = annotate(await cached(key, async () => (await fetchList(id)).books.map(fromList)), userId);
+    return mixOwned(sortList(books, order, sort?.seed), limit === ROW ? 30 : 500);
   }
   const tag = key.match(/^(genre|mood)-(.+)$/);
   if (tag) {
@@ -592,7 +650,7 @@ async function buildRow(key: string, userId: number, limit: number, range: TagRa
     }
     case "foryou":
       // Books already in Audiobookshelf come along too; Discover hides them unless you show them.
-      return untilUnowned(annotate(await cached(`foryou:${userId}:${L}`, () => vibeBooks(userId, L)), userId), L);
+      return mixOwned(annotate(await cached(`foryou:${userId}:${L}`, () => vibeBooks(userId, L * 2)), userId), L);
     case "trending":
       return annotate(await cached(`${key}:${L}`, async () => (await hc().books.trending({ duration: "three_month", limit: L })).items.map(summarizeBook)), userId);
     case "week":
@@ -646,14 +704,9 @@ async function buildRow(key: string, userId: number, limit: number, range: TagRa
         db.prepare("SELECT book_id FROM hc_library WHERE user_id = ? AND status = 1 ORDER BY refreshed_at DESC").all(userId) as { book_id: number }[]
       ).map((r) => r.book_id);
       const have = inLibrary(ids);
-      // Your shelf in order, up to L books you don't have yet, with the ones you do have in between.
-      const pick: number[] = [];
-      let unowned = 0;
-      for (const i of ids) {
-        if (unowned >= L || pick.length >= L * 4) break;
-        pick.push(i);
-        if (!have.has(i)) unowned++;
-      }
+      // Your shelf in order: up to L books you don't have yet and up to L you do,
+      // so the row is full whether owned books are shown or hidden.
+      const pick = mixOwned(ids.map((id) => ({ id, absItemId: have.get(id) ?? null })), L).map((b) => b.id);
       if (!pick.length) return [];
       const books = await cached(`want:${pick.join(",")}`, async () => (await hc().books.getMany(pick)).map(summarizeBook));
       const order = new Map(pick.map((id, n) => [id, n]));

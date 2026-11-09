@@ -456,6 +456,8 @@ export interface DiscoverRowInfo {
   listId?: number;
   owner?: string | null;
   slug?: string | null;
+  /** A list row's default order, set in Customize. */
+  order?: "list" | "newest" | "oldest" | "title" | "author" | "random";
   title: string;
   subtitle: string;
 }

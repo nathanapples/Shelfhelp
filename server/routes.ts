@@ -820,17 +820,19 @@ export async function routes(app: FastifyInstance) {
   });
 
   /** One row's books. With ?full=1, a bigger set and the row's title, for the row's own page. */
-  app.get<{ Params: { row: string }; Querystring: { full?: string; range?: string; name?: string } }>("/api/discover/:row", async (req, reply) => {
+  app.get<{ Params: { row: string }; Querystring: { full?: string; range?: string; name?: string; order?: string; seed?: string } }>("/api/discover/:row", async (req, reply) => {
     try {
+      // A list row's order, and the shuffle for Random.
+      const sort = { order: req.query.order, seed: Number(req.query.seed) || 1 };
       if (req.query.full === "1") {
         const name = req.query.name?.slice(0, 80) || null;
         const [info, books] = await Promise.all([
           rowInfoFor(req.params.row, req.viewer.user.id, name),
-          discoverRow(req.params.row, req.viewer.user.id, PAGE, isTagRange(req.query.range) ? req.query.range : "month", name),
+          discoverRow(req.params.row, req.viewer.user.id, PAGE, isTagRange(req.query.range) ? req.query.range : "month", name, sort),
         ]);
         return { info, books };
       }
-      return await discoverRow(req.params.row, req.viewer.user.id);
+      return await discoverRow(req.params.row, req.viewer.user.id, undefined, undefined, undefined, sort);
     } catch (err) {
       return fail(reply, err);
     }
