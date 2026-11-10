@@ -95,7 +95,10 @@ export class Abs {
       throw new AbsError(`Audiobookshelf ${method} ${path} failed: ${res.status} ${text}${hint}`, res.status);
     }
     const type = res.headers.get("content-type") ?? "";
-    return (type.includes("json") ? await res.json() : await res.text()) as T;
+    // Some replies (like a delete) have no body even when labeled JSON.
+    const text = await res.text();
+    if (!type.includes("json") || !text.trim()) return text as T;
+    return JSON.parse(text) as T;
   }
 
   async me() {

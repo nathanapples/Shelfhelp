@@ -65,6 +65,16 @@ export interface Settings {
   oidcAdminGroup: string;
   /** Name on the sign-in button. */
   oidcLabel: string;
+  /** Answer Audiobookshelf's Match searches with Hardcover audiobook editions. */
+  absProviderEnabled: boolean;
+  /** How Audiobookshelf reaches Shelfhelp, e.g. http://shelfhelp:5075. */
+  absProviderAddress: string;
+  /** Only audiobook editions in this language. Empty allows every language. */
+  absProviderLanguage: string;
+  /** Books with no audiobook edition on Hardcover still show up, without narrator or length. */
+  absProviderBookFallback: boolean;
+  /** Send Hardcover's moods as Audiobookshelf tags. */
+  absProviderMoodTags: boolean;
   /** Cloudflare Access team domain, e.g. myteam.cloudflareaccess.com */
   cfTeamDomain: string;
   /** The Application Audience (AUD) tag from Cloudflare Access. */
@@ -115,6 +125,11 @@ const defaults: Settings = {
   oidcLabel: "Pocket ID",
   cfTeamDomain: "",
   cfAudience: "",
+  absProviderEnabled: false,
+  absProviderAddress: "",
+  absProviderLanguage: "",
+  absProviderBookFallback: true,
+  absProviderMoodTags: true,
 };
 
 /** Environment variables win over saved values, so a compose file can pin them. */

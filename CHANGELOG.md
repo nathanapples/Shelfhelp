@@ -2,6 +2,17 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.30.0 (2026-11-10)
+
+- New: Shelfhelp can be Audiobookshelf's Hardcover metadata provider, built in, with nothing extra to run. Turn it on in Settings, Audiobookshelf, under Hardcover metadata provider.
+  - Each audiobook edition on Hardcover is its own match, with its narrator, length, audio publisher, ASIN, ISBN, language and cover, plus the book's title, author, description, series and genres (and moods as tags, if you want them). The most read edition comes first, which is what Quick Match uses.
+  - Paste an ASIN or ISBN into Match's title box to get that exact edition first.
+  - Books with no audiobook edition on Hardcover can still show up without narrator or length (on by default). A language setting keeps only editions in one language.
+  - Shelfhelp adds itself to Audiobookshelf's custom metadata providers when you save (this needs Shelfhelp's Audiobookshelf key to be an admin's). A new key or address updates the entry there, and libraries using it as their default keep it.
+  - Test asks Audiobookshelf to search through Shelfhelp, the way Match does, and says whether the problem is the address or the key. Try a search shows what Audiobookshelf would get.
+  - Audiobookshelf has to reach Shelfhelp directly, for example `http://shelfhelp:5075` on the same Docker network, not through a login page like Cloudflare Access.
+- Fixed: an Audiobookshelf reply with an empty body no longer causes an error.
+
 ## 0.29.0 (2026-11-10)
 
 - Every Discover row stays full when you already own most of its books. Rows like Trending on Hardcover, genres, moods and new releases now fetch a bigger batch from Hardcover and keep up to 20 books you don't have, so the row and its full page match. Recently added is unchanged.

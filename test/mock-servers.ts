@@ -228,6 +228,11 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
   }
   if (q.includes("query GetEditionsForBook")) return { editions: [edition(Number(v.bookId))] };
   if (q.includes("query BookEditions")) return { editions: mockEditions(Number(v.bookId)) };
+  if (q.includes("query ProviderEditionsByCode")) {
+    const codes = new Set((v.codes as string[]) ?? []);
+    const hits = books.flatMap((b) => mockEditions(b.id)).filter((e) => [e.asin, e.isbn_13, e.isbn_10].some((c) => c && codes.has(c)));
+    return { editions: hits.map((e) => ({ id: e.id, book_id: Math.floor((e.id - 90000) / 10) })) };
+  }
   if (q.includes("query DiscoverTopRated") || q.includes("query DiscoverAudio") || q.includes("query DiscoverAuthors") || q.includes("query DiscoverRecent") || q.includes("query DiscoverUpcoming")) {
     let picked = books.map((_, i) => listBooks(i, 1)[0].book);
     if (q.includes("DiscoverTopRated")) picked = picked.sort((a, b) => b.rating - a.rating).slice(0, 8);
@@ -628,7 +633,42 @@ http
         if (m[1] === "u3") return send(200, { id: "u3", username: "guest", mediaProgress: [] });
         return send(404, "Not found");
       }
-      if (p === "/api/libraries") return send(200, { libraries: [{ id: "lib_audio", name: "Audiobooks", mediaType: "book" }, { id: "lib_kids", name: "Kids", mediaType: "book" }, { id: "lib_pod", name: "Podcasts", mediaType: "podcast" }] });
+      if (p === "/api/libraries") return send(200, { libraries: absLibs });
+      if ((m = p.match(/^\/api\/libraries\/([^/]+)$/)) && req.method === "PATCH") {
+        const lib = absLibs.find((l) => l.id === m![1]);
+        if (!lib) return send(404, "Not found");
+        if (body.provider) lib.provider = body.provider;
+        console.log(`[abs] library ${lib.id} provider ${lib.provider}`);
+        return send(200, lib);
+      }
+      // Custom metadata providers, like ABS 2.x: list, add, remove (removing resets libraries to Google Books).
+      if (p === "/api/custom-metadata-providers" && req.method === "GET") return send(200, { providers: absProviders });
+      if (p === "/api/custom-metadata-providers" && req.method === "POST") {
+        if (!body.name || !body.url || !body.mediaType) return send(400, "Invalid request body");
+        const provider = { id: `cmp_${absProviders.length + absProviderSeq++}`, name: body.name, mediaType: body.mediaType, url: body.url, authHeaderValue: body.authHeaderValue || null };
+        absProviders.push(provider);
+        console.log(`[abs] add provider ${provider.id} ${provider.url}`);
+        return send(200, { provider });
+      }
+      if ((m = p.match(/^\/api\/custom-metadata-providers\/([^/]+)$/)) && req.method === "DELETE") {
+        const i = absProviders.findIndex((x) => x.id === m![1]);
+        if (i < 0) return send(404, "Not found");
+        for (const l of absLibs) if (l.provider === `custom-${m[1]}`) l.provider = "google";
+        absProviders.splice(i, 1);
+        console.log(`[abs] remove provider ${m[1]}`);
+        return send(200);
+      }
+      // Search through a custom provider the way Match does: errors become no results.
+      if (p === "/api/search/books") {
+        const prov = absProviders.find((x) => `custom-${x.id}` === url.searchParams.get("provider"));
+        if (!prov) return send(200, []);
+        const qs = new URLSearchParams({ mediaType: "book", query: url.searchParams.get("title") ?? "", ...(url.searchParams.get("author") ? { author: url.searchParams.get("author")! } : {}) });
+        fetch(`${prov.url}/search?${qs}`, { headers: prov.authHeaderValue ? { Authorization: prov.authHeaderValue } : {}, signal: AbortSignal.timeout(10_000) })
+          .then((r) => r.json())
+          .then((d: { matches?: unknown[] }) => send(200, Array.isArray(d.matches) ? d.matches : []))
+          .catch(() => send(200, []));
+        return;
+      }
       if ((m = p.match(/^\/api\/libraries\/([^/]+)\/items$/))) {
         if (m[1] === "lib_kids") return send(200, { results: kidsItems.map(itemJson), total: kidsItems.length });
         if (m[1] !== "lib_audio") return send(200, { results: [], total: 0 });
@@ -694,10 +734,22 @@ const cRows: CRow[] = [
   { id: 1, hc: 101, mediaType: "audiobook", monitored: true, hasFiles: true, grabbed: false, checks: 0 },
   { id: 2, hc: 106, mediaType: "audiobook", monitored: false, hasFiles: false, grabbed: false, checks: 0 },
 ];
+const absLibs: { id: string; name: string; mediaType: string; provider: string }[] = [
+  { id: "lib_audio", name: "Audiobooks", mediaType: "book", provider: "google" },
+  { id: "lib_kids", name: "Kids", mediaType: "book", provider: "google" },
+  { id: "lib_pod", name: "Podcasts", mediaType: "podcast", provider: "itunes" },
+];
+const absProviders: { id: string; name: string; mediaType: string; url: string; authHeaderValue: string | null }[] = [];
+let absProviderSeq = 1;
 let cNextId = 10;
 const cPending = new Map<number, { hc: number; mediaType: "audiobook" | "ebook"; lookups: number }>();
 const cAdds: unknown[] = [];
 const cCommands: unknown[] = [];
+
+/** A real-looking 10-character ASIN for a mock audiobook edition. */
+function mockAsin(bookId: number, n: number) {
+  return `B0${String(bookId).padStart(4, "0")}AUD${n}`;
+}
 
 /** Hardcover editions for the edition picker: two audiobooks with different narrators, an ebook and a print copy. */
 function mockEditions(bookId: number) {
@@ -705,8 +757,8 @@ function mockEditions(bookId: number) {
   if (!b) return [];
   const who = (name: string, contribution: string | null) => ({ contribution, author: { name } });
   return [
-    { id: 90000 + bookId * 10 + 1, title: b.title, asin: `B0${bookId}AUD1`, isbn_13: null, isbn_10: null, audio_seconds: 58000, pages: null, release_date: "2021-05-04", edition_format: "Audible Audio", reading_format_id: 2, users_count: 900, publisher: { name: "Audible Studios" }, language: { language: "English" }, image: { url: `${HC}/cover/${bookId}.svg` }, contributions: [who(b.author, null), who("Ada Reader", "Narrator")] },
-    { id: 90000 + bookId * 10 + 2, title: b.title, asin: `B0${bookId}AUD2`, isbn_13: null, isbn_10: null, audio_seconds: 61000, pages: null, release_date: "2023-02-01", edition_format: "Audiobook", reading_format_id: 2, users_count: 120, publisher: { name: "Penguin Audio" }, language: { language: "English" }, image: null, contributions: [who(b.author, null), who("Ada Reader", "Narrator"), who("Felix Voice", "Narrator")] },
+    { id: 90000 + bookId * 10 + 1, title: b.title, asin: mockAsin(bookId, 1), isbn_13: null, isbn_10: null, audio_seconds: 58000, pages: null, release_date: "2021-05-04", edition_format: "Audible Audio", reading_format_id: 2, users_count: 900, publisher: { name: "Audible Studios" }, language: { language: "English" }, image: { url: `${HC}/cover/${bookId}.svg` }, contributions: [who(b.author, null), who("Ada Reader", "Narrator")] },
+    { id: 90000 + bookId * 10 + 2, title: b.title, asin: mockAsin(bookId, 2), isbn_13: null, isbn_10: null, audio_seconds: 61000, pages: null, release_date: "2023-02-01", edition_format: "Audiobook", reading_format_id: 2, users_count: 120, publisher: { name: "Penguin Audio" }, language: { language: "English" }, image: null, contributions: [who(b.author, null), who("Ada Reader", "Narrator"), who("Felix Voice", "Narrator")] },
     { id: 90000 + bookId * 10 + 3, title: b.title, asin: null, isbn_13: `978000${bookId}0003`, isbn_10: null, audio_seconds: null, pages: 480, release_date: "2021-05-04", edition_format: "Kindle Edition", reading_format_id: 4, users_count: 300, publisher: { name: "Ballantine" }, language: { language: "English" }, image: null, contributions: [who(b.author, null)] },
     { id: 90000 + bookId * 10 + 4, title: b.title, asin: null, isbn_13: `978000${bookId}0004`, isbn_10: null, audio_seconds: null, pages: 496, release_date: "2021-05-04", edition_format: "Hardcover", reading_format_id: 1, users_count: 2000, publisher: { name: "Ballantine" }, language: { language: "English" }, image: null, contributions: [who(b.author, null)] },
   ];
@@ -733,8 +785,8 @@ function cResource(b: MockBook, mediaType: "audiobook" | "ebook") {
     editions:
       mediaType === "audiobook"
         ? [
-            { id: 0, foreignEditionId: `hc:edition:${90000 + b.id * 10 + 1}`, title: b.title, asin: `B0${b.id}AUD1`, monitored: true },
-            { id: 0, foreignEditionId: `az:B0${b.id}AUD2`, title: b.title, asin: `B0${b.id}AUD2`, monitored: false },
+            { id: 0, foreignEditionId: `hc:edition:${90000 + b.id * 10 + 1}`, title: b.title, asin: mockAsin(b.id, 1), monitored: true },
+            { id: 0, foreignEditionId: `az:${mockAsin(b.id, 2)}`, title: b.title, asin: mockAsin(b.id, 2), monitored: false },
           ]
         : [{ id: 0, foreignEditionId: `isbn:978000${b.id}0003`, title: b.title, isbn13: `978000${b.id}0003`, monitored: true }],
     localAudiobookBooks: local("audiobook"),

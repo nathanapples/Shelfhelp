@@ -1,6 +1,22 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { Readable } from "node:stream";
 import { Abs, AbsError } from "./lib/abs.js";
+import {
+  PROVIDER_PATH,
+  answerAbs,
+  hasCurrentKey,
+  keyMatches,
+  noteRejected,
+  lastProviderRequest,
+  providerKey,
+  providerSearch,
+  providerUrl,
+  registerWithAbs,
+  registeredProviders,
+  rotateProviderKey,
+  testThroughAbs,
+  unregisterFromAbs,
+} from "./lib/absprovider.js";
 import { db, json } from "./lib/db.js";
 import { config } from "./lib/config.js";
 import { READER_SCOPES, hardcoverUsage, hardcoverStatus, forgetToken, addToWantToRead, hardcoverProblem, bookDescription, checkHardcoverToken, scopeHelp, bookEditions, fetchList, fetchSource, myLists, myShelves, shelfCollectionName, resolveList, searchBooks, testHardcover, testServerKey } from "./lib/hardcover.js";
@@ -200,10 +216,130 @@ export async function routes(app: FastifyInstance) {
     if (!req.url.startsWith("/api/")) return;
     const path = req.url.split("?")[0];
     if (path.startsWith("/api/auth/") || path === "/api/status") return;
+    // Audiobookshelf's metadata searches carry the provider key instead of a sign-in.
+    if (path.startsWith(`${PROVIDER_PATH}/`)) return;
     const v = await viewer(req);
     if (!v) return reply.code(401).send({ error: "Sign in required" });
     req.viewer = v;
     if (v.user.role !== "admin" && !userAllowed(req.method, path)) return reply.code(403).send({ error: "Only an admin can do that." });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Audiobookshelf custom metadata provider
+
+  app.get<{ Querystring: { query?: string; author?: string; isbn?: string; mediaType?: string } }>(`${PROVIDER_PATH}/search`, async (req, reply) => {
+    if (!getSettings().absProviderEnabled) {
+      noteRejected("off");
+      return reply.code(404).send({ error: "The Hardcover metadata provider is turned off in Shelfhelp's settings." });
+    }
+    if (!keyMatches(req.headers.authorization)) {
+      noteRejected("key");
+      return reply.code(401).send({ error: "Wrong or missing key." });
+    }
+    if (req.query.mediaType === "podcast") return { matches: [] };
+    try {
+      return { matches: await answerAbs({ query: req.query.query ?? "", author: req.query.author ?? null, isbn: req.query.isbn ?? null }) };
+    } catch (err) {
+      log("warn", `Audiobookshelf metadata search for "${req.query.query ?? ""}" failed: ${(err as Error).message}`);
+      return reply.code(500).send({ error: (err as Error).message });
+    }
+  });
+
+  /** Settings, Audiobookshelf: the provider's state. Shows the key to admins for setting it up by hand. */
+  app.get("/api/settings/abs-provider", async () => {
+    const s = getSettings();
+    let registered: { id: string; name: string; url: string; currentKey: boolean }[] | null = null;
+    let registerError: string | null = null;
+    if (s.absUrl && s.absToken) {
+      try {
+        registered = (await registeredProviders()).map((p) => ({ id: p.id, name: p.name, url: p.url, currentKey: hasCurrentKey(p) }));
+      } catch (err) {
+        registerError =
+          err instanceof AbsError && err.status === 403
+            ? "Shelfhelp's Audiobookshelf key isn't an admin's, so it can't add the provider. Add it by hand with the address and key below."
+            : (err as Error).message;
+      }
+    }
+    return {
+      enabled: s.absProviderEnabled,
+      address: s.absProviderAddress,
+      language: s.absProviderLanguage,
+      bookFallback: s.absProviderBookFallback,
+      moodTags: s.absProviderMoodTags,
+      url: providerUrl(s),
+      key: providerKey(),
+      registered,
+      registerError,
+      lastRequest: lastProviderRequest(),
+    };
+  });
+
+  app.put<{ Body: { enabled?: boolean; address?: string; language?: string; bookFallback?: boolean; moodTags?: boolean } }>("/api/settings/abs-provider", async (req, reply) => {
+    const b = req.body ?? {};
+    const address = typeof b.address === "string" ? b.address.trim().replace(/\/+$/, "") : undefined;
+    if (address && !/^https?:\/\/[^\s/]+(\/[^\s]*)?$/i.test(address)) return reply.code(400).send({ error: "The address should look like http://shelfhelp:5075" });
+    saveSettings({
+      absProviderEnabled: typeof b.enabled === "boolean" ? b.enabled : undefined,
+      absProviderAddress: address,
+      absProviderLanguage: typeof b.language === "string" ? b.language.trim().slice(0, 40) : undefined,
+      absProviderBookFallback: typeof b.bookFallback === "boolean" ? b.bookFallback : undefined,
+      absProviderMoodTags: typeof b.moodTags === "boolean" ? b.moodTags : undefined,
+    });
+    return { ok: true };
+  });
+
+  app.post("/api/settings/abs-provider/register", async (_req, reply) => {
+    try {
+      const r = await registerWithAbs();
+      log("info", r.unchanged ? "Shelfhelp was already in Audiobookshelf's metadata providers" : `Added Shelfhelp to Audiobookshelf's metadata providers at ${r.provider.url}`);
+      return r;
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.post("/api/settings/abs-provider/unregister", async (_req, reply) => {
+    try {
+      return { removed: await unregisterFromAbs() };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  /** A new key. If Shelfhelp is in Audiobookshelf, it's updated there too. */
+  app.post("/api/settings/abs-provider/key", async (_req, reply) => {
+    rotateProviderKey();
+    log("info", "Made a new key for the Audiobookshelf metadata provider");
+    try {
+      const s = getSettings();
+      if (s.absUrl && s.absToken && providerUrl(s) && (await registeredProviders()).length) await registerWithAbs();
+      return { ok: true, updatedInAbs: true };
+    } catch (err) {
+      return reply.code(200).send({ ok: true, updatedInAbs: false, error: (err as Error).message });
+    }
+  });
+
+  /** Searches through Audiobookshelf, the way Match does. */
+  app.post<{ Body: { title?: string; author?: string } }>("/api/settings/abs-provider/test", async (req, reply) => {
+    try {
+      const title = req.body?.title?.trim() || "Dune";
+      const author = req.body?.title?.trim() ? req.body?.author?.trim() || null : "Frank Herbert";
+      const r = await testThroughAbs(title, author);
+      return { title, author, count: r.results.length, first: r.results[0] ?? null, url: r.url };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  /** What Audiobookshelf would get for a search, without going through it. */
+  app.get<{ Querystring: { q?: string; author?: string } }>("/api/settings/abs-provider/preview", async (req, reply) => {
+    try {
+      const started = Date.now();
+      const matches = await providerSearch({ query: req.query.q ?? "", author: req.query.author ?? null });
+      return { matches, ms: Date.now() - started };
+    } catch (err) {
+      return fail(reply, err);
+    }
   });
 
   app.get("/api/status", async (req) => {

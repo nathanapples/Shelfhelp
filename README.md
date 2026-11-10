@@ -22,6 +22,8 @@ Although this is publicly listed, this is for my personal use. Given that this i
 
 **Collections.** Pick a Hardcover list or shelf and a library, and Shelfhelp keeps a matching Audiobookshelf collection. Messy titles, wrong ASINs and "Last, First" authors are handled; anything uncertain waits for you to check.
 
+**Audiobook metadata for Audiobookshelf.** Shelfhelp can be Audiobookshelf's Hardcover metadata provider. Each audiobook edition is its own match in Match, with its narrator, length, audio publisher, ASIN and cover. Turn it on in Settings, Audiobookshelf, and Shelfhelp adds itself to Audiobookshelf. Audiobookshelf has to reach Shelfhelp directly (for example `http://shelfhelp:5075` on the same Docker network), not through a login page.
+
 **Also:** Issues for reporting problems with a book, a Library page that links every Audiobookshelf book to Hardcover, and per-person sign-in so everyone gets their own Discover, requests and reading.
 
 ## Install
