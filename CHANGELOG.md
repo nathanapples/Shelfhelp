@@ -2,6 +2,11 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.33.0 (2026-11-10)
+
+- New: an Audiobookshelf link on each book in the Library page and in Reading, next to the Hardcover link, that opens the book in Audiobookshelf. Set where you open Audiobookshelf in your browser in Settings, Audiobookshelf, Address for links (or `ABS_PUBLIC_URL`). It's separate from the server URL Shelfhelp uses, and the server URL is used when it's empty.
+- Fixed: a book matched on someone's Reading page (for example with Match again) now shows as linked on the Library page right away, instead of only after the next library sync. Books you've already linked, marked or ignored on the Library page are left alone.
+
 ## 0.32.1 (2026-11-10)
 
 - Fixed: after you fix a book's title or author in Audiobookshelf, Sync now on the Library page (and Link again) uses the fix right away. Before, it could reuse what it had read from Audiobookshelf in the last 30 minutes, so the old author kept being compared until later.

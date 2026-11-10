@@ -21,7 +21,7 @@ import {
   api,
   duration,
   sentences,
-  shortDate, shortDay,
+  shortDate, shortDay, absItemUrl,
   timeAgo,
   type HcBookRef,
   type HcCandidate,
@@ -145,6 +145,17 @@ function hcLine(b: ReadingBook) {
   if (b.syncStatus === "held") return b.syncAction ?? "Held back";
   if (!b.hcStatusName) return "Not on your Hardcover shelves";
   return `${b.hcStatusName}${b.hcStatus === 2 && b.hcProgress != null ? ` ${Math.round(b.hcProgress)}%` : ""}`;
+}
+
+/** "Audiobookshelf" link that opens the book there, like the Hardcover link. */
+export function AbsLink({ itemId }: { itemId: string }) {
+  const href = absItemUrl(itemId);
+  if (!href) return null;
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300">
+      Audiobookshelf <ArrowTopRightOnSquareIcon className="h-3 w-3" />
+    </a>
+  );
 }
 
 /** Audiobookshelf's reading dates next to Hardcover's, so it's clear which side is missing one. */
@@ -456,6 +467,7 @@ function ReadingModal({ book, enabled, onClose, onChanged }: { book: ReadingBook
             {!book.isFinished && book.lastUpdate && <span>Last listened {timeAgo(new Date(book.lastUpdate).toISOString())}</span>}
             {duration(book.duration) && <span>{duration(book.duration)}</span>}
             {book.asin && <span>ASIN {book.asin}</span>}
+            <AbsLink itemId={book.absItemId} />
           </div>
         </div>
       </div>

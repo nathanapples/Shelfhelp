@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import "@fontsource-variable/inter";
 import "./index.css";
-import { api, isAdmin, type Status } from "./lib/api";
+import { api, isAdmin, setAbsWeb, type Status } from "./lib/api";
 import { ToastProvider } from "./components/toast";
 import { Layout } from "./components/Layout";
 import { LoadingBlock } from "./components/ui";
@@ -39,6 +39,7 @@ function App() {
   }, [load]);
 
   if (!status) return <LoadingBlock />;
+  setAbsWeb(status.absWebUrl);
   if (!status.signedIn) return <LoginPage status={status} onSignedIn={load} />;
   const admin = isAdmin(status);
 

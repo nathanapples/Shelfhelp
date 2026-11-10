@@ -425,6 +425,22 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
             </div>
           </div>
           <div className="form-row">
+            <label>
+              Address for links
+              <span className="label-tip">Where you open Audiobookshelf in a browser, for the Audiobookshelf links on books. Leave empty to use the server URL.</span>
+            </label>
+            <div className="form-input-area">
+              <input
+                className="input"
+                placeholder="https://audiobooks.example.com"
+                value={s.absPublicUrl ?? ""}
+                disabled={locked("absPublicUrl")}
+                onChange={(e) => set("absPublicUrl", e.target.value)}
+              />
+              {locked("absPublicUrl") && <Locked />}
+            </div>
+          </div>
+          <div className="form-row">
             <label>API key</label>
             <div className="form-input-area">
               <input
@@ -467,7 +483,7 @@ export default function SettingsPage({ status, onSaved }: { status: Status; onSa
               </div>
             </div>
           )}
-          {actions(["absUrl", "absToken", "absLibraries"], testAbs)}
+          {actions(["absUrl", "absPublicUrl", "absToken", "absLibraries"], testAbs)}
         </Section>
       )}
       {tab === "abs" && status.configured.abs && status.configured.hardcover && <MetadataProviderSettings />}

@@ -4,7 +4,7 @@ import { api, duration, sentences, type HcBookRef, type LinkPage, type LinkRow, 
 import { jobStarted, useApi, useDebounced, useJobs, useStoredState } from "../lib/hooks";
 import { Cover, Empty, ErrorBlock, LoadingBlock, Modal, PageTitle, Spinner } from "../components/ui";
 import { useToast } from "../components/toast";
-import { HcRow } from "./Reading";
+import { AbsLink, HcRow } from "./Reading";
 
 const STATUS: Record<LinkStatus, { label: string; badge: string }> = {
   matched: { label: "Linked", badge: "badge-success" },
@@ -123,6 +123,7 @@ function LinkModal({ row, onClose, onChanged }: { row: LinkRow | null; onClose: 
             {duration(row.item.duration) && <span>{duration(row.item.duration)}</span>}
             {row.item.asin && <span>ASIN {row.item.asin}</span>}
             {row.item.isbn && <span>ISBN {row.item.isbn}</span>}
+            <AbsLink itemId={row.item.id} />
           </div>
           <div className="mt-2 flex items-center gap-2">
             <span className={`badge ${STATUS[row.status].badge}`}>{STATUS[row.status].label}</span>

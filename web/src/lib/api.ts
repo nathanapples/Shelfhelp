@@ -114,6 +114,7 @@ export interface Settings {
   autoWantToRead: boolean;
   absUrl: string;
   absToken: string;
+  absPublicUrl: string;
   syncIntervalMinutes: number;
   matchStrictness: "strict" | "balanced" | "loose";
   readingEnabled: boolean;
@@ -251,6 +252,18 @@ export interface Status {
   hardcoverSignIn?: boolean;
   requestsEnabled: boolean;
   requestFormat: RequestFormat;
+  /** The Audiobookshelf address for links (Settings, Audiobookshelf, Address for links). */
+  absWebUrl?: string | null;
+}
+
+let absWeb: string | null = null;
+/** Remembers where Audiobookshelf opens in a browser, from /api/status. */
+export function setAbsWeb(url: string | null | undefined) {
+  absWeb = url || null;
+}
+/** A link that opens this book in Audiobookshelf, or null when it isn't set up. */
+export function absItemUrl(itemId: string): string | null {
+  return absWeb ? `${absWeb}/item/${encodeURIComponent(itemId)}` : null;
 }
 
 export const isAdmin = (s: Status) => s.user?.role === "admin";

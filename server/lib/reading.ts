@@ -88,6 +88,13 @@ export const STATUS_NAMES: Record<number, string> = {
 };
 
 const runningFor = new Set<number>();
+
+// Called after each reading match, so the Library page picks up books the
+// Reading page just found (set by linking.ts, which can't be imported here).
+let afterMatching: (() => void) | null = null;
+export function onReadingMatched(fn: () => void) {
+  afterMatching = fn;
+}
 /** Is a sync running for this reader (default: the current one)? */
 export const readingRunning = (id = reader().id) => runningFor.has(id);
 
@@ -149,6 +156,11 @@ async function syncOne(reason: string, force: boolean): Promise<"started" | "run
     const library = await hardcoverLibrary();
     await dropVanishedMatches();
     await matchAll();
+    try {
+      afterMatching?.();
+    } catch (err) {
+      log("warn", `Couldn't update the Library page with reading matches: ${(err as Error).message}`);
+    }
     step(job(), "Getting book details from Hardcover");
     await fillBookDetails();
     const summary = await plan(me.autoSend && !preview, library);

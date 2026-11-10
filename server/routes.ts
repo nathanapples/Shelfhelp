@@ -359,6 +359,8 @@ export async function routes(app: FastifyInstance) {
       hardcoverSignIn: signInConfigured(s),
       requestsEnabled: s.requestsEnabled && isConfigured().chaptarr,
       requestFormat: s.requestFormat,
+      // Where "Open in Audiobookshelf" links go, only for signed-in people.
+      absWebUrl: v && s.absUrl ? s.absPublicUrl || s.absUrl : null,
     };
   });
 

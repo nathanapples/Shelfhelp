@@ -11,6 +11,8 @@ export interface Settings {
   hardcoverClientSecret: string;
   absUrl: string;
   absToken: string;
+  /** The address people open Audiobookshelf at in a browser, for links. Empty: the server URL. */
+  absPublicUrl: string;
   /** Minutes between automatic syncs. 0 turns the schedule off. */
   syncIntervalMinutes: number;
   matchStrictness: Strictness;
@@ -91,6 +93,7 @@ const defaults: Settings = {
   hardcoverClientSecret: "",
   absUrl: "",
   absToken: "",
+  absPublicUrl: "",
   syncIntervalMinutes: 360,
   matchStrictness: "balanced",
   readingEnabled: true,
@@ -139,6 +142,7 @@ const envKeys: Partial<Record<keyof Settings, string>> = {
   hardcoverClientSecret: "HARDCOVER_CLIENT_SECRET",
   absUrl: "ABS_URL",
   absToken: "ABS_TOKEN",
+  absPublicUrl: "ABS_PUBLIC_URL",
   syncIntervalMinutes: "SYNC_INTERVAL_MINUTES",
   chaptarrUrl: "CHAPTARR_URL",
   chaptarrApiKey: "CHAPTARR_API_KEY",
@@ -172,6 +176,7 @@ export function getSettings(): Settings {
   }
   const s = out as unknown as Settings;
   s.absUrl = s.absUrl.replace(/\/+$/, "");
+  s.absPublicUrl = (s.absPublicUrl ?? "").trim().replace(/\/+$/, "");
   s.chaptarrUrl = s.chaptarrUrl.replace(/\/+$/, "");
   s.oidcIssuer = cleanIssuer(s.oidcIssuer);
   s.oidcInternalUrl = cleanIssuer(s.oidcInternalUrl);

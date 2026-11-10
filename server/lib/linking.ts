@@ -10,7 +10,7 @@ import { Abs } from "./abs.js";
 import { db, json, tx } from "./db.js";
 import { getItems, idLinks, libraryIndex, libraryItems, refreshLibrary, rejectedPairs } from "./library.js";
 import { judge, matchBook, scoreCandidate, type Status } from "./matcher.js";
-import { findCandidates, toHcBook, view, type HcBookView } from "./reading.js";
+import { findCandidates, onReadingMatched, toHcBook, view, type HcBookView } from "./reading.js";
 import { getSettings, isConfigured } from "./settings.js";
 import { log } from "./activity.js";
 import { currentJob, finishJob, startJob, step } from "./progress.js";
@@ -79,6 +79,38 @@ function settled(itemId: string, libraryId: string): { status: LinkStatus; sourc
   if (reading) return { status: "matched", source: "reading", hcBookId: reading.hc_book_id, reason: "matched on the Reading page" };
   return null;
 }
+
+/**
+ * Books the Reading page matched that the Library page still shows as not found
+ * or to check: links them now instead of at the next library sync. Only fills
+ * gaps; a book already linked on the Library page is left alone.
+ */
+export function adoptReadingMatches() {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT r.abs_item_id, i.library_id FROM reading r
+       JOIN abs_items i ON i.id = r.abs_item_id
+       LEFT JOIN library_links l ON l.abs_item_id = r.abs_item_id
+       WHERE r.match_status = 'matched' AND r.hc_book_id IS NOT NULL AND (l.abs_item_id IS NULL OR l.status IN ('missing', 'review'))`,
+    )
+    .all() as { abs_item_id: string; library_id: string }[];
+  let n = 0;
+  for (const r of rows) {
+    const s = settled(r.abs_item_id, r.library_id);
+    if (!s || s.status !== "matched") continue;
+    n++;
+    save(r.abs_item_id, r.library_id, {
+      status: s.status,
+      source: s.source,
+      hc_book_id: s.hcBookId,
+      hc_book: s.hcBookId ? knownBook(s.hcBookId) : null,
+      reasons: JSON.stringify([s.reason]),
+      score: null,
+    });
+  }
+  if (n) log("info", `Library page: linked ${n} book${n === 1 ? "" : "s"} matched on the Reading page`);
+}
+onReadingMatched(adoptReadingMatches);
 
 /** Book details Shelfhelp already has somewhere, to avoid asking Hardcover. */
 function knownBook(hcBookId: number): string | null {

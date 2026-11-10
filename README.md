@@ -69,6 +69,7 @@ Everything can be set in the UI; these pin a setting or cover emergencies.
 | `HARDCOVER_TOKEN` | Hardcover server key |
 | `HARDCOVER_CLIENT_ID` / `HARDCOVER_CLIENT_SECRET` | Hardcover developer app for Sign in with Hardcover |
 | `ABS_URL` / `ABS_TOKEN` | Audiobookshelf |
+| `ABS_PUBLIC_URL` | Where you open Audiobookshelf in a browser, for the Audiobookshelf links on books (if it differs from `ABS_URL`) |
 | `CHAPTARR_URL` / `CHAPTARR_API_KEY` | Chaptarr |
 | `SYNC_INTERVAL_MINUTES` | Sync schedule, default 360 (0 turns it off) |
 
