@@ -2,6 +2,12 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.34.2 (2026-11-10)
+
+- Fixed: requesting a book Chaptarr's metadata server is still preparing no longer fails with "Metadata for hc:… is not ready". Shelfhelp now finds the book the way Chaptarr's own Add New page does, so Chaptarr saves the request and adds the book when it's ready (shown as Waiting on Chaptarr). If even that doesn't find it yet, the request waits and Shelfhelp tries again every 30 minutes for up to a week.
+- Retrying a request no longer adds the person who pressed Retry as a requester, and keeps the original request date. The Requests page shows only who asked for it.
+- The waiting badge on requests now says Waiting on Chaptarr (it covers both a new author being imported and metadata being prepared).
+
 ## 0.34.1 (2026-11-10)
 
 - Removed the author pages added in 0.34.0: author names in a book's popup are plain text again. The Hardcover link on the book is still there.

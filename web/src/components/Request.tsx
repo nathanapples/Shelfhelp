@@ -19,7 +19,7 @@ import { Cover, Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
 
 export const requestMeta: Record<RequestStatus, { label: string; badge: string; icon: React.ComponentType<{ className?: string }> }> = {
-  pending: { label: "Waiting on author", badge: "badge-warning", icon: ClockIcon },
+  pending: { label: "Waiting on Chaptarr", badge: "badge-warning", icon: ClockIcon },
   requested: { label: "Requested", badge: "badge-default", icon: MagnifyingGlassIcon },
   downloading: { label: "Downloading", badge: "badge-default", icon: ArrowDownTrayIcon },
   downloaded: { label: "Downloaded", badge: "badge-success", icon: CheckCircleIcon },

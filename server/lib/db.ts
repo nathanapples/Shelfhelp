@@ -434,6 +434,12 @@ const migrations: string[] = [
   ALTER TABLE reading ADD COLUMN hc_started TEXT;
   ALTER TABLE reading ADD COLUMN hc_finished TEXT;
   `,
+  `
+  -- Requests Chaptarr couldn't take yet because its metadata server was still preparing the book:
+  -- when that started, and when Shelfhelp tries again.
+  ALTER TABLE requests ADD COLUMN metadata_wait_since TEXT;
+  ALTER TABLE requests ADD COLUMN retry_at TEXT;
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

@@ -726,6 +726,9 @@ http
 // Chaptarr. Shapes follow Chaptarr's v1 API: one row per format, provider ids
 // like hc:101, 201 on add, 202 while a new author imports, 409 when ambiguous.
 const CHAPTARR_KEY = "chaptarr-key";
+// Books whose metadata Chaptarr's metadata server is "still preparing": lookup by id answers 503,
+// the title search still finds them (unless hidden), and adding one is queued like a new author.
+const cNotReady = new Map<number, { search: boolean }>();
 interface CRow {
   id: number;
   hc: number;
@@ -848,14 +851,22 @@ http
         // A pending author import finishes after a couple of lookups.
         for (const [pid, pend] of cPending) {
           if (++pend.lookups >= 2) {
+            cNotReady.delete(pend.hc);
             cRows.push({ id: cNextId++, hc: pend.hc, mediaType: pend.mediaType, monitored: true, hasFiles: false, grabbed: false, checks: 0 });
             cPending.delete(pid);
           }
         }
         const m = term.match(/^hc:(\d+)$/i);
+        if (m && cNotReady.has(Number(m[1]))) return send(503, { message: `Metadata for hc:${m[1]} is not ready` });
         const found = m ? books.filter((b) => b.id === Number(m[1])) : books.filter((b) => b.title.toLowerCase().includes(term.toLowerCase()));
         const out = found.flatMap((b) => (["audiobook", "ebook"] as const).map((t) => cResource(b, t)));
         return send(200, mt ? out.filter((o) => o.mediaType === mt) : out);
+      }
+      // Chaptarr's Add New search (title and author words).
+      if (p === "/api/v1/search") {
+        const words = (url.searchParams.get("term") ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+        const found = books.filter((b) => words.some((w) => b.title.toLowerCase().includes(w)) && cNotReady.get(b.id)?.search !== false);
+        return send(200, found.map((b, i) => ({ foreignId: `hc:${b.id}`, providerId: "hardcover", id: i + 1, book: cResource(b, "audiobook") })));
       }
       if (p === "/api/v1/book" && req.method === "POST") {
         const mt = url.searchParams.get("mediaType") as "audiobook" | "ebook";
@@ -866,7 +877,7 @@ http
           return send(400, "No media type is configured (audiobook/ebook). Configure at least one root folder + quality profile for this instance.");
         const hc = Number(body.foreignBookId.slice(3));
         if (hc === 116) return send(409, { error: "Ambiguous provider identity", message: "More than one local author matches hc:2116.", candidates: [{ id: 7, title: "Mark Twain", authorName: "Mark Twain" }, { id: 8, title: "Orson S. Card", authorName: "Orson S. Card" }] });
-        if (hc === 115) {
+        if (hc === 115 || cNotReady.has(hc)) {
           const pid = cNextId++;
           cPending.set(pid, { hc, mediaType: mt, lookups: 0 });
           return send(202, { pendingId: pid, message: "Author import queued; the book will be added and searched when the author finishes importing." });
@@ -926,6 +937,13 @@ http
       if (p === "/api/v1/queue") {
         const records = cRows.filter((r) => r.grabbed).map((r) => ({ bookId: r.id, status: "downloading", size: 400e6, sizeleft: 100e6, timeleft: "00:04:10" }));
         return send(200, { page: 1, pageSize: 500, totalRecords: records.length, records });
+      }
+      // Test hook: make Chaptarr refuse the next N adds of a book as "metadata not ready".
+      if (p.startsWith("/test/not-ready/") && req.method === "POST") {
+        const nr = Number(p.split("/")[3]);
+        if (body?.clear) cNotReady.delete(nr);
+        else cNotReady.set(nr, { search: body?.search !== false });
+        return send(200, { ok: true });
       }
       if (p === "/test/chaptarr") return send(200, { rows: cRows, adds: cAdds, commands: cCommands, pending: [...cPending], tags: cTags, authors: [...cAuthors.values()] });
       send(404, { message: "NotFound" });

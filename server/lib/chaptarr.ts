@@ -208,6 +208,17 @@ export class Chaptarr {
     return this.get<ChaptarrBook[]>(`/api/v1/book/lookup?${q}`);
   }
 
+  /**
+   * Chaptarr's own Add New search (by title and author, Hardcover provider). It still
+   * works when looking a book up by id says its metadata isn't ready, and adding a
+   * book found here makes Chaptarr queue it until it is.
+   */
+  async searchBooks(term: string) {
+    const q = new URLSearchParams({ term, provider: "hardcover" });
+    const hits = await this.get<{ book?: ChaptarrBook | null }[]>(`/api/v1/search?${q}`);
+    return hits.map((h) => h.book).filter((b): b is ChaptarrBook => !!b);
+  }
+
   book(id: number) {
     return this.get<ChaptarrBook>(`/api/v1/book/${id}`);
   }

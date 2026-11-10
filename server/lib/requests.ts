@@ -31,7 +31,14 @@ export interface RequestRow {
   checked_at: string | null;
   edition_id: number | null;
   edition_label: string | null;
+  metadata_wait_since: string | null;
+  retry_at: string | null;
 }
+
+/** Chaptarr's answer when its metadata server hasn't finished preparing a book or author yet. */
+const NOT_READY = /not ready|being prepared/i;
+const METADATA_RETRY_MS = 30 * 60_000;
+const METADATA_GIVE_UP_MS = 7 * 24 * 3600_000;
 
 export interface HcSummary {
   id: number;
@@ -240,7 +247,16 @@ function save(hcBook: HcSummary, format: Format, patch: Partial<RequestRow>, by 
        updated_at = excluded.updated_at`,
   ).run(hcBook.id, format, hcBook.title, JSON.stringify(hcBook.authors), hcBook.slug, hcBook.coverUrl, hcBook.releaseYear, by, now, now);
   const row = db.prepare("SELECT * FROM requests WHERE hc_book_id = ? AND format = ?").get(hcBook.id, format) as unknown as RequestRow;
-  return update(row.id, { message: null, chaptarr_book_id: null, pending_id: null, abs_item_id: null, progress: null, ...patch });
+  return update(row.id, {
+    message: null,
+    chaptarr_book_id: null,
+    pending_id: null,
+    abs_item_id: null,
+    progress: null,
+    metadata_wait_since: null,
+    retry_at: null,
+    ...patch,
+  });
 }
 
 function update(id: number, patch: Partial<RequestRow>): RequestRow {
@@ -257,10 +273,20 @@ function update(id: number, patch: Partial<RequestRow>): RequestRow {
 }
 
 /** The lookup result for one format, plus the copy Chaptarr already has, if any. */
-async function findIn(c: Chaptarr, hcBookId: number, format: Format) {
+async function findIn(c: Chaptarr, hcBookId: number, format: Format, hint?: { title: string; authors: string[] }) {
   // Ask without a format filter: Chaptarr returns both formats of a book, and a
   // filtered lookup can come back empty for books it only lists one way.
-  const results = await c.lookup(`hc:${hcBookId}`);
+  let results: ChaptarrBook[];
+  try {
+    results = await c.lookup(`hc:${hcBookId}`);
+  } catch (err) {
+    // "Metadata for hc:… is not ready" (503): Chaptarr's own Add New search by
+    // title still finds the book, the way adding it in Chaptarr works.
+    if (!hint || !(err instanceof ChaptarrError) || !(err.status === 503 || NOT_READY.test(err.message))) throw err;
+    const term = [hint.title, ...hint.authors].join(" ").trim();
+    results = (await c.searchBooks(term).catch(() => [] as ChaptarrBook[])).filter((b) => b.foreignBookId === `hc:${hcBookId}`);
+    if (!results.length) throw err;
+  }
   const same = (b: ChaptarrBook) => (b.mediaType ?? "").toLowerCase() === format;
   const found = results.find(same) ?? results[0] ?? null;
   const local = results.map((r) => localOf(r, format)).find(Boolean) ?? null;
@@ -313,7 +339,27 @@ export async function requestBook(
       row = await requestOne(c, hcBook, f, chooseFor(f, s, roots, quality, metadata), s.requestSearchNow, by, tagIds, edition);
     } catch (err) {
       const message = (err as Error).message;
-      row = save(hcBook, f, { status: "failed", message, ...editionPatch(edition) }, by);
+      if (NOT_READY.test(message)) {
+        // Chaptarr's metadata server is still preparing the book: wait and try again, don't fail.
+        const before = db.prepare("SELECT metadata_wait_since FROM requests WHERE hc_book_id = ? AND format = ?").get(hcBookId, f) as
+          | { metadata_wait_since: string | null }
+          | undefined;
+        const now = new Date();
+        row = save(
+          hcBook,
+          f,
+          {
+            status: "pending",
+            message: "Chaptarr's metadata server is still preparing this book. Shelfhelp tries again every 30 minutes and adds it once it's ready.",
+            metadata_wait_since: before?.metadata_wait_since ?? now.toISOString(),
+            retry_at: new Date(now.getTime() + METADATA_RETRY_MS).toISOString(),
+            ...editionPatch(edition),
+          },
+          by,
+        );
+      } else {
+        row = save(hcBook, f, { status: "failed", message, ...editionPatch(edition) }, by);
+      }
     }
     db.prepare("INSERT OR IGNORE INTO request_users (request_id, user_id) VALUES (?, ?)").run(row.id, userId);
     const label = `${hcBook.title} (${formatLabel(f).toLowerCase()})`;
@@ -337,7 +383,7 @@ async function requestOne(
   tagIds: number[] = [],
   edition: HcEdition | null = null,
 ): Promise<RequestRow> {
-  const { found, local } = await findIn(c, hcBook.id, format);
+  const { found, local } = await findIn(c, hcBook.id, format, { title: hcBook.title, authors: hcBook.authors });
   const ed = editionPatch(edition);
   const save_ = (b: HcSummary, f: Format, patch: Partial<RequestRow>, who: string) => save(b, f, { ...ed, ...patch }, who);
   if (local) {
@@ -418,10 +464,42 @@ export function forgetRequest(id: number, userId: number, admin: boolean) {
   if (!left.n) db.prepare("DELETE FROM requests WHERE id = ?").run(id);
 }
 
+/**
+ * Sends a request to Chaptarr again. It stays the original requester's request:
+ * whoever presses Retry isn't added as a requester, and the request date is kept.
+ */
 export async function retryRequest(id: number, userId: number) {
   const r = db.prepare("SELECT * FROM requests WHERE id = ?").get(id) as unknown as RequestRow | undefined;
   if (!r) throw new Error("That request is gone.");
-  return requestBook(r.hc_book_id, r.format, userId, r.edition_id ? { [r.format]: r.edition_id } : {});
+  const first = db.prepare("SELECT user_id FROM request_users WHERE request_id = ? ORDER BY created_at, rowid LIMIT 1").get(id) as { user_id: number } | undefined;
+  const owner = first?.user_id ?? (Number(r.requested_by) || userId);
+  const out = await requestBook(r.hc_book_id, r.format, owner, r.edition_id ? { [r.format]: r.edition_id } : {});
+  db.prepare("UPDATE requests SET requested_at = ? WHERE id = ?").run(r.requested_at, id);
+  return out.map((o) => (o.request.id === id ? { ...o, request: { ...o.request, requestedAt: r.requested_at } } : o));
+}
+
+/** Tries a request again on its own while Chaptarr's metadata isn't ready, for up to a week. */
+async function retryWaiting(r: RequestRow) {
+  if (!r.metadata_wait_since) return;
+  const now = Date.now();
+  if (r.retry_at && Date.parse(r.retry_at) > now) return;
+  if (now - Date.parse(r.metadata_wait_since) > METADATA_GIVE_UP_MS) {
+    update(r.id, {
+      status: "failed",
+      metadata_wait_since: null,
+      retry_at: null,
+      message: "Chaptarr's metadata server didn't finish preparing this book within a week. Try again later.",
+    });
+    return;
+  }
+  try {
+    const outcomes = await retryRequest(r.id, 0);
+    const o = outcomes.find((x) => x.request.id === r.id);
+    if (o && o.status !== "pending") log("info", `Chaptarr's metadata for ${r.title} is ready now: ${o.message}`);
+  } catch (err) {
+    update(r.id, { retry_at: new Date(now + METADATA_RETRY_MS).toISOString() });
+    log("warn", `Trying ${r.title} again in Chaptarr failed: ${(err as Error).message}`);
+  }
 }
 
 let refreshing: Promise<void> | null = null;
@@ -458,10 +536,18 @@ async function doRefresh() {
       try {
         let bookId = r.chaptarr_book_id;
         if (!bookId) {
-          const { local } = await findIn(c, r.hc_book_id, r.format);
+          let local: { id: number } | null = null;
+          try {
+            ({ local } = await findIn(c, r.hc_book_id, r.format, { title: r.title, authors: json<string[]>(r.authors, []) }));
+          } catch (err) {
+            // Chaptarr is still preparing the book's metadata; that's not a problem to show.
+            if (!NOT_READY.test((err as Error).message)) throw err;
+          }
           bookId = local?.id ?? null;
           if (!bookId) {
             update(r.id, { checked_at: now });
+            // Waiting on Chaptarr's metadata: ask again now and then.
+            if (r.metadata_wait_since) await retryWaiting(r);
             continue;
           }
         }
