@@ -980,7 +980,8 @@ export async function routes(app: FastifyInstance) {
   );
 
   app.post<{ Body: { force?: boolean } }>("/api/library/link", async (req, reply) => {
-    const r = linkLibrary("by you", { force: !!req.body?.force });
+    // Sync now always re-reads Audiobookshelf, so metadata you just fixed there is used.
+    const r = linkLibrary("by you", { force: !!req.body?.force, fresh: true });
     if (r === "not-configured") return reply.code(400).send({ error: "Set up Hardcover and Audiobookshelf first." });
     return { result: r };
   });
@@ -1052,7 +1053,7 @@ export async function routes(app: FastifyInstance) {
         } else if (before && action === "reset") {
           await decide(before.hc_book_id, before.library_id, "reset");
         }
-        if (action === "reset") linkLibrary("rematch");
+        if (action === "reset") linkLibrary("rematch", { fresh: true });
         syncReading("decision").catch(() => {});
         return { ok: true };
       } catch (err) {

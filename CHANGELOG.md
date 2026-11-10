@@ -2,6 +2,10 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.32.1 (2026-11-10)
+
+- Fixed: after you fix a book's title or author in Audiobookshelf, Sync now on the Library page (and Link again) uses the fix right away. Before, it could reuse what it had read from Audiobookshelf in the last 30 minutes, so the old author kept being compared until later.
+
 ## 0.32.0 (2026-11-10)
 
 - Reading: each book's details now show its reading dates in Audiobookshelf and on Hardcover side by side, so you can see which one is missing. Before, only the Audiobookshelf date was shown, which made a waiting date change look like the dates already matched.

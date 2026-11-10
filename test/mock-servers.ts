@@ -587,7 +587,8 @@ http
       // Test hook: rename an item, like editing it in Audiobookshelf.
       if (req.method === "POST" && req.url?.startsWith("/test/rename/")) {
         const it = items.find((x) => x.id === req.url!.split("/")[3]);
-        if (it) it.title = body.title;
+        if (it && body.title) it.title = body.title;
+        if (it && body.authorName) it.authorName = body.authorName;
         return send(200, { ok: !!it });
       }
       if (req.headers.authorization !== "Bearer x") return send(401, { error: "Unauthorized" });

@@ -107,12 +107,16 @@ export function linkingRunning() {
 let linking: Promise<void> | null = null;
 
 /** Starts linking in the background. */
-export function linkLibrary(reason: string, { force = false } = {}): "started" | "running" | "not-configured" {
+/**
+ * `force` looks every book up on Hardcover again. `fresh` re-reads Audiobookshelf first even if
+ * it was read recently, so an author or title you just fixed there is used (for runs a person starts).
+ */
+export function linkLibrary(reason: string, { force = false, fresh = false } = {}): "started" | "running" | "not-configured" {
   const c = isConfigured();
   if (!c.hardcover || !c.abs) return "not-configured";
   if (linkingRunning()) return "running";
   startJob(JOB, "Linking your library");
-  linking = run(force)
+  linking = run(force, fresh)
     .then((msg) => {
       finishJob(JOB, true, msg);
       log("info", `Library linking (${reason}): ${msg}`);
@@ -133,13 +137,13 @@ export async function linkLibraryAndWait(reason: string): Promise<void> {
   await linking;
 }
 
-async function run(force: boolean): Promise<string> {
+async function run(force: boolean, fresh: boolean): Promise<string> {
   const libs = await new Abs().selectedLibraries();
   const strictness = getSettings().matchStrictness;
   let searched = 0;
   let total = 0;
   for (const lib of libs) {
-    await refreshLibrary(lib.id, { job: JOB, maxAgeMs: 30 * 60_000 });
+    await refreshLibrary(lib.id, { job: JOB, maxAgeMs: 30 * 60_000, force: fresh || force });
     const items = libraryItems(lib.id);
     const existing = new Map(
       (db.prepare("SELECT * FROM library_links WHERE library_id = ?").all(lib.id) as unknown as LinkRow[]).map((r) => [r.abs_item_id, r]),
