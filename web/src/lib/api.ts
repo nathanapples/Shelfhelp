@@ -261,9 +261,11 @@ let absWeb: string | null = null;
 export function setAbsWeb(url: string | null | undefined) {
   absWeb = url || null;
 }
-/** A link that opens this book in Audiobookshelf, or null when it isn't set up. */
-export function absItemUrl(itemId: string): string | null {
-  return absWeb ? `${absWeb}/item/${encodeURIComponent(itemId)}` : null;
+/** A link that opens this book in Audiobookshelf (its /library/<library>/item/<book> page), or null when it isn't set up. */
+export function absItemUrl(itemId: string, libraryId?: string | null): string | null {
+  if (!absWeb) return null;
+  const lib = libraryId ? `/library/${encodeURIComponent(libraryId)}` : "";
+  return `${absWeb}${lib}/item/${encodeURIComponent(itemId)}`;
 }
 
 export const isAdmin = (s: Status) => s.user?.role === "admin";
@@ -535,6 +537,7 @@ export interface DiscoverBook extends SearchHit {
 
 export interface LibraryItemView {
   id: string;
+  libraryId?: string;
   title: string;
   subtitle: string | null;
   authors: string[];

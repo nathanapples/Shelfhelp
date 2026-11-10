@@ -294,6 +294,7 @@ export function linkView({
         absItemId: r.item_id,
         item: {
           id: item.id,
+          libraryId: item.libraryId,
           title: item.title,
           subtitle: item.subtitle,
           authors: item.authors,

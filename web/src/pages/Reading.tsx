@@ -148,8 +148,8 @@ function hcLine(b: ReadingBook) {
 }
 
 /** "Audiobookshelf" link that opens the book there, like the Hardcover link. */
-export function AbsLink({ itemId }: { itemId: string }) {
-  const href = absItemUrl(itemId);
+export function AbsLink({ itemId, libraryId }: { itemId: string; libraryId?: string | null }) {
+  const href = absItemUrl(itemId, libraryId);
   if (!href) return null;
   return (
     <a href={href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300">
@@ -467,7 +467,7 @@ function ReadingModal({ book, enabled, onClose, onChanged }: { book: ReadingBook
             {!book.isFinished && book.lastUpdate && <span>Last listened {timeAgo(new Date(book.lastUpdate).toISOString())}</span>}
             {duration(book.duration) && <span>{duration(book.duration)}</span>}
             {book.asin && <span>ASIN {book.asin}</span>}
-            <AbsLink itemId={book.absItemId} />
+            <AbsLink itemId={book.absItemId} libraryId={book.libraryId} />
           </div>
         </div>
       </div>

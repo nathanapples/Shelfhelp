@@ -123,7 +123,7 @@ function LinkModal({ row, onClose, onChanged }: { row: LinkRow | null; onClose: 
             {duration(row.item.duration) && <span>{duration(row.item.duration)}</span>}
             {row.item.asin && <span>ASIN {row.item.asin}</span>}
             {row.item.isbn && <span>ISBN {row.item.isbn}</span>}
-            <AbsLink itemId={row.item.id} />
+            <AbsLink itemId={row.item.id} libraryId={row.item.libraryId} />
           </div>
           <div className="mt-2 flex items-center gap-2">
             <span className={`badge ${STATUS[row.status].badge}`}>{STATUS[row.status].label}</span>
