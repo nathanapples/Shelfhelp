@@ -69,6 +69,8 @@ export interface ReadingRow {
   searched_at: string | null;
   hc_status: number | null;
   hc_progress: number | null;
+  hc_started: string | null;
+  hc_finished: string | null;
   sync_status: SyncStatus;
   sync_action: string | null;
   synced_key: string | null;
@@ -492,10 +494,12 @@ export interface Plan {
 export interface Rules {
   minProgress: number;
   addNew: boolean;
+  /** Fill in start and finish dates Hardcover doesn't have. Off: Shelfhelp sends no dates at all. */
+  fillDates?: boolean;
 }
 
 function rules(): Rules {
-  return { minProgress: reader().minProgress, addNew: true };
+  return { minProgress: reader().minProgress, addNew: true, fillDates: reader().fillDates };
 }
 
 function stateKey(r: ReadingRow) {
@@ -505,6 +509,11 @@ function stateKey(r: ReadingRow) {
 function day(ms: number | null | undefined): string | undefined {
   if (!ms) return undefined;
   return new Date(ms).toLocaleDateString("en-CA", { timeZone: process.env.TZ || undefined });
+}
+
+/** A date for people to read, like "Aug 24, 2026". */
+function nice(isoDay: string) {
+  return new Date(`${isoDay}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 }
 
 function percent(r: ReadingRow) {
@@ -531,10 +540,10 @@ export function planFor(
   if (status === UserBookStatus.DidNotFinish) return { kind: "skip", description: DNF_NOTE };
 
   if (r.is_finished) {
-    const when = day(r.finished_at) ?? day(r.last_update);
-    if (status === UserBookStatus.Read) return withDates({ kind: "skip", description: "Already Read on Hardcover" }, r, entry!);
-    if (!entry) return { kind: "add", status: UserBookStatus.Read, description: `Add as Read${when ? ` (finished ${when})` : ""}` };
-    return { kind: "status", status: UserBookStatus.Read, description: `${STATUS_NAMES[status!] ?? "Unknown"} → Read${when ? ` (finished ${when})` : ""}` };
+    const when = rule.fillDates === false ? undefined : (day(r.finished_at) ?? day(r.last_update));
+    if (status === UserBookStatus.Read) return withDates({ kind: "skip", description: "Already Read on Hardcover" }, r, entry!, rule);
+    if (!entry) return { kind: "add", status: UserBookStatus.Read, description: `Add as Read${when ? ` (finished ${nice(when)})` : ""}` };
+    return { kind: "status", status: UserBookStatus.Read, description: `${STATUS_NAMES[status!] ?? "Unknown"} → Read${when ? ` (finished ${nice(when)})` : ""}` };
   }
   if (status === UserBookStatus.Read) return { kind: "skip", description: "Already Read on Hardcover; a re-listen isn't synced" };
   if (!entry) return { kind: "add", status: UserBookStatus.CurrentlyReading, description: `Add as Currently Reading at ${pct}%` };
@@ -547,9 +556,10 @@ export function planFor(
       { kind: "none", description: current > pct + 1 ? `Hardcover is further along (${current}%), left as is` : `Currently Reading at ${pct}%` },
       r,
       entry,
+      rule,
     );
   }
-  return withDates({ kind: "progress", description: `Progress ${current ?? 0}% → ${pct}%` }, r, entry);
+  return withDates({ kind: "progress", description: `Progress ${current ?? 0}% → ${pct}%` }, r, entry, rule);
 }
 
 interface HcRead {
@@ -571,25 +581,37 @@ function reads(entry: Entry | undefined): HcRead[] {
  * started (after an import or a move to a new server). Only the read that
  * matches this listen is touched: the one in progress, or the newest finished one.
  */
-function withDates(p: Plan, r: ReadingRow, entry: Entry): Plan {
-  const read = r.is_finished ? reads(entry).find((x) => x.finishedAt) : reads(entry).find((x) => !x.finishedAt);
+function withDates(p: Plan, r: ReadingRow, entry: Entry, rule: Rules): Plan {
+  if (rule.fillDates === false) return p;
+  const read = matchingRead(r, entry);
   if (!read) return p;
   const wantStart = day(r.started_at);
   const wantFinish = r.is_finished ? (day(r.finished_at) ?? day(r.last_update)) : undefined;
   const change: NonNullable<Plan["dates"]> = { readId: read.id, before: { startedAt: read.startedAt, finishedAt: read.finishedAt } };
-  const text: string[] = [];
-  if (wantStart && !read.startedAt) {
-    change.startedAt = wantStart;
-    text.push(`started ${wantStart}`);
-  }
-  if (wantFinish && !read.finishedAt) {
-    change.finishedAt = wantFinish;
-    text.push(`finished ${wantFinish}`);
-  }
-  if (!text.length) return p;
-  const dates = `Add missing dates: ${text.join(", ")}`;
-  if (p.kind === "skip" || p.kind === "none") return { kind: "dates", dates: change, description: dates };
-  return { ...p, dates: change, description: `${p.description}; ${dates.charAt(0).toLowerCase()}${dates.slice(1)}` };
+  if (wantStart && !read.startedAt) change.startedAt = wantStart;
+  if (wantFinish && !read.finishedAt) change.finishedAt = wantFinish;
+  if (!change.startedAt && !change.finishedAt) return p;
+  const what =
+    change.startedAt && change.finishedAt
+      ? `start date ${nice(change.startedAt)} and finish date ${nice(change.finishedAt)} from Audiobookshelf (Hardcover has neither)`
+      : change.startedAt
+        ? `start date ${nice(change.startedAt)} from Audiobookshelf (Hardcover has none)`
+        : `finish date ${nice(change.finishedAt!)} from Audiobookshelf (Hardcover has none)`;
+  if (p.kind === "skip" || p.kind === "none") return { kind: "dates", dates: change, description: `Add ${what}` };
+  return { ...p, dates: change, description: `${p.description}; add ${what}` };
+}
+
+/** The Hardcover read that matches this listen: the one in progress, or the newest finished one. */
+function matchingRead(r: ReadingRow, entry: Entry | undefined): HcRead | undefined {
+  return r.is_finished ? reads(entry).find((x) => x.finishedAt) : reads(entry).find((x) => !x.finishedAt);
+}
+
+/** Keeps the matching Hardcover read's dates, to show next to Audiobookshelf's. */
+function noteHcDates(r: ReadingRow, entry: Entry | undefined, sent?: Plan["dates"]) {
+  const read = matchingRead(r, entry);
+  const started = sent?.startedAt ?? read?.startedAt ?? null;
+  const finished = sent?.finishedAt ?? read?.finishedAt ?? null;
+  db.prepare("UPDATE reading SET hc_started = ?, hc_finished = ? WHERE user_id = ? AND abs_item_id = ?").run(started, finished, U(), r.abs_item_id);
 }
 
 function openRead(entry: Entry) {
@@ -677,6 +699,7 @@ async function plan(autoSend: boolean, known?: Map<number, Entry>): Promise<stri
     const p = planFor(r, entry, rule);
     const hcStatus = entry?.statusId ?? null;
     const hcProgress = entry ? currentProgress(entry) : null;
+    noteHcDates(r, entry);
     if (p.kind === "skip" || p.kind === "none") mark(r, p.kind === "skip" ? "skipped" : "synced", p.description, hcStatus, hcProgress, true);
     else if (p.kind === "held") {
       mark(r, "held", p.description, hcStatus, hcProgress, false);
@@ -716,6 +739,7 @@ export async function send(ids: string[] | null, library?: Map<number, Entry>) {
     step(sendJob, "Sending changes to Hardcover", n++, waiting.length);
     const entry = lib.get(r.hc_book_id!);
     const p = planFor(r, entry, rule);
+    noteHcDates(r, entry);
     if (p.description !== r.sync_action || p.kind === "skip" || p.kind === "none" || p.kind === "held") {
       mark(r, p.kind === "skip" ? "skipped" : p.kind === "none" ? "synced" : p.kind === "held" ? "held" : "pending", p.description, entry?.statusId ?? null, entry ? currentProgress(entry) : null, p.kind === "skip" || p.kind === "none");
       changed++;
@@ -733,6 +757,7 @@ export async function send(ids: string[] | null, library?: Map<number, Entry>) {
         p.dates ? JSON.stringify({ readId: p.dates.readId, ...p.dates.before }) : null,
       );
       mark(r, "synced", p.description, p.status ?? entry?.statusId ?? null, r.is_finished ? 100 : percent(r), true);
+      if (p.dates) noteHcDates(r, entry, p.dates);
       sent++;
     } catch (err) {
       mark(r, "error", `${p.description}: ${(err as Error).message}`, entry?.statusId ?? null, entry ? currentProgress(entry) : null, false);
@@ -770,8 +795,10 @@ async function audioEdition(bookId: number, asin: string | null): Promise<number
 
 async function push(hc: ReturnType<typeof hardcover>, r: ReadingRow, plan: Plan, entry: Entry | undefined, asin: string | null) {
   const bookId = r.hc_book_id!;
-  const started = day(r.started_at);
-  const finished = day(r.finished_at) ?? day(r.last_update);
+  // With "Fill in reading dates" off, Shelfhelp sends no dates at all.
+  const dates = reader().fillDates;
+  const started = dates ? day(r.started_at) : undefined;
+  const finished = dates ? (day(r.finished_at) ?? day(r.last_update)) : undefined;
   let entryId = entry?.id;
   const needsEdition = !entry?.editionId;
   const editionId = needsEdition && (plan.kind === "add" || plan.kind === "status") ? await audioEdition(bookId, asin) : undefined;
@@ -981,6 +1008,8 @@ export function readingView() {
         hcStatus: r.hc_status,
         hcStatusName: r.hc_status ? STATUS_NAMES[r.hc_status] : null,
         hcProgress: r.hc_progress,
+        hcStartedAt: r.hc_started,
+        hcFinishedAt: r.hc_finished,
         syncStatus: r.sync_status,
         syncAction: r.sync_action,
         syncedAt: r.synced_at,
@@ -993,6 +1022,7 @@ export function readingView() {
     enabled: reader().enabled,
     autoSend: reader().autoSend,
     minProgress: reader().minProgress,
+    fillDates: reader().fillDates,
     running: readingRunning(),
     counts: {
       total: books.length,

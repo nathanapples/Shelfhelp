@@ -28,6 +28,7 @@ export interface UserRow {
   reading_auto_send: number;
   reading_min_progress: number;
   reading_mark_owned: number;
+  reading_fill_dates: number;
   created_at: string;
   last_login_at: string | null;
   discover_rows: string | null;
@@ -47,6 +48,7 @@ export interface Reader {
   autoSend: boolean;
   minProgress: number;
   markOwned: boolean;
+  fillDates: boolean;
 }
 
 export function getUser(id: number): UserRow | null {
@@ -73,6 +75,7 @@ export function toReader(u: UserRow): Reader {
     autoSend: !!u.reading_auto_send,
     minProgress: u.reading_min_progress,
     markOwned: !!u.reading_mark_owned,
+    fillDates: u.reading_fill_dates !== 0,
   };
 }
 

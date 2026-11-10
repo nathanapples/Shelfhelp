@@ -383,6 +383,9 @@ export interface ReadingBook {
   hcStatus: number | null;
   hcStatusName: string | null;
   hcProgress: number | null;
+  /** Dates on the Hardcover read that matches this listen (YYYY-MM-DD), as last seen. */
+  hcStartedAt: string | null;
+  hcFinishedAt: string | null;
   syncStatus: ReadingSync;
   syncAction: string | null;
   syncedAt: string | null;
@@ -392,12 +395,18 @@ export interface ReadingData {
   enabled: boolean;
   autoSend: boolean;
   minProgress: number;
+  fillDates: boolean;
   running: boolean;
   counts: Record<
     "total" | "listening" | "finished" | "matched" | "review" | "missing" | "unchecked" | "ignored" | "synced" | "pending" | "skipped" | "errors" | "held",
     number
   >;
   books: ReadingBook[];
+}
+
+/** A YYYY-MM-DD day as a short date, like shortDate. */
+export function shortDay(day: string | null): string | null {
+  return day ? shortDate(new Date(`${day.slice(0, 10)}T12:00:00`).getTime()) : null;
 }
 
 export function shortDate(ms: number | null): string | null {

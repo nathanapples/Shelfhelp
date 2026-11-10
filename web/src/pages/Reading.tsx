@@ -21,7 +21,7 @@ import {
   api,
   duration,
   sentences,
-  shortDate,
+  shortDate, shortDay,
   timeAgo,
   type HcBookRef,
   type HcCandidate,
@@ -145,6 +145,25 @@ function hcLine(b: ReadingBook) {
   if (b.syncStatus === "held") return b.syncAction ?? "Held back";
   if (!b.hcStatusName) return "Not on your Hardcover shelves";
   return `${b.hcStatusName}${b.hcStatus === 2 && b.hcProgress != null ? ` ${Math.round(b.hcProgress)}%` : ""}`;
+}
+
+/** Audiobookshelf's reading dates next to Hardcover's, so it's clear which side is missing one. */
+function DatesCompare({ book }: { book: ReadingBook }) {
+  const absFinish = book.isFinished ? shortDate(book.finishedAt ?? book.lastUpdate) : null;
+  const cell = (v: string | null, empty: string) => (v ? <span className="text-gray-200">{v}</span> : <span className="italic text-gray-500">{empty}</span>);
+  return (
+    <div className="mt-3 grid grid-cols-[auto_1fr_1fr] gap-x-4 gap-y-1 border-t border-gray-700 pt-3 text-xs">
+      <span />
+      <span className="font-semibold uppercase tracking-wider text-gray-500">Started</span>
+      <span className="font-semibold uppercase tracking-wider text-gray-500">Finished</span>
+      <span className="text-gray-400">Audiobookshelf</span>
+      {cell(shortDate(book.startedAt), "None")}
+      {cell(absFinish, book.isFinished ? "None" : "Not yet")}
+      <span className="text-gray-400">Hardcover</span>
+      {cell(shortDay(book.hcStartedAt), "None")}
+      {cell(shortDay(book.hcFinishedAt), book.isFinished ? "None" : "Not yet")}
+    </div>
+  );
 }
 
 function ReadingCard({ book, onOpen }: { book: ReadingBook; onOpen: () => void }) {
@@ -467,6 +486,7 @@ function ReadingModal({ book, enabled, onClose, onChanged }: { book: ReadingBook
               ? "Shelfhelp hasn't looked for this book on Hardcover yet. It will on the next check."
               : sentences(book.reasons)}
         </p>
+        {book.matchStatus === "matched" && book.hcStatus != null && <DatesCompare book={book} />}
       </div>
 
       {book.hcBook && (
@@ -670,7 +690,7 @@ function HistoryList({ onUndone }: { onUndone: () => void }) {
   );
 }
 
-type ReaderSettings = Pick<Settings, "readingEnabled" | "readingAutoSend" | "readingMinProgress" | "readingMarkOwned">;
+type ReaderSettings = Pick<Settings, "readingEnabled" | "readingAutoSend" | "readingMinProgress" | "readingMarkOwned"> & { readingFillDates: boolean };
 
 /** Reading settings, opened from the gear on this page. */
 function ReadingSettings({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
@@ -679,8 +699,10 @@ function ReadingSettings({ onClose, onSaved }: { onClose: () => void; onSaved: (
   const [libs, setLibs] = useState<(Library & { selected: boolean })[] | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api<{ enabled: boolean; autoSend: boolean; minProgress: number; markOwned: boolean }>(rq("/reading/settings"))
-      .then((r) => setS({ readingEnabled: r.enabled, readingAutoSend: r.autoSend, readingMinProgress: r.minProgress, readingMarkOwned: r.markOwned }))
+    api<{ enabled: boolean; autoSend: boolean; minProgress: number; markOwned: boolean; fillDates: boolean }>(rq("/reading/settings"))
+      .then((r) =>
+        setS({ readingEnabled: r.enabled, readingAutoSend: r.autoSend, readingMinProgress: r.minProgress, readingMarkOwned: r.markOwned, readingFillDates: r.fillDates }),
+      )
       .catch((e) => toast(e.message, "error"));
     // Libraries are shared, so only admins see them here.
     api<(Library & { selected: boolean })[]>("/abs/libraries?all=1").then(setLibs).catch(() => setLibs(null));
@@ -694,7 +716,13 @@ function ReadingSettings({ onClose, onSaved }: { onClose: () => void; onSaved: (
       const chosen = libs?.filter((l) => l.selected).map((l) => l.id) ?? [];
       await api(rq("/reading/settings"), {
         method: "PUT",
-        body: { enabled: s.readingEnabled, autoSend: s.readingAutoSend, minProgress: s.readingMinProgress, markOwned: s.readingMarkOwned },
+        body: {
+          enabled: s.readingEnabled,
+          autoSend: s.readingAutoSend,
+          minProgress: s.readingMinProgress,
+          markOwned: s.readingMarkOwned,
+          fillDates: s.readingFillDates,
+        },
       });
       // Every library checked is saved as "all", so new libraries are included too.
       if (libs?.length) await api("/settings", { method: "PUT", body: { absLibraries: libs.every((l) => l.selected) ? [] : chosen } });
@@ -761,6 +789,11 @@ function ReadingSettings({ onClose, onSaved }: { onClose: () => void; onSaved: (
               />
               <span className="text-gray-400">%</span>
             </div>,
+          )}
+          {row(
+            "Fill in reading dates",
+            "Add start and finish dates from Audiobookshelf where Hardcover doesn't have them. Dates already on Hardcover are never changed. Off: Shelfhelp sends no dates.",
+            <Toggle checked={s.readingFillDates} onChange={(v) => set("readingFillDates", v)} />,
           )}
           {row(
             "Mark as owned",

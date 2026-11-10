@@ -155,7 +155,11 @@ function setStatus(e: MockEntry, status: number, date?: string, start?: string) 
 for (const [bookId, status] of [[104, 3], [101, 1]] as const) {
   const e: MockEntry = { id: nextId++, bookId, statusId: 1, editionId: null, reads: [] };
   userBooks.set(bookId, e);
-  if (status === 3) setStatus(e, 3, "2025-06-01");
+  // Marked Read on Hardcover with only a finish date, as people often do.
+  if (status === 3) {
+    setStatus(e, 3, "2025-06-01");
+    e.reads[0].startedAt = null;
+  }
 }
 const entryJson = (e: MockEntry) => ({ id: e.id, bookId: e.bookId, statusId: e.statusId, editionId: e.editionId, userId: 1, userBookReads: e.reads });
 const genresOf = (b: MockBook) =>

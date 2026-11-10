@@ -2,6 +2,12 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.32.0 (2026-11-10)
+
+- Reading: each book's details now show its reading dates in Audiobookshelf and on Hardcover side by side, so you can see which one is missing. Before, only the Audiobookshelf date was shown, which made a waiting date change look like the dates already matched.
+- Waiting date changes say what they do, for example "Add start date Aug 24, 2026 from Audiobookshelf (Hardcover has none)". Dates are written out instead of 2026-08-24.
+- New Reading setting, Fill in reading dates (on by default): adds start and finish dates from Audiobookshelf where Hardcover doesn't have them. Dates already on Hardcover are never changed. Turn it off and Shelfhelp sends no dates at all, so books that only needed a date count as in sync.
+
 ## 0.31.1 (2026-11-10)
 
 - After you update Shelfhelp, the app now loads the new version by itself instead of showing "Shelfhelp was updated" with a Reload button. It reloads when you come back to the app, or while it's in the background, so nothing you're in the middle of is cut off.

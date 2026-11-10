@@ -97,6 +97,23 @@ test("progress update fills in a missing start date", () => {
   assert.equal(planFor(row({ progress: 0.6, started_at: ms("2026-03-05") }), entry(2, 40, { startedAt: "2026-03-09" })).dates, undefined);
 });
 
+test("says which side is missing the date", () => {
+  const r = row({ is_finished: 1, progress: 1, started_at: ms("2026-08-24"), finished_at: ms("2026-08-26") });
+  const p = planFor(r, entry(3, 100, { startedAt: null, finishedAt: "2026-08-26" }));
+  assert.equal(p.description, "Add start date Aug 24, 2026 from Audiobookshelf (Hardcover has none)");
+});
+
+test("fill in dates off: no date changes at all", () => {
+  const off = { minProgress: 5, addNew: true, fillDates: false };
+  const r = row({ is_finished: 1, progress: 1, started_at: ms("2026-02-01"), finished_at: ms("2026-02-18") });
+  const p = planFor(r, entry(3, 100, { startedAt: null, finishedAt: "2026-02-20" }), off);
+  assert.equal(p.kind, "skip");
+  const q = planFor(row({ progress: 0.6, started_at: ms("2026-03-05") }), entry(2, 40, { startedAt: null }), off);
+  assert.equal(q.kind, "progress");
+  assert.equal(q.dates, undefined);
+  assert.doesNotMatch(planFor(r, undefined, off).description, /finished/);
+});
+
 test("prefers the copy on your shelves when Hardcover lists a book twice", () => {
   const ranked = [
     { id: 1, titleSim: 1, authorSim: 1 },

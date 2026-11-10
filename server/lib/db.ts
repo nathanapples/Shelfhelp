@@ -427,6 +427,13 @@ const migrations: string[] = [
   -- Shelves always belong to someone now: the server's own key never reads shelves.
   UPDATE lists SET user_id = 1 WHERE source_type = 'hardcover_status' AND user_id IS NULL;
   `,
+  `
+  -- Reading: fill in start and finish dates Hardcover doesn't have (on unless turned off).
+  ALTER TABLE users ADD COLUMN reading_fill_dates INTEGER NOT NULL DEFAULT 1;
+  -- The dates on the Hardcover read that matches this listen, as last seen, to show next to Audiobookshelf's.
+  ALTER TABLE reading ADD COLUMN hc_started TEXT;
+  ALTER TABLE reading ADD COLUMN hc_finished TEXT;
+  `,
 ];
 
 db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");

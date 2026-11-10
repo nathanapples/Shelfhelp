@@ -1483,13 +1483,13 @@ export async function routes(app: FastifyInstance) {
   app.get("/api/reading/settings", async (req, reply) => {
     try {
       const r = targetReader(req);
-      return { enabled: r.enabled, autoSend: r.autoSend, minProgress: r.minProgress, markOwned: r.markOwned };
+      return { enabled: r.enabled, autoSend: r.autoSend, minProgress: r.minProgress, markOwned: r.markOwned, fillDates: r.fillDates };
     } catch (err) {
       return fail(reply, err);
     }
   });
 
-  app.put<{ Body: { enabled?: boolean; autoSend?: boolean; minProgress?: number; markOwned?: boolean } }>("/api/reading/settings", async (req, reply) => {
+  app.put<{ Body: { enabled?: boolean; autoSend?: boolean; minProgress?: number; markOwned?: boolean; fillDates?: boolean } }>("/api/reading/settings", async (req, reply) => {
     try {
       const r = targetReader(req);
       const b = req.body ?? {};
@@ -1497,6 +1497,7 @@ export async function routes(app: FastifyInstance) {
       if (b.enabled !== undefined) patch.reading_enabled = b.enabled ? 1 : 0;
       if (b.autoSend !== undefined) patch.reading_auto_send = b.autoSend ? 1 : 0;
       if (b.markOwned !== undefined) patch.reading_mark_owned = b.markOwned ? 1 : 0;
+      if (b.fillDates !== undefined) patch.reading_fill_dates = b.fillDates ? 1 : 0;
       if (b.minProgress !== undefined) patch.reading_min_progress = Math.min(100, Math.max(0, Number(b.minProgress) || 0));
       updateUser(r.id, patch);
       syncReading("settings changed", { userId: r.id }).catch(() => {});
