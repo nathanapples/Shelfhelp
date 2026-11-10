@@ -472,9 +472,7 @@ export interface JobsData {
 
 export interface DiscoverRowInfo {
   key: string;
-  kind: "builtin" | "list" | "genre" | "mood" | "author";
-  /** An author page's Hardcover link. */
-  hcUrl?: string | null;
+  kind: "builtin" | "list" | "genre" | "mood";
   id?: string;
   tag?: string;
   /** A genre or mood's name. */
@@ -522,10 +520,6 @@ export interface HcTag {
 
 /** The page of a genre or mood's top books. The name rides along so any Hardcover tag works. */
 export const tagLink = (kind: TagKind, t: { slug: string; name: string }) => `/discover/${kind}-${t.slug}?name=${encodeURIComponent(t.name)}`;
-
-/** The page of more books by an author. The name rides along so any author works. */
-export const authorLink = (name: string) =>
-  `/discover/author-${encodeURIComponent(name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "author")}?name=${encodeURIComponent(name)}`;
 
 /** A Discover row for a genre or mood, as Customize adds it. */
 export const tagRowInfo = (kind: TagKind, t: { slug: string; name: string }): DiscoverRowInfo => ({

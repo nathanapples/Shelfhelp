@@ -39,7 +39,7 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
   const hasOwned = key !== "added" && !!all?.some((b) => b.absItemId);
   const books = owned === "hide" && hasOwned ? all?.filter((b) => !b.absItemId) : all;
   const controls = (orderable && !!all?.length) || hasOwned;
-  const hcList = info?.kind === "list" && info.owner && info.slug ? `https://hardcover.app/@${info.owner}/lists/${info.slug}` : (info?.hcUrl ?? null);
+  const hcList = info?.kind === "list" && info.owner && info.slug ? `https://hardcover.app/@${info.owner}/lists/${info.slug}` : null;
 
   return (
     <div>

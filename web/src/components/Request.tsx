@@ -14,7 +14,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { IssueThread, ReportIssue } from "./Issues";
 import { WantIcon, useWantToRead } from "./WantToRead";
-import { absItemUrl, api, authorLink, duration, tagLink, type HcEdition, type Issue, type Similar, type Format, type RequestFormat, type RequestMap, type RequestOutcome, type RequestStatus } from "../lib/api";
+import { absItemUrl, api, duration, tagLink, type HcEdition, type Issue, type Similar, type Format, type RequestFormat, type RequestMap, type RequestOutcome, type RequestStatus } from "../lib/api";
 import { Cover, Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
 
@@ -657,16 +657,7 @@ export function RequestModal({
           </div>
           <h2 className="text-2xl font-bold leading-tight text-white">{book.title}</h2>
           {book.subtitle && <div className="mt-0.5 text-gray-300">{book.subtitle}</div>}
-          <div className="mt-1 text-gray-300">
-            {book.authors.map((a, i) => (
-              <span key={a}>
-                {i > 0 && ", "}
-                <Link to={authorLink(a)} className="hover:text-white hover:underline" title={`More books by ${a}`}>
-                  {a}
-                </Link>
-              </span>
-            ))}
-          </div>
+          <div className="mt-1 text-gray-300">{book.authors.join(", ")}</div>
           {book.seriesName && (
             <div className="mt-1 text-sm text-gray-400">
               {book.seriesName}
