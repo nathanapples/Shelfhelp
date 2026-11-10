@@ -2,6 +2,12 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.34.3 (2026-11-10)
+
+- Requests for a book Chaptarr's metadata server is still preparing now only try the Hardcover id (no more searching Chaptarr by title and author). If Chaptarr isn't ready, the request shows Waiting on Chaptarr's metadata server and Shelfhelp tries again every 12 hours (was 30 minutes), for up to a week.
+- License changed to GNU GPLv3.
+- README: spelling fixes, and the Development section was removed.
+
 ## 0.34.2 (2026-11-10)
 
 - Fixed: requesting a book Chaptarr's metadata server is still preparing no longer fails with "Metadata for hc:… is not ready". Shelfhelp now finds the book the way Chaptarr's own Add New page does, so Chaptarr saves the request and adds the book when it's ready (shown as Waiting on Chaptarr). If even that doesn't find it yet, the request waits and Shelfhelp tries again every 30 minutes for up to a week.

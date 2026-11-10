@@ -6,9 +6,9 @@ Shelfhelp connects [Audiobookshelf](https://www.audiobookshelf.org/), [Hardcover
 
 ## AI DISCLOSURE
 
-THIS IS VIBE CODED. I DO NOT RECOMEND ANYONE EXPOSE THIS TO THE INTERNET DIRECTLY. My solution has been to put it behind a cloudflare authentication page which authenticates with my Pocket ID.
+THIS IS VIBE CODED. I DO NOT RECOMMEND ANYONE EXPOSE THIS TO THE INTERNET DIRECTLY. My solution has been to put it behind a Cloudflare authentication page which authenticates with my Pocket ID.
 
-Although this is publicly listed, this is for my personal use. Given that this is vibe coded and its for my personal use, I make no promises things will be fixed. All that said it works pretty well for me, my homelab, and users.
+Although this is publicly listed, this is for my personal use. Given that this is vibe coded and it's for my personal use, I make no promises things will be fixed. All that said it works pretty well for me, my homelab, and users.
 
 ## What it does
 
@@ -75,20 +75,10 @@ Everything can be set in the UI; these pin a setting or cover emergencies.
 
 Everything Shelfhelp keeps lives in `/config/shelfhelp.db`. Releases are tagged (`:0.19`, `:0.19.3`, `:latest`); see [CHANGELOG.md](CHANGELOG.md).
 
-## Development
+## Credits
 
-```bash
-npm install
-npx tsx test/mock-servers.ts   # fake Hardcover, Audiobookshelf, Chaptarr and Pocket ID
-HARDCOVER_ENDPOINT=http://localhost:5091/v1/graphql HARDCOVER_TOKEN=x \
-  ABS_URL=http://localhost:5092 ABS_TOKEN=x \
-  CHAPTARR_URL=http://localhost:5093 CHAPTARR_API_KEY=chaptarr-key CONFIG_DIR=./config npm run dev:server
-npm run dev:web                # http://localhost:5173
-npm test
-```
-
-The mock servers use public-domain books, which is what the screenshots show. Built with the [Hardcover TypeScript SDK](https://github.com/hardcoverapp/hardcover-sdk), Fastify, React and Tailwind. Some reading sync rules follow [ShelfBridge](https://github.com/rohit-purandare/ShelfBridge) and [audiobookshelf-hardcover-sync](https://github.com/drallgood/audiobookshelf-hardcover-sync).
+Built with the [Hardcover TypeScript SDK](https://github.com/hardcoverapp/hardcover-sdk), Fastify, React and Tailwind. Some reading sync rules follow [ShelfBridge](https://github.com/rohit-purandare/ShelfBridge) and [audiobookshelf-hardcover-sync](https://github.com/drallgood/audiobookshelf-hardcover-sync).
 
 ## License
 
-MIT
+[GNU GPLv3](LICENSE)

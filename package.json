@@ -1,6 +1,6 @@
 {
   "name": "shelfhelp",
-  "version": "0.34.2",
+  "version": "0.34.3",
   "description": "Sync Hardcover lists into Audiobookshelf collections, with a Seerr-style web UI",
   "scripts": {
     "dev:server": "tsx watch server/index.ts",
@@ -12,7 +12,7 @@
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit"
   },
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",

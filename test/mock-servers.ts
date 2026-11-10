@@ -726,9 +726,8 @@ http
 // Chaptarr. Shapes follow Chaptarr's v1 API: one row per format, provider ids
 // like hc:101, 201 on add, 202 while a new author imports, 409 when ambiguous.
 const CHAPTARR_KEY = "chaptarr-key";
-// Books whose metadata Chaptarr's metadata server is "still preparing": lookup by id answers 503,
-// the title search still finds them (unless hidden), and adding one is queued like a new author.
-const cNotReady = new Map<number, { search: boolean }>();
+// Books whose metadata Chaptarr's metadata server is "still preparing": lookup by id answers 503.
+const cNotReady = new Set<number>();
 interface CRow {
   id: number;
   hc: number;
@@ -862,12 +861,6 @@ http
         const out = found.flatMap((b) => (["audiobook", "ebook"] as const).map((t) => cResource(b, t)));
         return send(200, mt ? out.filter((o) => o.mediaType === mt) : out);
       }
-      // Chaptarr's Add New search (title and author words).
-      if (p === "/api/v1/search") {
-        const words = (url.searchParams.get("term") ?? "").toLowerCase().split(/\s+/).filter(Boolean);
-        const found = books.filter((b) => words.some((w) => b.title.toLowerCase().includes(w)) && cNotReady.get(b.id)?.search !== false);
-        return send(200, found.map((b, i) => ({ foreignId: `hc:${b.id}`, providerId: "hardcover", id: i + 1, book: cResource(b, "audiobook") })));
-      }
       if (p === "/api/v1/book" && req.method === "POST") {
         const mt = url.searchParams.get("mediaType") as "audiobook" | "ebook";
         cAdds.push({ mediaType: mt, body });
@@ -938,11 +931,11 @@ http
         const records = cRows.filter((r) => r.grabbed).map((r) => ({ bookId: r.id, status: "downloading", size: 400e6, sizeleft: 100e6, timeleft: "00:04:10" }));
         return send(200, { page: 1, pageSize: 500, totalRecords: records.length, records });
       }
-      // Test hook: make Chaptarr refuse the next N adds of a book as "metadata not ready".
+      // Test hook: make Chaptarr answer "metadata not ready" for a book until cleared.
       if (p.startsWith("/test/not-ready/") && req.method === "POST") {
         const nr = Number(p.split("/")[3]);
         if (body?.clear) cNotReady.delete(nr);
-        else cNotReady.set(nr, { search: body?.search !== false });
+        else cNotReady.add(nr);
         return send(200, { ok: true });
       }
       if (p === "/test/chaptarr") return send(200, { rows: cRows, adds: cAdds, commands: cCommands, pending: [...cPending], tags: cTags, authors: [...cAuthors.values()] });

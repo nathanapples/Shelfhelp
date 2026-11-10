@@ -37,7 +37,7 @@ export interface RequestRow {
 
 /** Chaptarr's answer when its metadata server hasn't finished preparing a book or author yet. */
 const NOT_READY = /not ready|being prepared/i;
-const METADATA_RETRY_MS = 30 * 60_000;
+const METADATA_RETRY_MS = 12 * 3600_000;
 const METADATA_GIVE_UP_MS = 7 * 24 * 3600_000;
 
 export interface HcSummary {
@@ -273,20 +273,11 @@ function update(id: number, patch: Partial<RequestRow>): RequestRow {
 }
 
 /** The lookup result for one format, plus the copy Chaptarr already has, if any. */
-async function findIn(c: Chaptarr, hcBookId: number, format: Format, hint?: { title: string; authors: string[] }) {
+async function findIn(c: Chaptarr, hcBookId: number, format: Format) {
   // Ask without a format filter: Chaptarr returns both formats of a book, and a
   // filtered lookup can come back empty for books it only lists one way.
-  let results: ChaptarrBook[];
-  try {
-    results = await c.lookup(`hc:${hcBookId}`);
-  } catch (err) {
-    // "Metadata for hc:… is not ready" (503): Chaptarr's own Add New search by
-    // title still finds the book, the way adding it in Chaptarr works.
-    if (!hint || !(err instanceof ChaptarrError) || !(err.status === 503 || NOT_READY.test(err.message))) throw err;
-    const term = [hint.title, ...hint.authors].join(" ").trim();
-    results = (await c.searchBooks(term).catch(() => [] as ChaptarrBook[])).filter((b) => b.foreignBookId === `hc:${hcBookId}`);
-    if (!results.length) throw err;
-  }
+  // "Metadata for hc:… is not ready" (503) is thrown; requestBook waits and retries.
+  const results: ChaptarrBook[] = await c.lookup(`hc:${hcBookId}`);
   const same = (b: ChaptarrBook) => (b.mediaType ?? "").toLowerCase() === format;
   const found = results.find(same) ?? results[0] ?? null;
   const local = results.map((r) => localOf(r, format)).find(Boolean) ?? null;
@@ -350,7 +341,7 @@ export async function requestBook(
           f,
           {
             status: "pending",
-            message: "Chaptarr's metadata server is still preparing this book. Shelfhelp tries again every 30 minutes and adds it once it's ready.",
+            message: "Waiting on Chaptarr's metadata server. Shelfhelp will try again in 12 hours.",
             metadata_wait_since: before?.metadata_wait_since ?? now.toISOString(),
             retry_at: new Date(now.getTime() + METADATA_RETRY_MS).toISOString(),
             ...editionPatch(edition),
@@ -383,7 +374,7 @@ async function requestOne(
   tagIds: number[] = [],
   edition: HcEdition | null = null,
 ): Promise<RequestRow> {
-  const { found, local } = await findIn(c, hcBook.id, format, { title: hcBook.title, authors: hcBook.authors });
+  const { found, local } = await findIn(c, hcBook.id, format);
   const ed = editionPatch(edition);
   const save_ = (b: HcSummary, f: Format, patch: Partial<RequestRow>, who: string) => save(b, f, { ...ed, ...patch }, who);
   if (local) {
@@ -538,7 +529,7 @@ async function doRefresh() {
         if (!bookId) {
           let local: { id: number } | null = null;
           try {
-            ({ local } = await findIn(c, r.hc_book_id, r.format, { title: r.title, authors: json<string[]>(r.authors, []) }));
+            ({ local } = await findIn(c, r.hc_book_id, r.format));
           } catch (err) {
             // Chaptarr is still preparing the book's metadata; that's not a problem to show.
             if (!NOT_READY.test((err as Error).message)) throw err;
