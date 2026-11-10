@@ -2,6 +2,17 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.31.0 (2026-11-10)
+
+- New: Shelfhelp can go on your phone's home screen and open like an app, full screen without the browser bars, with its own icon.
+  - My account has a "Shelfhelp on your phone" card with the steps for your phone, and an Install button where the browser offers one (Chrome on Android and computers). The card hides once you open Shelfhelp from the home screen.
+  - Works behind a login page like Cloudflare Access with no changes there: the browser sends your sign-in when it fetches the app's details. On an iPhone the home screen icon may still come out as a plain letter or a screenshot behind such a login; the app itself works either way.
+  - Inside the installed app you sign in once more, because phones keep the app's sign-in separate from the browser's.
+  - When you update Shelfhelp, the open app notices and shows "Shelfhelp was updated" with a Reload button, since an installed app has no reload button of its own.
+  - If the server can't be reached, the app shows a short "Can't reach Shelfhelp" page with Try again instead of a blank screen. Pages and data always come from the server; only the app's own files are kept on the phone.
+  - Long press the icon on Android for shortcuts to Requests and Reading.
+- The header, side menu, popups and messages leave room for the notch and the home bar on phones.
+
 ## 0.30.0 (2026-11-10)
 
 - New: Shelfhelp can be Audiobookshelf's Hardcover metadata provider, built in, with nothing extra to run. Turn it on in Settings, Audiobookshelf, under Hardcover metadata provider.

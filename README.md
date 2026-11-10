@@ -24,6 +24,8 @@ Although this is publicly listed, this is for my personal use. Given that this i
 
 **Audiobook metadata for Audiobookshelf.** Shelfhelp can be Audiobookshelf's Hardcover metadata provider. Each audiobook edition is its own match in Match, with its narrator, length, audio publisher, ASIN and cover. Turn it on in Settings, Audiobookshelf, and Shelfhelp adds itself to Audiobookshelf. Audiobookshelf has to reach Shelfhelp directly (for example `http://shelfhelp:5075` on the same Docker network), not through a login page.
 
+**On your phone.** Add Shelfhelp to your home screen and it opens like an app, full screen. My account shows how (and has an Install button where the browser offers one). It works behind a login page like Cloudflare Access; on an iPhone the home screen icon may come out plain behind one.
+
 **Also:** Issues for reporting problems with a book, a Library page that links every Audiobookshelf book to Hardcover, and per-person sign-in so everyone gets their own Discover, requests and reading.
 
 ## Install

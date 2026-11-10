@@ -137,7 +137,7 @@ export function Modal({
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
       <div className="absolute inset-0 bg-gray-800/70 backdrop-blur-sm" onClick={onClose} />
       <div
-        className={`relative flex max-h-[92vh] w-full ${size} flex-col overflow-hidden rounded-t-xl bg-gray-800 text-left shadow-xl ring-1 ring-gray-700 sm:rounded-xl`}
+        className={`relative flex max-h-[92vh] w-full ${size} flex-col overflow-hidden rounded-t-xl bg-gray-800 pb-[env(safe-area-inset-bottom)] text-left shadow-xl ring-1 ring-gray-700 sm:rounded-xl sm:pb-0`}
         role="dialog"
         aria-modal="true"
       >

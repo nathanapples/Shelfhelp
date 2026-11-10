@@ -23,6 +23,9 @@ import BrowsePage from "./pages/Browse";
 import LibraryPage from "./pages/Library";
 import AccountPage from "./pages/Account";
 import IssuesPage from "./pages/Issues";
+import { startPwa } from "./lib/pwa";
+
+startPwa();
 
 function App() {
   const [status, setStatus] = useState<Status | null>(null);

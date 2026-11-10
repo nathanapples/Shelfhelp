@@ -5,6 +5,7 @@ import { api, hardcoverSignInUrl, timeAgo, type Status, type UserView } from "..
 import { useApi } from "../lib/hooks";
 import { ErrorBlock, LoadingBlock, PageTitle, Spinner, Toggle } from "../components/ui";
 import { useToast } from "../components/toast";
+import { isStandalone, platform, useInstallPrompt } from "../lib/pwa";
 
 const VIA: Record<string, string> = {
   open: "No sign-in (everyone is the owner)",
@@ -117,6 +118,8 @@ export default function AccountPage({ status, onChanged }: { status: Status; onC
         </dl>
       </section>
 
+      <InstallCard />
+
       <section className="card mt-6 p-5">
         <h2 className="text-lg font-bold text-white">Hardcover</h2>
         <p className="mt-1 text-sm text-gray-400">
@@ -194,5 +197,44 @@ export default function AccountPage({ status, onChanged }: { status: Status; onC
         )}
       </section>
     </div>
+  );
+}
+
+/** How to put Shelfhelp on a phone's home screen. Hidden once it's opened as an installed app. */
+function InstallCard() {
+  const { canPrompt, prompt } = useInstallPrompt();
+  const toast = useToast();
+  if (isStandalone()) return null;
+  const on = platform();
+  return (
+    <section className="card mt-6 p-5">
+      <h2 className="text-lg font-bold text-white">Shelfhelp on your phone</h2>
+      <p className="mt-1 text-sm text-gray-400">
+        Add Shelfhelp to your home screen and it opens like an app, full screen without the browser bars. You sign in once more inside it.
+      </p>
+      {canPrompt ? (
+        <button
+          className="btn btn-primary mt-4"
+          onClick={async () => {
+            if (await prompt()) toast("Shelfhelp was added to your home screen.", "success");
+          }}
+        >
+          Install Shelfhelp
+        </button>
+      ) : on === "ios" ? (
+        <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-gray-300">
+          <li>Open Shelfhelp in Safari.</li>
+          <li>Tap the Share button (the square with an arrow).</li>
+          <li>Tap Add to Home Screen, then Add.</li>
+        </ol>
+      ) : on === "android" ? (
+        <p className="mt-3 text-sm text-gray-300">In Chrome, open the menu (the three dots) and tap Add to home screen, then Install.</p>
+      ) : (
+        <p className="mt-3 text-sm text-gray-300">
+          Open Shelfhelp on your phone and add it to your home screen from the browser's menu. On an iPhone, that's Share, then Add to Home
+          Screen.
+        </p>
+      )}
+    </section>
   );
 }

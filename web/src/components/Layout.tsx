@@ -19,6 +19,7 @@ import { api, isAdmin, type Status } from "../lib/api";
 import { jobStarted, useApi, useBackToClose, useJobs } from "../lib/hooks";
 import { Spinner } from "./ui";
 import { useToast } from "./toast";
+import { useNewVersion } from "../lib/pwa";
 
 type NavEntry = { to: string; label: string; icon: React.ComponentType<{ className?: string }>; end?: boolean; count?: string; admin?: boolean };
 
@@ -107,6 +108,30 @@ function NavItems({
   );
 }
 
+/** Says when the server runs a newer Shelfhelp than this page, with a button to load it. */
+function UpdateNotice() {
+  const newer = useNewVersion();
+  const [hidden, setHidden] = useState(false);
+  if (!newer || hidden) return null;
+  return (
+    <div
+      className="fixed inset-x-0 bottom-0 z-[55] flex justify-center px-4 lg:pl-64"
+      style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+    >
+      <div className="flex w-full max-w-md items-center gap-3 rounded-lg bg-gray-800 px-4 py-3 text-sm text-gray-200 shadow-xl ring-1 ring-indigo-600/70">
+        <ArrowPathIcon className="h-5 w-5 flex-shrink-0 text-indigo-400" />
+        <span className="flex-1">Shelfhelp was updated to v{newer}.</span>
+        <button className="btn btn-primary btn-sm" onClick={() => window.location.reload()}>
+          Reload
+        </button>
+        <button className="rounded-md p-1 text-gray-400 hover:text-white" onClick={() => setHidden(true)} aria-label="Not now">
+          <XMarkIcon className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Layout({ children, status }: { children: ReactNode; status: Status }) {
   const version = status.version;
   const authRequired = status.authRequired;
@@ -188,7 +213,8 @@ export function Layout({ children, status }: { children: ReactNode; status: Stat
           onClick={() => setOpen(false)}
         />
         <div
-          className={`relative flex h-full w-72 max-w-[85%] flex-col bg-gray-800 pt-6 shadow-xl ring-1 ring-gray-700 transition-transform duration-300 ${
+          style={{ paddingTop: "max(1.5rem, env(safe-area-inset-top))", paddingBottom: "env(safe-area-inset-bottom)" }}
+          className={`relative flex h-full w-72 max-w-[85%] flex-col bg-gray-800 shadow-xl ring-1 ring-gray-700 transition-transform duration-300 ${
             open ? "translate-x-0" : "-translate-x-full"
           }`}
         >
@@ -214,10 +240,11 @@ export function Layout({ children, status }: { children: ReactNode; status: Stat
 
       <div className="flex min-w-0 flex-1 flex-col lg:pl-64">
         <header
-          className={`sticky top-0 z-30 flex h-16 flex-shrink-0 items-center gap-3 px-4 transition duration-300 sm:px-6 ${
+          className={`sticky top-0 z-30 flex flex-shrink-0 items-center gap-3 px-4 transition duration-300 sm:px-6 ${
             scrolled ? "bg-gray-700/90 backdrop-blur" : "bg-transparent"
           }`}
-          style={{ paddingTop: "env(safe-area-inset-top)" }}
+          // On an installed iPhone app the page runs under the status bar, so the header grows by its height.
+          style={{ paddingTop: "env(safe-area-inset-top)", height: "calc(4rem + env(safe-area-inset-top))" }}
         >
           <button onClick={() => setOpen(true)} className="text-gray-300 hover:text-white lg:hidden" aria-label="Open menu">
             <Bars3Icon className="h-7 w-7" />
@@ -255,6 +282,7 @@ export function Layout({ children, status }: { children: ReactNode; status: Stat
         <main className="relative flex-1 px-4 pb-16 sm:px-6 lg:px-8" style={{ paddingBottom: "max(4rem, env(safe-area-inset-bottom))" }}>
           {children}
         </main>
+        <UpdateNotice />
       </div>
     </div>
   );
