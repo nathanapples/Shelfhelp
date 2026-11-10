@@ -2,6 +2,11 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.34.0 (2026-11-10)
+
+- In a book's popup (Discover, search, row pages), the green In Audiobookshelf badge is now a link that opens the book in Audiobookshelf, like the Hardcover one next to it. Each matching book under In your Audiobookshelf has its own Audiobookshelf link too.
+- In a book's popup, the author's name is now a link to a page of more books by them (books they wrote, most read on Hardcover first), with Open on Hardcover for the author. Books you have show the check mark, and you can request from there.
+
 ## 0.33.1 (2026-11-10)
 
 - Fixed: the Audiobookshelf link on a book went to a page that doesn't exist (404). It now opens the book's page inside its library, the same address Audiobookshelf itself uses.

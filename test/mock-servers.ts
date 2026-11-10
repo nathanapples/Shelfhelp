@@ -247,6 +247,11 @@ function hardcover(body: { query: string; variables?: Record<string, unknown> },
     }
     return { books: picked };
   }
+  if (q.includes("query AuthorSlug")) {
+    const name = String(v.name ?? "");
+    const known = books.some((b) => b.author.toLowerCase() === name.toLowerCase());
+    return { authors: known ? [{ slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-") }] : [] };
+  }
   if (q.includes("query AllTags")) {
     const genres = ["Fiction", "Fantasy", "Young Adult", "Science Fiction", "Thriller", "Horror", "Cozy Mystery", "Space Opera", "Urban Fantasy", "Cyberpunk", "General", '"Dark"'];
     const moods = ["Adventurous", "Emotional", "Dark", "Tense", "Cozy", "Whimsical", "Atmospheric", "Hopeful"];

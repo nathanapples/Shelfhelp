@@ -271,12 +271,44 @@ export async function rowInfoFor(key: string, userId: number, nameHint?: string 
     const name = tagName(kind, g[2], nameHint) ?? (await allTags(kind).catch(() => []), tagName(kind, g[2]));
     if (name) return rowInfo(tagRow(kind, g[2], name));
   }
+  const a = key.match(/^author-(.+)$/);
+  if (a) {
+    const name = authorName(a[1], nameHint);
+    const slug = await authorSlug(name).catch(() => null);
+    return {
+      key,
+      kind: "author" as const,
+      name,
+      title: `Books by ${name}`,
+      subtitle: "Most read on Hardcover first.",
+      hcUrl: slug ? `https://hardcover.app/authors/${slug}` : null,
+    };
+  }
   const l = key.match(/^list-(\d+)$/);
   if (l) {
     const { info } = await fetchList(Number(l[1]));
     return rowInfo({ key, kind: "list", listId: info.id, title: info.name, slug: info.slug, owner: null });
   }
   throw new Error("No such row");
+}
+
+/** An author page's name: the one passed along, else worked out from the link. */
+function authorName(slug: string, hint?: string | null) {
+  const name = (hint ?? "").trim() || slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return name.slice(0, 80);
+}
+
+/** The author's Hardcover page slug, for an "Open on Hardcover" link (the best-known author with that name). */
+const authorSlugs = new Map<string, string | null>();
+async function authorSlug(name: string): Promise<string | null> {
+  if (authorSlugs.has(name)) return authorSlugs.get(name)!;
+  const data = await hardcover().graphql<{ authors: { slug: string | null }[] }>(
+    `query AuthorSlug($name: String!) { authors(where: { name: { _eq: $name } }, order_by: { users_count: desc_nulls_last }, limit: 1) { slug } }`,
+    { name },
+  );
+  const slug = data.authors[0]?.slug ?? null;
+  authorSlugs.set(name, slug);
+  return slug;
 }
 
 /** A public Hardcover list found by search, for adding as a Discover row. */
@@ -638,6 +670,17 @@ async function fetchRow(key: string, userId: number, L: number, range: TagRange,
   if (list) {
     const id = Number(list[1]);
     return annotate(await cached(key, async () => (await fetchList(id)).books.map(fromList)), userId);
+  }
+  const author = key.match(/^author-(.+)$/);
+  if (author) {
+    const name = authorName(author[1], nameHint);
+    // Books the person wrote (not narrated or edited), most read first.
+    return annotate(
+      await cached(`${key}:${name}:${L}`, () =>
+        query("DiscoverAuthorsAll", "contributions: { author: { name: { _in: $names } }, contribution: { _is_null: true } }", "[{ users_count: desc_nulls_last }]", { names: [name] }, L),
+      ),
+      userId,
+    );
   }
   const tag = key.match(/^(genre|mood)-(.+)$/);
   if (tag) {

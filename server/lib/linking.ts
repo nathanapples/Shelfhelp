@@ -369,7 +369,7 @@ export function similarInLibrary(book: { id: number; title: string; subtitle?: s
   const itemView = (id: string) => {
     const i = items.get(id);
     return i
-      ? { id: i.id, title: i.title, subtitle: i.subtitle, authors: i.authors, narrators: i.narrators, series: i.series, duration: i.duration, coverUrl: `/api/abs/cover/${i.id}`, numAudio: i.numAudio }
+      ? { id: i.id, libraryId: i.libraryId, title: i.title, subtitle: i.subtitle, authors: i.authors, narrators: i.narrators, series: i.series, duration: i.duration, coverUrl: `/api/abs/cover/${i.id}`, numAudio: i.numAudio }
       : null;
   };
   return {

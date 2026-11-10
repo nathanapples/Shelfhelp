@@ -14,7 +14,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { IssueThread, ReportIssue } from "./Issues";
 import { WantIcon, useWantToRead } from "./WantToRead";
-import { api, duration, tagLink, type HcEdition, type Issue, type Similar, type Format, type RequestFormat, type RequestMap, type RequestOutcome, type RequestStatus } from "../lib/api";
+import { absItemUrl, api, authorLink, duration, tagLink, type HcEdition, type Issue, type Similar, type Format, type RequestFormat, type RequestMap, type RequestOutcome, type RequestStatus } from "../lib/api";
 import { Cover, Modal, Spinner } from "./ui";
 import { useToast } from "./toast";
 
@@ -305,8 +305,8 @@ export function InLibrary({
   book: RequestableBook;
   admin: boolean;
   onLinked?: () => void;
-  /** Called with whether Audiobookshelf has this book, each time it's checked. */
-  onOwned?: (owned: boolean) => void;
+  /** Called with whether Audiobookshelf has this book (and the first copy's link), each time it's checked. */
+  onOwned?: (owned: boolean, link: string | null) => void;
 }) {
   const toast = useToast();
   const [data, setData] = useState<Similar | null>(null);
@@ -317,7 +317,8 @@ export function InLibrary({
     api<Similar>(`/library/similar?${q}`)
       .then((d) => {
         setData(d);
-        onOwned?.(d.confirmed.length > 0);
+        const first = d.confirmed[0]?.item;
+        onOwned?.(d.confirmed.length > 0, first ? absItemUrl(first.id, first.libraryId) : null);
       })
       .catch((e) => setError((e as Error).message));
   };
@@ -419,6 +420,16 @@ export function InLibrary({
             </div>
             <div className="flex flex-shrink-0 flex-col items-end gap-1">
               <span className="badge badge-success">Same book · {via}</span>
+              {absItemUrl(item.id, item.libraryId) && (
+                <a
+                  href={absItemUrl(item.id, item.libraryId)!}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300"
+                >
+                  Audiobookshelf <ArrowTopRightOnSquareIcon className="h-3 w-3" />
+                </a>
+              )}
               {admin && (
                 <button
                   className="text-xs text-gray-400 hover:text-red-300"
@@ -606,7 +617,11 @@ export function RequestModal({
   onDone?: (outcomes: RequestOutcome[]) => void;
 }) {
   const [owned, setOwned] = useState<boolean | null>(null);
-  useEffect(() => setOwned(null), [book?.id]);
+  const [absUrl, setAbsUrl] = useState<string | null>(null);
+  useEffect(() => {
+    setOwned(null);
+    setAbsUrl(null);
+  }, [book?.id]);
   // Following a link out of the popup (a genre, a mood) closes it, even when the new page reuses this one.
   const location = useLocation();
   const openedAt = useRef(location.key);
@@ -642,7 +657,16 @@ export function RequestModal({
           </div>
           <h2 className="text-2xl font-bold leading-tight text-white">{book.title}</h2>
           {book.subtitle && <div className="mt-0.5 text-gray-300">{book.subtitle}</div>}
-          <div className="mt-1 text-gray-300">{book.authors.join(", ")}</div>
+          <div className="mt-1 text-gray-300">
+            {book.authors.map((a, i) => (
+              <span key={a}>
+                {i > 0 && ", "}
+                <Link to={authorLink(a)} className="hover:text-white hover:underline" title={`More books by ${a}`}>
+                  {a}
+                </Link>
+              </span>
+            ))}
+          </div>
           {book.seriesName && (
             <div className="mt-1 text-sm text-gray-400">
               {book.seriesName}
@@ -650,7 +674,14 @@ export function RequestModal({
             </div>
           )}
           <div className="mt-3 flex flex-wrap gap-2">
-            {shown.absItemId && <span className="badge badge-success">In Audiobookshelf</span>}
+            {shown.absItemId &&
+              (absUrl ? (
+                <a href={absUrl} target="_blank" rel="noreferrer" className="badge badge-success inline-flex cursor-pointer items-center gap-1 hover:text-white">
+                  In Audiobookshelf <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
+                </a>
+              ) : (
+                <span className="badge badge-success">In Audiobookshelf</span>
+              ))}
             <ShelfBadge book={book} hardcover={hardcover} />
             {hcUrl && (
               <a href={hcUrl} target="_blank" rel="noreferrer" className="badge badge-dark inline-flex items-center gap-1 hover:text-white">
@@ -665,7 +696,14 @@ export function RequestModal({
         </div>
       </div>
       <div className="mt-6 border-t border-gray-700 pt-4">
-        <InLibrary book={book} admin={admin} onOwned={setOwned} />
+        <InLibrary
+          book={book}
+          admin={admin}
+          onOwned={(o, link) => {
+            setOwned(o);
+            setAbsUrl(link);
+          }}
+        />
         <BookIssues book={book} admin={admin} />
       </div>
     </Modal>
