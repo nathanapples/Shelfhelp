@@ -6,7 +6,7 @@ import { Bars3Icon, FaceSmileIcon, MagnifyingGlassIcon, PlusIcon, RectangleStack
 import { api, tagRowInfo, type BrowseShow, type DiscoverConfig, type DiscoverRowInfo, type HcList, type TagKind } from "../lib/api";
 import { TagSearch, useAllTags } from "./TagSearch";
 import { Modal, Spinner } from "./ui";
-import { OrderPicker, forgetListOrder, type ListOrder } from "./RowControls";
+import { OrderPicker, fixedOrder, forgetListOrder, type ListOrder } from "./RowControls";
 import { useToast } from "./toast";
 
 type ListHit = { id: number; name: string; owner: string | null; booksCount: number };
@@ -229,7 +229,7 @@ function SortableRow({ row: r, onRemove, onOrder }: { row: DiscoverRowInfo; onRe
         <div className="truncate text-sm font-medium text-white">{r.title}</div>
         <div className="truncate text-xs text-gray-500">{r.subtitle}</div>
       </div>
-      {r.kind === "list" && <OrderPicker order={r.order ?? "list"} onChange={onOrder} label={`Default order for ${r.title}`} />}
+      {!fixedOrder(r.key) && <OrderPicker order={r.order ?? "list"} onChange={onOrder} isList={r.kind === "list"} label={`Default order for ${r.title}`} />}
       <button className="btn btn-sm btn-ghost" onClick={onRemove} aria-label={`Remove ${r.title}`}>
         <XMarkIcon className="h-4 w-4" />
       </button>
@@ -297,7 +297,7 @@ export function CustomizeDiscover({
       await api("/discover/rows", { method: "PUT", body: { rows, asDefault, tags: { ...chips, show } } });
       // A new default order replaces whatever was picked on that row in this browser.
       const before = new Map((config.allRows ?? config.rows).map((r) => [r.key, r.order ?? "list"]));
-      for (const r of rows) if (r.kind === "list" && before.has(r.key) && before.get(r.key) !== (r.order ?? "list")) forgetListOrder(r.key);
+      for (const r of rows) if (before.has(r.key) && before.get(r.key) !== (r.order ?? "list")) forgetListOrder(r.key);
       toast(asDefault ? "Saved as everyone's default" : "Discover saved");
       onSaved();
       onClose();
@@ -346,7 +346,7 @@ export function CustomizeDiscover({
       }
     >
       <h4 className="mb-2 mt-3 text-sm font-semibold uppercase tracking-wider text-gray-400">Your rows</h4>
-      <p className="-mt-1 mb-2 text-xs text-gray-500">Drag rows by the handle to reorder them. Hardcover list rows have a default order for their books.</p>
+      <p className="-mt-1 mb-2 text-xs text-gray-500">Drag rows by the handle to reorder them. Each row's order picker sets the order of its books.</p>
       <DndContext sensors={sensors} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis]} onDragEnd={onDragEnd}>
         <SortableContext items={rows.map((r) => r.key)} strategy={verticalListSortingStrategy}>
           <ul className="divide-y divide-gray-700 overflow-hidden rounded-lg bg-gray-900/40 ring-1 ring-gray-700">

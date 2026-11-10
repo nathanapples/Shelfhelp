@@ -2,6 +2,12 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.29.0 (2026-11-10)
+
+- Every Discover row stays full when you already own most of its books. Rows like Trending on Hardcover, genres, moods and new releases now fetch a bigger batch from Hardcover and keep up to 20 books you don't have, so the row and its full page match. Recently added is unchanged.
+- Simpler order choices, now on every row (except Recently added): List order (on Hardcover lists) or Default (on other rows), Date, and Random. List order and Date have a button to flip the direction: top or bottom of the list first, newest or oldest first. Title and Author orders are gone; rows that used them go back to their default.
+- Customize this page sets each row's default order, not just list rows.
+
 ## 0.28.0 (2026-11-09)
 
 - List rows sort the whole Hardcover list, not just the books already shown. Before, a list row on Discover only held its first 30 books, and Newest first only reordered those 30, so a long list like award winners never showed its recent books. The full page now shows up to 500 books of a list.

@@ -146,15 +146,18 @@ function cleanTags(kind: TagKind, list: unknown): Tag[] | null {
   return out;
 }
 
-/** Ways to order a Hardcover list row. */
-export const LIST_ORDERS = ["list", "newest", "oldest", "title", "author", "random"] as const;
+/**
+ * Ways to order a row's books. "list" is the row's own order (a list's order,
+ * or what Hardcover ranks first for other rows); "list-reverse" flips a list.
+ */
+export const LIST_ORDERS = ["list", "list-reverse", "newest", "oldest", "random"] as const;
 export type ListOrder = (typeof LIST_ORDERS)[number];
 export const isListOrder = (o: unknown): o is ListOrder => typeof o === "string" && (LIST_ORDERS as readonly string[]).includes(o);
 
 export type RowConfig =
-  | { key: string; kind: "builtin"; id: BuiltinId }
   | { key: string; kind: "list"; listId: number; title: string; owner?: string | null; slug?: string | null; order?: ListOrder }
-  | { key: string; kind: TagKind; tag: string; name: string };
+  | { key: string; kind: TagKind; tag: string; name: string; order?: ListOrder }
+  | { key: string; kind: "builtin"; id: BuiltinId; order?: ListOrder };
 
 const tagRow = (kind: TagKind, slug: string, name: string): RowConfig => ({ key: `${kind}-${slug}`, kind, tag: slug, name });
 
@@ -177,8 +180,6 @@ function valid(rows: unknown): RowConfig[] | null {
         title: String(r.title || "Hardcover list"),
         owner: r.owner ?? null,
         slug: r.slug ?? null,
-        // The row's default order, set in Customize. List order when not set.
-        ...(isListOrder(r.order) && r.order !== "list" ? { order: r.order } : {}),
       });
     } else if (r.kind === "genre" || r.kind === "mood") {
       // Rows saved before 0.11.0 kept the slug in `genre`.
@@ -188,6 +189,9 @@ function valid(rows: unknown): RowConfig[] | null {
       out.push(tagRow(r.kind, slug, name));
     }
     else continue;
+    // The row's default order, set in Customize. Its own order when not set.
+    const reversible = out[out.length - 1].kind === "list";
+    if (isListOrder(r.order) && r.order !== "list" && (reversible || r.order !== "list-reverse")) out[out.length - 1] = { ...out[out.length - 1], order: r.order };
     seen.add(out[out.length - 1].key);
   }
   return out;
@@ -574,21 +578,16 @@ function shuffled<T>(items: T[], seed: number): T[] {
   return out;
 }
 
-const plain = (s: string | null | undefined) => (s ?? "").replace(/^(the|a|an)\s+/i, "");
-const surname = (b: HcSummary) => (b.authors[0] ?? "").trim().split(/\s+/).pop() ?? "";
 
 /** A whole list in the order asked for. Books without a year go last. */
 export function sortList<T extends HcSummary>(books: T[], order: ListOrder, seed = 1): T[] {
   if (order === "list") return books;
+  if (order === "list-reverse") return [...books].reverse();
   if (order === "random") return shuffled(books, seed);
-  const out = [...books];
+  // Same year: keep the row's own order (Array.prototype.sort is stable).
   const year = (b: HcSummary, missing: number) => b.releaseYear ?? missing;
-  const byTitle = (a: HcSummary, b: HcSummary) => plain(a.title).localeCompare(plain(b.title));
-  if (order === "newest") out.sort((a, b) => year(b, -Infinity) - year(a, -Infinity) || byTitle(a, b));
-  if (order === "oldest") out.sort((a, b) => year(a, Infinity) - year(b, Infinity) || byTitle(a, b));
-  if (order === "title") out.sort(byTitle);
-  if (order === "author") out.sort((a, b) => surname(a).localeCompare(surname(b)) || byTitle(a, b));
-  return out;
+  if (order === "newest") return [...books].sort((a, b) => year(b, -Infinity) - year(a, -Infinity));
+  return [...books].sort((a, b) => year(a, Infinity) - year(b, Infinity));
 }
 
 /** One row's books. `key` is a built-in id, list-<id>, genre-<slug> or mood-<slug>. `limit` is bigger on the row's own page. */
@@ -612,17 +611,33 @@ export async function discoverRow(
   }
 }
 
+/** Rows that already come in their own fixed order and keep it. */
+const KEEPS_ORDER = new Set(["added"]);
+
+/**
+ * A row's books: a bigger pool than it shows, sorted in the row's order, then
+ * up to `limit` you don't have in Audiobookshelf (and up to `limit` you do,
+ * hidden unless you show them). So a row stays full when you own most of it,
+ * and Newest first starts at the newest book of the whole pool or list.
+ */
 async function buildRow(key: string, userId: number, limit: number, range: TagRange, nameHint?: string | null, sort?: { order?: string; seed?: number }) {
+  if (KEEPS_ORDER.has(key)) return fetchRow(key, userId, limit, range, nameHint, limit);
+  const isList = /^list-\d+$/.test(key);
+  const saved = rowsFor(userId).rows.find((r) => r.key === key) as { order?: ListOrder } | undefined;
+  let order: ListOrder = isListOrder(sort?.order) ? sort.order : (saved?.order ?? "list");
+  if (order === "list-reverse" && !isList) order = "list";
+  const pool = isList ? 0 : Math.min(limit * 4, 200);
+  const books = await fetchRow(key, userId, pool, range, nameHint, limit);
+  return mixOwned(sortList(books, order, sort?.seed), isList ? (limit === ROW ? 30 : 500) : limit);
+}
+
+/** A row's books in its own order. `L` is how many to ask Hardcover for; `target` how many the row shows. */
+async function fetchRow(key: string, userId: number, L: number, range: TagRange, nameHint: string | null | undefined, target: number) {
   const hc = () => hardcover();
-  const L = limit;
   const list = key.match(/^list-(\d+)$/);
   if (list) {
     const id = Number(list[1]);
-    // The whole list is sorted first, then trimmed, so Newest first really starts at the newest book.
-    const saved = rowsFor(userId).rows.find((r) => r.key === key) as { order?: ListOrder } | undefined;
-    const order = isListOrder(sort?.order) ? sort.order : (saved?.order ?? "list");
-    const books = annotate(await cached(key, async () => (await fetchList(id)).books.map(fromList)), userId);
-    return mixOwned(sortList(books, order, sort?.seed), limit === ROW ? 30 : 500);
+    return annotate(await cached(key, async () => (await fetchList(id)).books.map(fromList)), userId);
   }
   const tag = key.match(/^(genre|mood)-(.+)$/);
   if (tag) {
@@ -635,7 +650,7 @@ async function buildRow(key: string, userId: number, limit: number, range: TagRa
     if (range !== "all") {
       const trending = await cached(`${key}:${range}:${L}`, () => trendingTagBooks(kind, g.name, range, L));
       // A Discover row with too little trending falls back to all time; the page shows what it asked for.
-      if (trending.length >= 5 || L !== ROW) return annotate(trending, userId);
+      if (trending.length >= 5 || target !== ROW) return annotate(trending, userId);
     }
     return annotate(await cached(`${key}:${L}`, () => tagBooks(kind, g.name, L)), userId);
   }
@@ -650,7 +665,7 @@ async function buildRow(key: string, userId: number, limit: number, range: TagRa
     }
     case "foryou":
       // Books already in Audiobookshelf come along too; Discover hides them unless you show them.
-      return mixOwned(annotate(await cached(`foryou:${userId}:${L}`, () => vibeBooks(userId, L * 2)), userId), L);
+      return annotate(await cached(`foryou:${userId}:${target}`, () => vibeBooks(userId, target * 2)), userId);
     case "trending":
       return annotate(await cached(`${key}:${L}`, async () => (await hc().books.trending({ duration: "three_month", limit: L })).items.map(summarizeBook)), userId);
     case "week":
@@ -690,13 +705,11 @@ async function buildRow(key: string, userId: number, limit: number, range: TagRa
           "release_date: { _gte: $from, _lte: $to }, contributions: { author: { name: { _in: $names } } }",
           "[{ release_date: desc }]",
           { from: daysFromNow(-365), to: daysFromNow(180), names },
-          L * 2,
+          L,
         ),
       );
       // Only books you don't already have.
-      return annotate(books, userId)
-        .filter((b) => !b.absItemId)
-        .slice(0, L);
+      return annotate(books, userId).filter((b) => !b.absItemId);
     }
     case "want": {
       await refreshShelves(userId, SHELF_AGE).catch(() => {});
@@ -706,7 +719,7 @@ async function buildRow(key: string, userId: number, limit: number, range: TagRa
       const have = inLibrary(ids);
       // Your shelf in order: up to L books you don't have yet and up to L you do,
       // so the row is full whether owned books are shown or hidden.
-      const pick = mixOwned(ids.map((id) => ({ id, absItemId: have.get(id) ?? null })), L).map((b) => b.id);
+      const pick = mixOwned(ids.map((id) => ({ id, absItemId: have.get(id) ?? null })), L / 2).map((b) => b.id);
       if (!pick.length) return [];
       const books = await cached(`want:${pick.join(",")}`, async () => (await hc().books.getMany(pick)).map(summarizeBook));
       const order = new Map(pick.map((id, n) => [id, n]));

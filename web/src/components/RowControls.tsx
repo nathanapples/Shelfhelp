@@ -1,4 +1,4 @@
-import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
+import { BarsArrowDownIcon, BarsArrowUpIcon, EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
 import { useStoredState } from "../lib/hooks";
 
 /** Rows that hide books already in Audiobookshelf until you show them. */
@@ -37,24 +37,22 @@ export function OwnedToggle({ owned, onChange }: { owned: "show" | "hide"; onCha
   );
 }
 
-/** Ways to order a Hardcover list row. The server sorts the whole list, then trims it. */
-export const LIST_ORDERS = ["list", "newest", "oldest", "title", "author", "random"] as const;
+/**
+ * Ways to order a row's books. The server sorts the whole list (or a bigger
+ * pool for other rows), then trims it. "list" is the row's own order.
+ */
+export const LIST_ORDERS = ["list", "list-reverse", "newest", "oldest", "random"] as const;
 export type ListOrder = (typeof LIST_ORDERS)[number];
-export const ORDER_LABELS: Record<ListOrder, string> = {
-  list: "List order",
-  newest: "Newest first",
-  oldest: "Oldest first",
-  title: "Title",
-  author: "Author",
-  random: "Random",
-};
+
+/** Rows that keep their own fixed order and get no picker. */
+export const fixedOrder = (key: string) => key === "added";
 
 /** One shuffle per visit, so a Random row and its full page show the same order until you reload. */
 export const SHUFFLE_SEED = Math.floor(Math.random() * 1_000_000_000) + 1;
 
 /**
- * Per list row: the order picked on Discover or the row's page, remembered in
- * this browser. Until you pick one, the row's default from Customize.
+ * Per row: the order picked on Discover or the row's page, remembered in this
+ * browser. Until you pick one, the row's default from Customize.
  */
 export function useListOrder(key: string, fallback: ListOrder = "list") {
   return useStoredState<ListOrder>(`discover.order.${key}`, fallback, LIST_ORDERS);
@@ -69,23 +67,70 @@ export function forgetListOrder(key: string) {
   }
 }
 
-/** Query string for a list row's books in this order. */
+/** Query string for a row's books in this order. */
 export const orderQuery = (order: ListOrder) => `order=${order}${order === "random" ? `&seed=${SHUFFLE_SEED}` : ""}`;
 
-/** Order picker for a list row. */
-export function OrderPicker({ order, onChange, label = "Order of books" }: { order: ListOrder; onChange: (o: ListOrder) => void; label?: string }) {
+type Mode = "list" | "date" | "random";
+const modeOf = (o: ListOrder): Mode => (o === "newest" || o === "oldest" ? "date" : o === "random" ? "random" : "list");
+
+/**
+ * Order picker: List order (lists) or Default (other rows), Date, or Random.
+ * List order and Date have a button to flip the direction.
+ */
+export function OrderPicker({
+  order,
+  onChange,
+  isList,
+  label = "Order of books",
+}: {
+  order: ListOrder;
+  onChange: (o: ListOrder) => void;
+  isList: boolean;
+  label?: string;
+}) {
+  const mode = modeOf(order);
+  const flip = mode === "date" || (mode === "list" && isList);
+  const down = order === "list" || order === "newest";
+  const tip =
+    mode === "date"
+      ? down
+        ? "Newest first"
+        : "Oldest first"
+      : down
+        ? "From the top of the list"
+        : "From the bottom of the list";
+  const Icon = down ? BarsArrowDownIcon : BarsArrowUpIcon;
   return (
-    <select
-      value={order}
-      onChange={(e) => onChange(e.target.value as ListOrder)}
-      aria-label={label}
-      className="rounded-full border-0 bg-gray-800 py-1 pl-3 pr-8 text-xs text-gray-200 ring-1 ring-gray-700 focus:ring-indigo-500"
-    >
-      {LIST_ORDERS.map((o) => (
-        <option key={o} value={o}>
-          {ORDER_LABELS[o]}
-        </option>
-      ))}
-    </select>
+    <span className="flex flex-shrink-0 items-center gap-1">
+      <select
+        value={mode}
+        onChange={(e) => {
+          const m = e.target.value as Mode;
+          onChange(m === "date" ? "newest" : m === "random" ? "random" : "list");
+        }}
+        aria-label={label}
+        className="w-[6.75rem] flex-shrink-0 rounded-full border-0 bg-gray-800 bg-[right_0.35rem_center] py-1 pl-2.5 pr-6 text-xs text-gray-200 ring-1 ring-gray-700 focus:ring-indigo-500"
+      >
+        <option value="list">{isList ? "List order" : "Default"}</option>
+        <option value="date">Date</option>
+        <option value="random">Random</option>
+      </select>
+      {flip && (
+        <button
+          type="button"
+          onClick={() => onChange(mode === "date" ? (down ? "oldest" : "newest") : down ? "list-reverse" : "list")}
+          aria-label={tip}
+          className="group relative rounded-full p-1.5 text-gray-300 ring-1 ring-gray-700 transition hover:bg-gray-700 hover:text-white"
+        >
+          <Icon className="h-4 w-4" />
+          <span
+            role="tooltip"
+            className="pointer-events-none absolute right-0 top-full z-20 mt-1.5 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-xs font-medium text-gray-100 opacity-0 shadow-lg ring-1 ring-gray-600 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          >
+            {tip}
+          </span>
+        </button>
+      )}
+    </span>
   );
 }

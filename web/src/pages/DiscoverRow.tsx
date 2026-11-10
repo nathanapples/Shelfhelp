@@ -7,7 +7,7 @@ import { BookCard } from "../components/BookCard";
 import { BookTile } from "../components/BookTile";
 import { RequestModal } from "../components/Request";
 import { Empty, ErrorBlock, LoadingBlock, PageTitle } from "../components/ui";
-import { LIST_ORDERS, OrderPicker, OwnedToggle, SHUFFLE_SEED, useOwnedFilter, type ListOrder } from "../components/RowControls";
+import { LIST_ORDERS, OrderPicker, OwnedToggle, SHUFFLE_SEED, fixedOrder, useOwnedFilter, type ListOrder } from "../components/RowControls";
 import { useStoredState } from "../lib/hooks";
 import { afterRequest } from "./Discover";
 
@@ -20,11 +20,11 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
   const asked = params.get("range");
   const range: "all" | "year" | "month" = !isTag ? "all" : asked === "all" || asked === "year" ? asked : "month";
   // A list's order: the one picked in this browser, else the row's default from Customize (the server applies it).
-  const isListKey = /^list-\d+$/.test(key);
+  const orderable = !fixedOrder(key);
   const [picked, setPicked] = useStoredState<ListOrder | "default">(`discover.order.${key}`, "default", [...LIST_ORDERS, "default"]);
   const { data, error, loading, setData } = useApi<{ info: DiscoverRowInfo; books: DiscoverBook[] }>(
     `/discover/${encodeURIComponent(key)}?full=1${isTag ? `&range=${range}` : ""}${params.get("name") ? `&name=${encodeURIComponent(params.get("name")!)}` : ""}${
-      isListKey ? `${picked !== "default" ? `&order=${picked}` : ""}&seed=${SHUFFLE_SEED}` : ""
+      orderable ? `${picked !== "default" ? `&order=${picked}` : ""}&seed=${SHUFFLE_SEED}` : ""
     }`,
   );
   const [open, setOpen] = useState<{ book: SearchHit; replace: (b: SearchHit) => void } | null>(null);
@@ -38,7 +38,7 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
   const all = data?.books;
   const hasOwned = key !== "added" && !!all?.some((b) => b.absItemId);
   const books = owned === "hide" && hasOwned ? all?.filter((b) => !b.absItemId) : all;
-  const controls = isList && !!all?.length ? true : hasOwned;
+  const controls = (orderable && !!all?.length) || hasOwned;
   const hcList = info?.kind === "list" && info.owner && info.slug ? `https://hardcover.app/@${info.owner}/lists/${info.slug}` : null;
 
   return (
@@ -93,7 +93,7 @@ export default function DiscoverRowPage({ status }: { status: Status }) {
         </div>
           )}
           <div className="ml-auto flex items-center gap-2">
-            {isList && !!all?.length && <OrderPicker order={order} onChange={setOrder} />}
+            {orderable && (!!all?.length || picked !== "default") && <OrderPicker order={order} onChange={setOrder} isList={isList} />}
             {hasOwned && <OwnedToggle owned={owned} onChange={setOwned} />}
           </div>
         </div>

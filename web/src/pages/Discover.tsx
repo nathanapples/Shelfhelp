@@ -4,7 +4,7 @@ import { AdjustmentsHorizontalIcon, ChevronLeftIcon, ChevronRightIcon } from "@h
 import { hardcoverSignInUrl, isAdmin, type DiscoverBook, type DiscoverConfig, type DiscoverRowInfo, type RequestOutcome, type SearchHit, type Status, type TagKind, tagLink } from "../lib/api";
 import { CustomizeDiscover } from "../components/CustomizeDiscover";
 import { useApi } from "../lib/hooks";
-import { OrderPicker, OwnedToggle, orderQuery, useListOrder, useOwnedFilter } from "../components/RowControls";
+import { OrderPicker, OwnedToggle, fixedOrder, orderQuery, useListOrder, useOwnedFilter } from "../components/RowControls";
 import { BookCard } from "../components/BookCard";
 import { BookTile } from "../components/BookTile";
 import { RequestModal } from "../components/Request";
@@ -125,7 +125,8 @@ function Shelf({
 }) {
   const isList = row.kind === "list";
   const [order, setOrder] = useListOrder(row.key, row.order ?? "list");
-  const { data: all, error, loading, setData } = useApi<DiscoverBook[]>(`/discover/${row.key}?v=${version}${isList ? `&${orderQuery(order)}` : ""}`);
+  const orderable = !fixedOrder(row.key);
+  const { data: all, error, loading, setData } = useApi<DiscoverBook[]>(`/discover/${row.key}?v=${version}${orderable ? `&${orderQuery(order)}` : ""}`);
   const [owned, setOwned] = useOwnedFilter(row.key);
   const hasOwned = !!all?.some((b) => b.absItemId);
   const data = owned === "hide" ? all?.filter((b) => !b.absItemId) : all;
@@ -148,7 +149,7 @@ function Shelf({
           <p className="truncate text-xs text-gray-400 sm:text-sm">{row.subtitle}</p>
         </div>
         <div className="flex flex-shrink-0 items-center gap-1">
-          {isList && (!!all?.length || order !== "list") && <OrderPicker order={order} onChange={setOrder} />}
+          {orderable && (!!all?.length || order !== "list") && <OrderPicker order={order} onChange={setOrder} isList={isList} />}
           {hasOwned && row.key !== "added" && <OwnedToggle owned={owned} onChange={setOwned} />}
           <button className="hidden rounded-full p-1.5 text-gray-400 ring-1 ring-gray-700 hover:bg-gray-700 hover:text-white sm:block" onClick={() => scroll(-1)} aria-label="Scroll left">
             <ChevronLeftIcon className="h-5 w-5" />

@@ -50,8 +50,7 @@ test("list rows sort the whole list, Random is stable for a seed", async () => {
   assert.equal(ids(sortList(list, "list")), "1,2,3,4");
   assert.equal(ids(sortList(list, "newest")), "3,2,1,4");
   assert.equal(ids(sortList(list, "oldest")), "1,2,3,4");
-  assert.equal(ids(sortList(list, "title")), "1,2,3,4"); // "The" and "A" are ignored
-  assert.equal(ids(sortList(list, "author")), "1,2,3,4");
+  assert.equal(ids(sortList(list, "list-reverse")), "4,3,2,1");
   assert.equal(ids(sortList(list, "random", 42)), ids(sortList(list, "random", 42)));
   assert.equal(sortList(list, "random", 42).length, 4);
 });
