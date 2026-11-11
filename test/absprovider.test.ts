@@ -92,3 +92,17 @@ test("Shelfhelp's two provider entries are told apart by their address", async (
   assert.equal(kindOf(p("http://shelfhelp:5075/api/abs-provider/books")), "books");
   assert.equal(kindOf(p("http://other/provider")), null);
 });
+
+test("matches that would look the same in Match are dropped, keeping the first", async () => {
+  const { distinctRows } = await import("../server/lib/absprovider.ts");
+  const row = (id: number, m: Record<string, unknown>) => ({ id, match: { title: "Consider Phlebas", author: "Iain M. Banks", ...m } });
+  const list = [
+    row(1, { cover: "a.jpg", publishedYear: "2009" }),
+    row(2, { cover: "b.jpg", publishedYear: "2008" }),
+    row(3, { cover: "a.jpg", publishedYear: "2009", isbn: "different but hidden" }),
+    row(4, { cover: "a.jpg", publishedYear: "2014" }),
+    row(5, { cover: "b.jpg", publishedYear: "2008", narrator: "Peter Kenny", duration: 900 }),
+    row(6, { cover: "b.jpg", publishedYear: "2008", narrator: "Peter Kenny", duration: 900 }),
+  ];
+  assert.deepEqual(distinctRows(list).map((r: { id: number }) => r.id), [1, 2, 4, 5]);
+});

@@ -2,6 +2,10 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.35.1 (2026-11-11)
+
+- Audiobookshelf's Match list only shows the cover, title, year, author, series (and narrator and length for audiobooks), so many editions looked exactly the same there. The metadata providers now leave out matches that would look identical to one already in the list (keeping the most read one), show up to 4 per book, and include up to 6 different books, so other matching books show up too.
+
 ## 0.35.0 (2026-11-11)
 
 - The Hardcover metadata provider now has ebook and print editions too. Shelfhelp adds a second provider to Audiobookshelf, "Hardcover books (Shelfhelp)", with each ebook edition (first) and print edition as its own match, with its publisher, ISBN and cover. "Hardcover audiobooks (Shelfhelp)" stays as it was for audiobook libraries. Pick Hardcover books as the default provider for an ebook library in Audiobookshelf.

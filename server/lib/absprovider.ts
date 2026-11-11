@@ -49,8 +49,10 @@ const KIND_PATH: Record<ProviderKind, string> = { audio: "", books: "/books" };
 export const PROVIDER_NAMES: Record<ProviderKind, string> = { audio: "Hardcover audiobooks (Shelfhelp)", books: "Hardcover books (Shelfhelp)" };
 /** Audiobookshelf waits 10 seconds; answer with what's ready before then. */
 const DEADLINE_MS = 8_000;
-const MAX_BOOKS = 4;
-const EDITIONS_PER_BOOK = 10;
+/** Different books in one answer, so other matches show up below the best one. */
+const MAX_BOOKS = 6;
+/** Each book's most read editions that look different in Match (a different cover, year, narrator or length). */
+const EDITIONS_PER_BOOK = 4;
 
 // ---------------------------------------------------------------------------
 // Key
@@ -255,6 +257,24 @@ const popularity = (b: BookDetail, e?: HcEdition): Popularity => ({
 
 const editionLabel = (e: HcEdition) => e.editionFormat?.trim() || { audiobook: "Audiobook", ebook: "Ebook", print: "Print" }[e.format];
 
+/** What one row of Audiobookshelf's Match list shows. Rows with the same key look identical there. */
+function rowKey(m: AbsMatch): string {
+  return [m.title, m.author, m.cover, m.publishedYear, m.narrator, m.duration, m.series?.map((x) => `${x.series}#${x.sequence ?? ""}`).join(",")]
+    .map((v) => String(v ?? "").toLowerCase())
+    .join("|");
+}
+
+/** Keeps the first (most read) of matches that would look the same in Match. */
+export function distinctRows<T extends { match: AbsMatch }>(list: T[]): T[] {
+  const seen = new Set<string>();
+  return list.filter((f) => {
+    const key = rowKey(f.match);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /** A book's audiobook editions, most read first (ones with a length ahead on ties). */
 export function audioEditions(editions: HcEdition[], language: string): HcEdition[] {
   return editions
@@ -276,7 +296,10 @@ async function matchesForBook(bookId: number, s: Settings, kind: ProviderKind, f
     const picked = editions.find((e) => e.id === firstEdition);
     if (picked && (forceFirst || list.includes(picked))) list = [picked, ...list.filter((e) => e.id !== firstEdition)];
   }
-  if (list.length) return list.slice(0, EDITIONS_PER_BOOK).map((e) => ({ match: editionMatch(b, e, s), edition: editionLabel(e), popularity: popularity(b, e) }));
+  if (list.length) {
+    const found = list.map((e) => ({ match: editionMatch(b, e, s), edition: editionLabel(e), popularity: popularity(b, e) }));
+    return distinctRows(found).slice(0, EDITIONS_PER_BOOK);
+  }
   return s.absProviderBookFallback ? [{ match: clean(bookFields(b, s)), edition: null, popularity: popularity(b) }] : [];
 }
 
