@@ -5,10 +5,15 @@
  * with the provider's key in the Authorization header, and gives it 10 seconds.
  * Quick Match takes the first match, so the most likely audiobook edition goes first.
  *
- * Unlike a book-level provider, each audiobook edition on Hardcover becomes its
- * own match, so the narrator, length, audio publisher, ASIN and cover belong to
- * that recording. The title, author, description, series and genres come from
- * the book.
+ * Unlike a book-level provider, each edition on Hardcover becomes its own match,
+ * so the publisher, ISBN or ASIN, cover (and for audiobooks the narrator and
+ * length) belong to that edition. The title, author, description, series and
+ * genres come from the book.
+ *
+ * There are two providers: one for audiobook libraries (audiobook editions) at
+ * /api/abs-provider, and one for ebook libraries (ebook editions, then print)
+ * at /api/abs-provider/books. Audiobookshelf can't tell Shelfhelp which kind of
+ * library is asking, so each library picks the provider it wants.
  */
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { Abs } from "./abs.js";
@@ -38,7 +43,10 @@ export interface AbsMatch {
 
 /** Path Audiobookshelf calls, under the address it uses to reach Shelfhelp. */
 export const PROVIDER_PATH = "/api/abs-provider";
-const PROVIDER_NAME = "Hardcover audiobooks (Shelfhelp)";
+export type ProviderKind = "audio" | "books";
+export const PROVIDER_KINDS: ProviderKind[] = ["audio", "books"];
+const KIND_PATH: Record<ProviderKind, string> = { audio: "", books: "/books" };
+export const PROVIDER_NAMES: Record<ProviderKind, string> = { audio: "Hardcover audiobooks (Shelfhelp)", books: "Hardcover books (Shelfhelp)" };
 /** Audiobookshelf waits 10 seconds; answer with what's ready before then. */
 const DEADLINE_MS = 8_000;
 const MAX_BOOKS = 4;
@@ -62,9 +70,9 @@ export function keyMatches(header: string | undefined): boolean {
 }
 
 /** The URL Audiobookshelf calls, from the address saved in Settings. */
-export function providerUrl(s: Settings = getSettings()): string | null {
+export function providerUrl(s: Settings = getSettings(), kind: ProviderKind = "audio"): string | null {
   const base = s.absProviderAddress.trim().replace(/\/+$/, "");
-  return base ? `${base}${PROVIDER_PATH}` : null;
+  return base ? `${base}${PROVIDER_PATH}${KIND_PATH[kind]}` : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +80,7 @@ export function providerUrl(s: Settings = getSettings()): string | null {
 
 export interface ProviderRequest {
   at: number;
+  kind: ProviderKind;
   query: string;
   author: string | null;
   matches: number;
@@ -95,6 +104,9 @@ type BookDetail = {
   title?: string | null;
   subtitle?: string | null;
   releaseYear?: number | null;
+  rating?: number | null;
+  ratingsCount?: number | null;
+  usersCount?: number | null;
   description?: string | null;
   cachedImage?: { url?: string | null } | null;
   cachedTags?: unknown;
@@ -210,6 +222,39 @@ export function editionMatch(b: BookDetail, e: HcEdition, s: Settings): AbsMatch
 
 const sameLanguage = (want: string, got: string | null) => !want || !got || got.trim().toLowerCase() === want.trim().toLowerCase();
 
+const BOOK_FORMAT_RANK: Record<HcEdition["format"], number> = { ebook: 0, print: 1, audiobook: 2 };
+
+/** A book's ebook and print editions: ebooks first, then most read. */
+export function textEditions(editions: HcEdition[], language: string): HcEdition[] {
+  return editions
+    .filter((e) => e.format !== "audiobook" && sameLanguage(language, e.language))
+    .sort((a, b) => BOOK_FORMAT_RANK[a.format] - BOOK_FORMAT_RANK[b.format] || b.readers - a.readers);
+}
+
+/** A match plus what kind of edition it came from, for the Settings preview. */
+export interface Found {
+  match: AbsMatch;
+  edition: string | null;
+  /** How popular the book and this edition are on Hardcover. Audiobookshelf has no field for it. */
+  popularity: Popularity;
+}
+
+export interface Popularity {
+  rating: number | null;
+  ratings: number | null;
+  bookReaders: number | null;
+  editionReaders: number | null;
+}
+
+const popularity = (b: BookDetail, e?: HcEdition): Popularity => ({
+  rating: b.rating ? Math.round(b.rating * 100) / 100 : null,
+  ratings: b.ratingsCount ?? null,
+  bookReaders: b.usersCount ?? null,
+  editionReaders: e ? e.readers : null,
+});
+
+const editionLabel = (e: HcEdition) => e.editionFormat?.trim() || { audiobook: "Audiobook", ebook: "Ebook", print: "Print" }[e.format];
+
 /** A book's audiobook editions, most read first (ones with a length ahead on ties). */
 export function audioEditions(editions: HcEdition[], language: string): HcEdition[] {
   return editions
@@ -217,19 +262,22 @@ export function audioEditions(editions: HcEdition[], language: string): HcEditio
     .sort((a, b) => b.readers - a.readers || Number(!!b.audioSeconds) - Number(!!a.audioSeconds));
 }
 
-/** Every match for one book: its audiobook editions, else (if allowed) the book itself. */
-async function matchesForBook(bookId: number, s: Settings, firstEdition?: number, forceFirst = false): Promise<AbsMatch[]> {
+/**
+ * Every match for one book: its audiobook editions (audio provider) or its ebook
+ * and print editions (books provider), else (if allowed) the book itself.
+ */
+async function matchesForBook(bookId: number, s: Settings, kind: ProviderKind, firstEdition?: number, forceFirst = false): Promise<Found[]> {
   const [b, editions] = await Promise.all([bookDetail(bookId), bookEditions(bookId).catch(() => [] as HcEdition[])]);
   if (!b) return [];
-  let audio = audioEditions(editions, s.absProviderLanguage);
+  let list = kind === "audio" ? audioEditions(editions, s.absProviderLanguage) : textEditions(editions, s.absProviderLanguage);
   if (firstEdition) {
-    // A pasted ASIN or ISBN: that edition first, even if it's not an audiobook.
-    // The book's own ISBN only moves its edition up when that edition is an audiobook.
+    // A pasted ASIN or ISBN: that edition first, whatever its format.
+    // The book's own ISBN only moves its edition up when it's the provider's kind of edition.
     const picked = editions.find((e) => e.id === firstEdition);
-    if (picked && (forceFirst || picked.format === "audiobook")) audio = [picked, ...audio.filter((e) => e.id !== firstEdition)];
+    if (picked && (forceFirst || list.includes(picked))) list = [picked, ...list.filter((e) => e.id !== firstEdition)];
   }
-  if (audio.length) return audio.slice(0, EDITIONS_PER_BOOK).map((e) => editionMatch(b, e, s));
-  return s.absProviderBookFallback ? [clean(bookFields(b, s))] : [];
+  if (list.length) return list.slice(0, EDITIONS_PER_BOOK).map((e) => ({ match: editionMatch(b, e, s), edition: editionLabel(e), popularity: popularity(b, e) }));
+  return s.absProviderBookFallback ? [{ match: clean(bookFields(b, s)), edition: null, popularity: popularity(b) }] : [];
 }
 
 // ---------------------------------------------------------------------------
@@ -267,9 +315,9 @@ async function byTitle(query: string, author: string | null): Promise<number[]> 
 }
 
 /** Runs `fn` for each id in order, stopping at the deadline with what's done. */
-async function untilDeadline<T>(ids: T[], fn: (id: T) => Promise<AbsMatch[]>, deadline: number): Promise<AbsMatch[]> {
-  const pending = ids.map((id) => fn(id).catch(() => [] as AbsMatch[]));
-  const out: AbsMatch[] = [];
+async function untilDeadline<T>(ids: T[], fn: (id: T) => Promise<Found[]>, deadline: number): Promise<Found[]> {
+  const pending = ids.map((id) => fn(id).catch(() => [] as Found[]));
+  const out: Found[] = [];
   for (const p of pending) {
     const left = deadline - Date.now();
     if (left <= 0) break;
@@ -280,8 +328,15 @@ async function untilDeadline<T>(ids: T[], fn: (id: T) => Promise<AbsMatch[]>, de
   return out;
 }
 
+type SearchInput = { query: string; author?: string | null; isbn?: string | null };
+
 /** What Audiobookshelf gets for a search. */
-export async function providerSearch(input: { query: string; author?: string | null; isbn?: string | null }): Promise<AbsMatch[]> {
+export async function providerSearch(input: SearchInput, kind: ProviderKind = "audio"): Promise<AbsMatch[]> {
+  return (await findMatches(input, kind)).map((f) => f.match);
+}
+
+/** The matches for a search, with each one's edition format. */
+export async function findMatches(input: SearchInput, kind: ProviderKind = "audio"): Promise<Found[]> {
   const s = getSettings();
   const deadline = Date.now() + DEADLINE_MS;
   const query = (input.query ?? "").trim();
@@ -293,23 +348,23 @@ export async function providerSearch(input: { query: string; author?: string | n
   const found = await byCode(codes).catch(() => [] as [number, number][]);
   const seen = new Set<number>();
   const fromCodes = found.filter(([book]) => !seen.has(book) && seen.add(book));
-  const out = await untilDeadline(fromCodes, ([book, edition]) => matchesForBook(book, s, edition, !!typed), deadline);
+  const out = await untilDeadline(fromCodes, ([book, edition]) => matchesForBook(book, s, kind, edition, !!typed), deadline);
   if (!typed && query) {
     const ids = (await byTitle(query, author)).filter((id) => !seen.has(id));
-    out.push(...(await untilDeadline(ids, (id) => matchesForBook(id, s), deadline)));
+    out.push(...(await untilDeadline(ids, (id) => matchesForBook(id, s, kind), deadline)));
   }
   return out.slice(0, 30);
 }
 
 /** Runs a search for Audiobookshelf and records it for Settings. */
-export async function answerAbs(input: { query: string; author?: string | null; isbn?: string | null }): Promise<AbsMatch[]> {
+export async function answerAbs(input: SearchInput, kind: ProviderKind = "audio"): Promise<AbsMatch[]> {
   const started = Date.now();
   try {
-    const matches = await providerSearch(input);
-    last = { at: Date.now(), query: input.query, author: input.author ?? null, matches: matches.length, ms: Date.now() - started, error: null };
+    const matches = await providerSearch(input, kind);
+    last = { at: Date.now(), kind, query: input.query, author: input.author ?? null, matches: matches.length, ms: Date.now() - started, error: null };
     return matches;
   } catch (err) {
-    last = { at: Date.now(), query: input.query, author: input.author ?? null, matches: 0, ms: Date.now() - started, error: (err as Error).message };
+    last = { at: Date.now(), kind, query: input.query, author: input.author ?? null, matches: 0, ms: Date.now() - started, error: (err as Error).message };
     throw err;
   }
 }
@@ -325,44 +380,70 @@ interface AbsProvider {
   authHeaderValue?: string | null;
 }
 
-const isOurs = (p: AbsProvider) => /\/api\/abs-provider\/?$/.test(p.url.trim());
+/** Which of Shelfhelp's providers an Audiobookshelf entry is, or null if it isn't Shelfhelp's. */
+export function kindOf(p: AbsProvider): ProviderKind | null {
+  const m = p.url.trim().match(/\/api\/abs-provider(\/books)?\/?$/);
+  return m ? (m[1] ? "books" : "audio") : null;
+}
 
 /** Shelfhelp's entries in Audiobookshelf's custom providers. Needs an admin API key. */
 export async function registeredProviders(): Promise<AbsProvider[]> {
   const data = await new Abs().request<{ providers: AbsProvider[] }>("GET", "/api/custom-metadata-providers");
-  return (data.providers ?? []).filter(isOurs);
+  return (data.providers ?? []).filter((p) => kindOf(p) !== null);
 }
 
 /** Whether Audiobookshelf's entry sends the current key. If ABS ever hides keys, trust the entry Shelfhelp made with it. */
 export const hasCurrentKey = (p: AbsProvider) => (p.authHeaderValue === undefined ? madeWithCurrentKey(p.id) : p.authHeaderValue === providerKey());
 
+/** Whether Audiobookshelf has exactly one current entry for each provider, at this address with this key. */
+export function upToDate(ours: AbsProvider[], s: Settings = getSettings()): boolean {
+  return PROVIDER_KINDS.every((kind) => {
+    const mine = ours.filter((p) => kindOf(p) === kind);
+    return mine.length === 1 && mine[0].url.replace(/\/+$/, "") === providerUrl(s, kind) && mine[0].mediaType === "book" && hasCurrentKey(mine[0]);
+  });
+}
+
 /**
- * Adds Shelfhelp to Audiobookshelf as a custom metadata provider, replacing an
- * older Shelfhelp entry. Audiobookshelf can't edit a provider, and removing one
+ * Adds both of Shelfhelp's providers to Audiobookshelf, replacing older
+ * Shelfhelp entries. Audiobookshelf can't edit a provider, and removing one
  * sends libraries that used it as their default back to Google Books, so those
- * libraries are pointed at the new entry again.
+ * libraries are pointed at the new entry of the same kind again.
  */
-export async function registerWithAbs(): Promise<{ provider: AbsProvider; replaced: number; librariesKept: number; unchanged: boolean }> {
-  const url = providerUrl();
-  if (!url) throw new Error("Enter the address Audiobookshelf uses to reach Shelfhelp first.");
+export async function registerWithAbs(): Promise<{ providers: AbsProvider[]; added: number; replaced: number; librariesKept: number; unchanged: boolean }> {
+  const s = getSettings();
+  if (!providerUrl(s)) throw new Error("Enter the address Audiobookshelf uses to reach Shelfhelp first.");
   const abs = new Abs();
   const key = providerKey();
   const ours = await registeredProviders();
-  const same = ours.find((p) => p.url.replace(/\/+$/, "") === url && p.mediaType === "book" && hasCurrentKey(p));
-  if (same && ours.length === 1) return { provider: same, replaced: 0, librariesKept: 0, unchanged: true };
-  const libs = (await abs.request<{ libraries: { id: string; provider?: string }[] }>("GET", "/api/libraries")).libraries ?? [];
-  const usedBy = libs.filter((l) => ours.some((p) => l.provider === `custom-${p.id}`)).map((l) => l.id);
-  // New entry first, then move libraries over, then remove the old one, so a failure never leaves none.
-  const { provider } = await abs.request<{ provider: AbsProvider }>("POST", "/api/custom-metadata-providers", {
-    name: PROVIDER_NAME,
-    mediaType: "book",
-    url,
-    authHeaderValue: key,
-  });
-  markRegistered(provider.id);
-  for (const id of usedBy) await abs.request("PATCH", `/api/libraries/${encodeURIComponent(id)}`, { provider: `custom-${provider.id}` }).catch(() => {});
-  for (const p of ours) await abs.request("DELETE", `/api/custom-metadata-providers/${encodeURIComponent(p.id)}`);
-  return { provider, replaced: ours.length, librariesKept: usedBy.length, unchanged: false };
+  let libs: { id: string; provider?: string }[] | null = null;
+  const result = { providers: [] as AbsProvider[], added: 0, replaced: 0, librariesKept: 0, unchanged: false };
+  for (const kind of PROVIDER_KINDS) {
+    const url = providerUrl(s, kind)!;
+    const mine = ours.filter((p) => kindOf(p) === kind);
+    const same = mine.find((p) => p.url.replace(/\/+$/, "") === url && p.mediaType === "book" && hasCurrentKey(p));
+    if (same && mine.length === 1) {
+      result.providers.push(same);
+      continue;
+    }
+    libs ??= (await abs.request<{ libraries: { id: string; provider?: string }[] }>("GET", "/api/libraries")).libraries ?? [];
+    const usedBy = libs.filter((l) => mine.some((p) => l.provider === `custom-${p.id}`)).map((l) => l.id);
+    // New entry first, then move libraries over, then remove the old one, so a failure never leaves none.
+    const { provider } = await abs.request<{ provider: AbsProvider }>("POST", "/api/custom-metadata-providers", {
+      name: PROVIDER_NAMES[kind],
+      mediaType: "book",
+      url,
+      authHeaderValue: key,
+    });
+    markRegistered(provider.id);
+    for (const id of usedBy) await abs.request("PATCH", `/api/libraries/${encodeURIComponent(id)}`, { provider: `custom-${provider.id}` }).catch(() => {});
+    for (const p of mine) await abs.request("DELETE", `/api/custom-metadata-providers/${encodeURIComponent(p.id)}`);
+    result.providers.push(provider);
+    result.added++;
+    result.replaced += mine.length;
+    result.librariesKept += usedBy.length;
+  }
+  result.unchanged = result.added === 0;
+  return result;
 }
 
 /** Removes Shelfhelp from Audiobookshelf's custom providers. */
@@ -373,29 +454,32 @@ export async function unregisterFromAbs(): Promise<number> {
   return ours.length;
 }
 
-// Which provider entry Shelfhelp made, and with which key.
+// Which provider entries Shelfhelp made, and with which key.
+function madeIds(): string[] {
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get("_absProviderRegistered") as { value: string } | undefined;
+  if (!row) return [];
+  const v = JSON.parse(row.value) as unknown;
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : typeof v === "string" ? [v] : [];
+}
 function markRegistered(id: string) {
-  db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
-    "_absProviderRegistered",
-    JSON.stringify(`${id}:${providerKey().slice(0, 6)}`),
-  );
+  const ids = [...madeIds().filter((x) => !x.startsWith(`${id}:`)), `${id}:${providerKey().slice(0, 6)}`].slice(-10);
+  db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run("_absProviderRegistered", JSON.stringify(ids));
 }
 function madeWithCurrentKey(id: string) {
-  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get("_absProviderRegistered") as { value: string } | undefined;
-  return !!row && JSON.parse(row.value) === `${id}:${providerKey().slice(0, 6)}`;
+  return madeIds().includes(`${id}:${providerKey().slice(0, 6)}`);
 }
 
 /**
- * Asks Audiobookshelf to search through Shelfhelp, the same way Match does.
- * Proves Audiobookshelf can reach Shelfhelp at the saved address with the key.
+ * Asks Audiobookshelf to search through one of Shelfhelp's providers, the same
+ * way Match does. Proves Audiobookshelf can reach Shelfhelp at the saved address with the key.
  */
-export async function testThroughAbs(title: string, author: string | null) {
-  const ours = await registeredProviders();
-  if (!ours.length) throw new Error("Shelfhelp isn't in Audiobookshelf's custom providers yet. Press Add to Audiobookshelf first.");
+export async function testThroughAbs(title: string, author: string | null, kind: ProviderKind = "audio") {
+  const ours = (await registeredProviders()).filter((p) => kindOf(p) === kind);
+  if (!ours.length) throw new Error(`"${PROVIDER_NAMES[kind]}" isn't in Audiobookshelf's custom providers yet. Press Add to Audiobookshelf first.`);
   const before = Date.now() - 1;
   const q = new URLSearchParams({ provider: `custom-${ours[0].id}`, title, ...(author ? { author } : {}) });
   const results = await new Abs().request<AbsMatch[]>("GET", `/api/search/books?${q}`);
-  const reached = (last?.at ?? 0) > before;
+  const reached = (last?.at ?? 0) > before && last?.kind === kind;
   if (!reached && rejected && rejected.at > before) {
     throw new Error(
       rejected.reason === "off"
@@ -411,5 +495,3 @@ export async function testThroughAbs(title: string, author: string | null) {
   if (last?.error) throw new Error(`Audiobookshelf reached Shelfhelp, but the search failed: ${last.error}`);
   return { results: Array.isArray(results) ? results : [], url: ours[0].url };
 }
-
-

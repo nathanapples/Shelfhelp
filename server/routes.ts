@@ -3,13 +3,18 @@ import { Readable } from "node:stream";
 import { Abs, AbsError } from "./lib/abs.js";
 import {
   PROVIDER_PATH,
+  PROVIDER_KINDS,
+  PROVIDER_NAMES,
+  type ProviderKind,
   answerAbs,
+  findMatches,
+  kindOf,
+  upToDate,
   hasCurrentKey,
   keyMatches,
   noteRejected,
   lastProviderRequest,
   providerKey,
-  providerSearch,
   providerUrl,
   registerWithAbs,
   registeredProviders,
@@ -227,32 +232,39 @@ export async function routes(app: FastifyInstance) {
   // ---------------------------------------------------------------------------
   // Audiobookshelf custom metadata provider
 
-  app.get<{ Querystring: { query?: string; author?: string; isbn?: string; mediaType?: string } }>(`${PROVIDER_PATH}/search`, async (req, reply) => {
-    if (!getSettings().absProviderEnabled) {
-      noteRejected("off");
-      return reply.code(404).send({ error: "The Hardcover metadata provider is turned off in Shelfhelp's settings." });
-    }
-    if (!keyMatches(req.headers.authorization)) {
-      noteRejected("key");
-      return reply.code(401).send({ error: "Wrong or missing key." });
-    }
-    if (req.query.mediaType === "podcast") return { matches: [] };
-    try {
-      return { matches: await answerAbs({ query: req.query.query ?? "", author: req.query.author ?? null, isbn: req.query.isbn ?? null }) };
-    } catch (err) {
-      log("warn", `Audiobookshelf metadata search for "${req.query.query ?? ""}" failed: ${(err as Error).message}`);
-      return reply.code(500).send({ error: (err as Error).message });
-    }
-  });
+  // Two providers: audiobook editions at /api/abs-provider, ebook and print editions at /api/abs-provider/books.
+  for (const kind of PROVIDER_KINDS) {
+    const path = `${PROVIDER_PATH}${kind === "books" ? "/books" : ""}/search`;
+    app.get<{ Querystring: { query?: string; author?: string; isbn?: string; mediaType?: string } }>(path, async (req, reply) => {
+      if (!getSettings().absProviderEnabled) {
+        noteRejected("off");
+        return reply.code(404).send({ error: "The Hardcover metadata provider is turned off in Shelfhelp's settings." });
+      }
+      if (!keyMatches(req.headers.authorization)) {
+        noteRejected("key");
+        return reply.code(401).send({ error: "Wrong or missing key." });
+      }
+      if (req.query.mediaType === "podcast") return { matches: [] };
+      try {
+        return { matches: await answerAbs({ query: req.query.query ?? "", author: req.query.author ?? null, isbn: req.query.isbn ?? null }, kind) };
+      } catch (err) {
+        log("warn", `Audiobookshelf metadata search for "${req.query.query ?? ""}" failed: ${(err as Error).message}`);
+        return reply.code(500).send({ error: (err as Error).message });
+      }
+    });
+  }
 
   /** Settings, Audiobookshelf: the provider's state. Shows the key to admins for setting it up by hand. */
   app.get("/api/settings/abs-provider", async () => {
     const s = getSettings();
-    let registered: { id: string; name: string; url: string; currentKey: boolean }[] | null = null;
+    let registered: { id: string; name: string; url: string; kind: ProviderKind; currentKey: boolean }[] | null = null;
+    let current = false;
     let registerError: string | null = null;
     if (s.absUrl && s.absToken) {
       try {
-        registered = (await registeredProviders()).map((p) => ({ id: p.id, name: p.name, url: p.url, currentKey: hasCurrentKey(p) }));
+        const ours = await registeredProviders();
+        current = upToDate(ours, s);
+        registered = ours.map((p) => ({ id: p.id, name: p.name, url: p.url, kind: kindOf(p)!, currentKey: hasCurrentKey(p) }));
       } catch (err) {
         registerError =
           err instanceof AbsError && err.status === 403
@@ -267,8 +279,11 @@ export async function routes(app: FastifyInstance) {
       bookFallback: s.absProviderBookFallback,
       moodTags: s.absProviderMoodTags,
       url: providerUrl(s),
+      urls: { audio: providerUrl(s, "audio"), books: providerUrl(s, "books") },
+      names: PROVIDER_NAMES,
       key: providerKey(),
       registered,
+      upToDate: current,
       registerError,
       lastRequest: lastProviderRequest(),
     };
@@ -291,7 +306,7 @@ export async function routes(app: FastifyInstance) {
   app.post("/api/settings/abs-provider/register", async (_req, reply) => {
     try {
       const r = await registerWithAbs();
-      log("info", r.unchanged ? "Shelfhelp was already in Audiobookshelf's metadata providers" : `Added Shelfhelp to Audiobookshelf's metadata providers at ${r.provider.url}`);
+      log("info", r.unchanged ? "Shelfhelp was already in Audiobookshelf's metadata providers" : `Added Shelfhelp to Audiobookshelf's metadata providers at ${r.providers.map((p) => p.url).join(" and ")}`);
       return r;
     } catch (err) {
       return fail(reply, err);
@@ -324,19 +339,24 @@ export async function routes(app: FastifyInstance) {
     try {
       const title = req.body?.title?.trim() || "Dune";
       const author = req.body?.title?.trim() ? req.body?.author?.trim() || null : "Frank Herbert";
-      const r = await testThroughAbs(title, author);
-      return { title, author, count: r.results.length, first: r.results[0] ?? null, url: r.url };
+      const results = [];
+      for (const kind of PROVIDER_KINDS) {
+        const r = await testThroughAbs(title, author, kind);
+        results.push({ kind, name: PROVIDER_NAMES[kind], count: r.results.length, first: r.results[0] ?? null, url: r.url });
+      }
+      return { title, author, results };
     } catch (err) {
       return fail(reply, err);
     }
   });
 
   /** What Audiobookshelf would get for a search, without going through it. */
-  app.get<{ Querystring: { q?: string; author?: string } }>("/api/settings/abs-provider/preview", async (req, reply) => {
+  app.get<{ Querystring: { q?: string; author?: string; kind?: string } }>("/api/settings/abs-provider/preview", async (req, reply) => {
     try {
       const started = Date.now();
-      const matches = await providerSearch({ query: req.query.q ?? "", author: req.query.author ?? null });
-      return { matches, ms: Date.now() - started };
+      const kind: ProviderKind = req.query.kind === "books" ? "books" : "audio";
+      const found = await findMatches({ query: req.query.q ?? "", author: req.query.author ?? null }, kind);
+      return { matches: found.map((f) => ({ ...f.match, edition: f.edition, popularity: f.popularity })), ms: Date.now() - started };
     } catch (err) {
       return fail(reply, err);
     }

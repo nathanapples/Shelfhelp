@@ -2,6 +2,12 @@
 
 Versions follow [semantic versioning](https://semver.org/). Raising the version in package.json releases it: the build publishes the image, then tags the commit and creates a GitHub release from this file. Each release is a git tag (`v0.2.0`) and a container image tag (`ghcr.io/nathanapples/shelfhelp:0.2.0`, plus `:0.2` for the latest patch of that minor). `:latest` follows `main`.
 
+## 0.35.0 (2026-11-11)
+
+- The Hardcover metadata provider now has ebook and print editions too. Shelfhelp adds a second provider to Audiobookshelf, "Hardcover books (Shelfhelp)", with each ebook edition (first) and print edition as its own match, with its publisher, ISBN and cover. "Hardcover audiobooks (Shelfhelp)" stays as it was for audiobook libraries. Pick Hardcover books as the default provider for an ebook library in Audiobookshelf.
+- Try a search in Settings, Audiobookshelf can switch between Audiobooks and Ebooks and print, shows each match's edition (like Kindle Edition or Hardcover), and shows how popular it is on Hardcover: rating, number of ratings and readers, and how many read that edition. Audiobookshelf's own Match list has no place for this, but the most read editions come first there too.
+- Test now checks both providers.
+
 ## 0.34.3 (2026-11-10)
 
 - Requests for a book Chaptarr's metadata server is still preparing now only try the Hardcover id (no more searching Chaptarr by title and author). If Chaptarr isn't ready, the request shows Waiting on Chaptarr's metadata server and Shelfhelp tries again every 12 hours (was 30 minutes), for up to a week.

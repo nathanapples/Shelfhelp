@@ -22,7 +22,7 @@ Although this is publicly listed, this is for my personal use. Given that this i
 
 **Collections.** Pick a Hardcover list or shelf and a library, and Shelfhelp keeps a matching Audiobookshelf collection. Messy titles, wrong ASINs and "Last, First" authors are handled; anything uncertain waits for you to check.
 
-**Audiobook metadata for Audiobookshelf.** Shelfhelp can be Audiobookshelf's Hardcover metadata provider. Each audiobook edition is its own match in Match, with its narrator, length, audio publisher, ASIN and cover. Turn it on in Settings, Audiobookshelf, and Shelfhelp adds itself to Audiobookshelf. Audiobookshelf has to reach Shelfhelp directly (for example `http://shelfhelp:5075` on the same Docker network), not through a login page.
+**Book metadata for Audiobookshelf.** Shelfhelp can be Audiobookshelf's Hardcover metadata provider. Each edition is its own match in Match: audiobook editions (with narrator, length, audio publisher, ASIN and cover) for audiobook libraries, and ebook and print editions (with publisher, ISBN and cover) for ebook libraries. Turn it on in Settings, Audiobookshelf, and Shelfhelp adds itself to Audiobookshelf. Audiobookshelf has to reach Shelfhelp directly (for example `http://shelfhelp:5075` on the same Docker network), not through a login page.
 
 **On your phone.** Add Shelfhelp to your home screen and it opens like an app, full screen. My account shows how (and has an Install button where the browser offers one). It works behind a login page like Cloudflare Access; on an iPhone the home screen icon may come out plain behind one.
 

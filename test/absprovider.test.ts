@@ -60,3 +60,35 @@ test("the provider key: exact match, Bearer allowed, a new key replaces the old"
   assert.ok(!keyMatches(k));
   assert.ok(keyMatches(k2));
 });
+
+test("book editions: ebooks first, then print, most read first, no audiobooks", async () => {
+  const { textEditions } = await import("../server/lib/absprovider.ts");
+  const list = [
+    ed({ id: 1, format: "print", readers: 900 }),
+    ed({ id: 2, format: "ebook", readers: 10 }),
+    ed({ id: 3, format: "audiobook", readers: 5000 }),
+    ed({ id: 4, format: "ebook", readers: 50, language: "German" }),
+    ed({ id: 5, format: "print", readers: 20 }),
+  ];
+  assert.deepEqual(textEditions(list, "").map((e: { id: number }) => e.id), [4, 2, 1, 5]);
+  assert.deepEqual(textEditions(list, "English").map((e: { id: number }) => e.id), [2, 1, 5]);
+});
+
+test("a print edition becomes a match with its ISBN and publisher, no narrator or length", () => {
+  const book = { id: 9, title: "Dracula", releaseYear: 1897, contributions: [{ contribution: null, author: { name: "Bram Stoker" } }] };
+  const m = editionMatch(book, ed({ format: "print", isbn13: "9780000000001", publisher: "Classic House", releaseDate: "2003-01-01", pages: 400 }), getSettings());
+  assert.equal(m.isbn, "9780000000001");
+  assert.equal(m.publisher, "Classic House");
+  assert.equal(m.publishedYear, "2003");
+  assert.equal("narrator" in m, false);
+  assert.equal("duration" in m, false);
+});
+
+test("Shelfhelp's two provider entries are told apart by their address", async () => {
+  const { kindOf } = await import("../server/lib/absprovider.ts");
+  const p = (url: string) => ({ id: "x", name: "x", mediaType: "book", url });
+  assert.equal(kindOf(p("http://shelfhelp:5075/api/abs-provider")), "audio");
+  assert.equal(kindOf(p("http://shelfhelp:5075/api/abs-provider/")), "audio");
+  assert.equal(kindOf(p("http://shelfhelp:5075/api/abs-provider/books")), "books");
+  assert.equal(kindOf(p("http://other/provider")), null);
+});
